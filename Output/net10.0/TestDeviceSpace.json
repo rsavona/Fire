@@ -1,0 +1,75 @@
+{
+  "AppSettings": {
+    "DeviceSpace": {
+      "Name": "Fire-PnA-Test",
+      "DeviceList": [
+        {
+          "Name": "TestBroker",
+          "Manager": "ActiveMQManager",
+          "Enable": true,
+          "Properties": {
+            "ConnectionString": "tcp://127.0.0.1:61616?useKeepAlive=true",
+            "DoubleQueue": "false"
+          }
+        },
+        {
+          "Name": "PLC_TEST_CLIENT",
+          "Manager": "VirtualPlcManager",
+          "Enable": true,
+          "Properties": {
+            "IPAddress": "127.0.0.1",
+            "Port": 6999
+          }
+        },
+        {
+          "Name": "vP001",
+          "Manager": "VirtualPrinterManager",
+          "Enable": true,
+          "Properties": {
+            "Port": 9100
+          }
+        },
+        {
+          "Name": "vP002",
+          "Manager": "VirtualPrinterManager",
+          "Enable": true,
+          "Properties": {
+            "Port": "9101"
+          }
+        },
+        {
+          "Name": "vI001",
+          "Manager": "VirtualPrinterManager",
+          "Enable": true,
+          "Properties": {
+            "Port": 9102
+          }
+        },
+        {
+          "Name": "vI002",
+          "Manager": "VirtualPrinterManager",
+          "Enable": true,
+          "Properties": {
+            "Port": 9103
+          }
+        }
+      ],
+      "WorkflowList": [
+        {
+          "Name": "Wf.TestPAndA.FRC",
+          "Type": "TestPrintAndApplyFrc",
+          "Enable": true,
+          "Routes": [
+            {
+              "Mode": 1,
+              "Source": "TestBroker.Command.LabelLookupQueue",
+              "Destination": "TestBroker.Command.LabelDataQueue",
+              "Handler": "HandleLabelRequest"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}
+      

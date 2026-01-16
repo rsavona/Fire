@@ -1,0 +1,54 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <TargetFramework>net10.0</TargetFramework>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <Nullable>enable</Nullable>
+        <LangVersion>14</LangVersion>
+    </PropertyGroup>
+
+    <PropertyGroup Condition=" '$(Configuration)' == 'Debug' ">
+      <OutputPath>..\Output</OutputPath>
+    </PropertyGroup>
+
+    <PropertyGroup Condition=" '$(Configuration)' == 'Release' ">
+      <OutputPath>..\Release\</OutputPath>
+    </PropertyGroup>
+
+    <ItemGroup>
+      <PackageReference Include="Castle.Core" Version="5.2.1" />
+      <PackageReference Include="Castle.DynamicProxy" Version="2.2.0" />
+      <PackageReference Include="Microsoft.Extensions.Configuration" Version="9.0.9" />
+      <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="9.0.9" />
+      <PackageReference Include="Microsoft.Extensions.Hosting" Version="9.0.9" />
+      <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="9.0.9" />
+      <PackageReference Include="Microsoft.Extensions.Logging" Version="9.0.9" />
+      <PackageReference Include="Microsoft.Extensions.Logging.Configuration" Version="9.0.9" />
+      <PackageReference Include="Microsoft.Extensions.Logging.Console" Version="9.0.9" />
+      <PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
+      <PackageReference Include="Serilog" Version="4.3.0" />
+      <PackageReference Include="Serilog.Expressions" Version="5.0.0" />
+      <PackageReference Include="Serilog.Extensions.Hosting" Version="9.0.0" />
+      <PackageReference Include="Serilog.Formatting.Compact" Version="3.0.0" />
+      <PackageReference Include="Serilog.Sinks.Async" Version="2.1.0" />
+      <PackageReference Include="Serilog.Sinks.File" Version="7.0.0" />
+      <PackageReference Include="Serilog.Sinks.Map" Version="2.0.0" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <ProjectReference Include="..\DeviceSpace.Common\DeviceSpace.Common.csproj" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <None Update="DeviceSpace.json">
+        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      </None>
+    </ItemGroup>
+
+    <Target Name="CopyConfigAfterBuild" AfterTargets="Build">
+        <Message Text="Copying DeviceSpace.json to Output folder..." Importance="high" />
+        <Copy SourceFiles="$(ProjectDir)DeviceSpace.json"
+              DestinationFolder="$(ProjectDir)../Output/net10.0/" />
+    </Target>
+
+</Project>

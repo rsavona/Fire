@@ -1,0 +1,349 @@
+﻿@inherits LayoutComponentBase
+@using System.Text.Json
+@using DeviceSpace.Common.Contracts 
+@using DeviceSpace.Common 
+@using DeviceSpace.Common.Configurations
+@inject IJSRuntime JSRuntime
+
+<style>
+    :root {
+        --fire-primary: #d32f2f;
+        --fire-secondary: #f57c00;
+        --fire-dark: #212121;
+        --fire-surface: #424242;
+    }
+
+    .bg-dark { background-color: var(--fire-dark) !important; }
+    .bg-light { background-color: #f5f5f5 !important; }
+    
+    .toolbox-item {
+        cursor: grab;
+        transition: all 0.2s ease-in-out;
+        border: 1px solid rgba(255, 255, 255, 0.05);
+        background-color: rgba(255,255,255,0.02);
+    }
+    .toolbox-item:hover {
+        background-color: var(--fire-surface) !important;
+        border-left: 4px solid var(--fire-secondary);
+        transform: translateX(4px);
+    }
+
+    .navbar-fire {
+        background: linear-gradient(90deg, #b71c1c 0%, #f57c00 100%);
+        box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+    }
+
+    .canvas-container {
+        border: 2px dashed #ffab91 !important;
+        background-color: #ffffff;
+        background-image: radial-gradient(#eee 1px, transparent 1px);
+        background-size: 20px 20px;
+    }
+
+    .prop-row { font-size: 0.75rem; border-bottom: 1px solid #eee; padding: 2px 0; }
+    .prop-label { font-weight: 600; color: #666; }
+    .prop-input { border: none; background: transparent; width: 100%; color: #d32f2f; font-family: monospace; }
+
+    .modal-backdrop-custom {
+        position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+        background-color: rgba(0,0,0,0.7); z-index: 1040;
+        display: flex; justify-content: center; align-items: center;
+    }
+    .modal-content-fire {
+        background-color: #fff; border: 2px solid var(--fire-secondary);
+        width: 550px; box-shadow: 0 5px 25px rgba(0,0,0,0.5);
+        border-radius: 8px; overflow: hidden;
+    }
+    .modal-header-fire {
+        background: var(--fire-secondary); color: white; padding: 10px 15px;
+        display: flex; justify-content: space-between; align-items: center;
+    }
+
+    .mapper-field { cursor: pointer; transition: all 0.2s; border: 1px solid #eee; font-size: 0.75rem; }
+    .mapper-field:hover { background-color: #fff3e0; }
+    .mapper-field.active { background-color: #ffe0b2; border-color: var(--fire-secondary); font-weight: bold; }
+</style>
+
+<div class="container-fluid d-flex flex-column p-0" style="height: 100vh; overflow: hidden;">
+    <nav class="navbar navbar-dark navbar-fire px-3 flex-shrink-0">
+        <a class="navbar-brand fw-bold d-flex align-items-center gap-2" href="#">
+            <i class="bi bi-fire text-warning"></i>
+            <span>Fire Builder</span>
+        </a>
+        <button class="btn btn-sm btn-outline-light" @onclick="DownloadJson">
+            <i class="bi bi-download"></i> Export JSON
+        </button>
+    </nav>
+
+    <div class="d-flex flex-row flex-grow-1" style="overflow: hidden;">
+        <div class="col-2 bg-dark text-white p-3 border-end border-secondary h-100 overflow-auto">
+            <h6 class="text-uppercase text-muted mb-3 small" style="color: #ffccbc !important;">Toolkit</h6>
+            <div class="nav flex-column nav-pills gap-2">
+                <div class="nav-link text-white toolbox-item d-flex align-items-center gap-2 rounded p-2" draggable="true" @ondragstart="@(() => OnDragStart("ActiveMqDevice"))">
+                    <i class="bi bi-envelope-paper text-info"></i> <span class="small">ActiveMQ</span>
+                </div>
+                <div class="nav-link text-white toolbox-item d-flex align-items-center gap-2 rounded p-2" draggable="true" @ondragstart="@(() => OnDragStart("PlcDevice"))">
+                    <i class="bi bi-hdd-rack text-danger"></i> <span class="small">PLC</span>
+                </div>
+                <div class="nav-link text-white toolbox-item d-flex align-items-center gap-2 rounded p-2" draggable="true" @ondragstart="@(() => OnDragStart("PrinterDevice"))">
+                    <i class="bi bi-printer text-warning"></i> <span class="small">Printer</span>
+                </div>
+                
+                <hr class="border-secondary my-2" />
+                <div class="nav-link text-white toolbox-item d-flex align-items-center gap-2 rounded p-2" draggable="true" @ondragstart="@(() => OnDragStart("VirtualPlcDevice"))">
+                    <i class="bi bi-cpu text-white-50"></i> <span class="small">Virtual PLC</span>
+                </div>
+                <div class="nav-link text-white toolbox-item d-flex align-items-center gap-2 rounded p-2" draggable="true" @ondragstart="@(() => OnDragStart("VirtualPrinterDevice"))">
+                    <i class="bi bi-file-earmark-code text-white-50"></i> <span class="small">Virtual Printer</span>
+                </div>
+
+                <hr class="border-secondary" />
+                <div class="nav-link text-white toolbox-item d-flex align-items-center gap-2 rounded p-2" draggable="true" @ondragstart="@(() => OnDragStart("Workflow"))">
+                    <i class="bi bi-diagram-3 text-warning"></i> <span class="small">Workflow</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-7 p-4 bg-light h-100 d-flex flex-column">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <h5 class="text-dark fw-bold m-0"><i class="bi bi-layers-half"></i> Designer Canvas</h5>
+                <div class="d-flex gap-2">
+                    <button class="btn btn-sm btn-outline-secondary" @onclick="CollapseAll">Collapse All</button>
+                    <button class="btn btn-sm btn-outline-danger" @onclick="() => { _deviceSpace.DeviceList.Clear(); _deviceSpace.WorkflowList.Clear(); }">Clear Canvas</button>
+                </div>
+            </div>
+
+            <div class="canvas-container rounded p-4 flex-grow-1 overflow-auto" @ondragover:preventDefault @ondrop="OnDrop">
+                @foreach (var device in _deviceSpace.DeviceList)
+                {
+                    <div class="card mb-3 border-0 border-start border-4 border-danger shadow-sm">
+                        <div class="card-header bg-white pt-2 pb-2 d-flex justify-content-between align-items-center collapse-header" @onclick="() => ToggleCollapse(device)">
+                            <div class="d-flex align-items-center gap-2">
+                                <i class="bi @(IsCollapsed(device) ? "bi-chevron-right" : "bi-chevron-down") text-secondary"></i>
+                                <h6 class="m-0 text-danger fw-bold small">
+                                    <i class="bi @GetIconForManager(device.Manager) me-1"></i>
+                                    @device.Name 
+                                    <span class="text-muted fw-normal small ms-2" style="font-size: 0.7rem;">(@device.Manager)</span>
+                                </h6>
+                            </div>
+                            <button class="btn btn-sm text-secondary p-0" @onclick:stopPropagation @onclick="() => RemoveDevice(device)"><i class="bi bi-x-lg"></i></button>
+                        </div>
+                        @if (!IsCollapsed(device))
+                        {
+                            <div class="card-body pt-2 pb-2 border-top bg-white">
+                                <div class="row g-2 mb-2">
+                                    <div class="col-12"><input class="form-control form-control-sm border-danger-subtle" @bind="device.Name" placeholder="Device Name" /></div>
+                                </div>
+                                @if(device.Properties != null)
+                                {
+                                    <div class="bg-light p-2 rounded border">
+                                        @foreach(var key in device.Properties.Keys.ToList())
+                                        {
+                                            <div class="d-flex justify-content-between align-items-center prop-row">
+                                                <span class="prop-label">@key</span>
+                                                <input class="prop-input text-end" value="@device.Properties[key]" @onchange="@((ChangeEventArgs e) => UpdateProperty(device, key, e.Value))" />
+                                            </div>
+                                        }
+                                    </div>
+                                }
+                            </div>
+                        }
+                    </div>
+                }
+
+                @foreach (var wf in _deviceSpace.WorkflowList)
+                {
+                    <div class="card mb-3 border-0 border-start border-4 border-warning shadow-sm">
+                        <div class="card-header bg-white pt-2 pb-2 d-flex justify-content-between align-items-center collapse-header" @onclick="() => ToggleCollapse(wf)">
+                            <div class="d-flex align-items-center gap-2">
+                                <i class="bi @(IsCollapsed(wf) ? "bi-chevron-right" : "bi-chevron-down") text-secondary"></i>
+                                <h6 class="m-0 text-warning fw-bold small">
+                                    <i class="bi bi-diagram-3-fill me-1"></i> @wf.Name
+                                </h6>
+                            </div>
+                            <button class="btn btn-sm text-secondary p-0" @onclick:stopPropagation @onclick="() => RemoveWorkflow(wf)"><i class="bi bi-x-lg"></i></button>
+                        </div>
+                        @if (!IsCollapsed(wf))
+                        {
+                            <div class="card-body pt-2 pb-2 border-top bg-white">
+                                <div class="d-flex justify-content-between align-items-center mb-2">
+                                    <small class="fw-bold text-muted">Routes</small>
+                                    <button class="btn btn-xs btn-outline-warning text-dark py-0" style="font-size: 0.6rem;" @onclick="() => AddAdapter(wf)">+ Add Route</button>
+                                </div>
+                                @foreach(var route in wf.Routes)
+                                {
+                                    <div class="p-2 bg-light border rounded mb-2 shadow-sm">
+                                        <div class="input-group input-group-sm mb-1">
+                                            <span class="input-group-text bg-light text-muted" style="width: 45px;">In</span>
+                                            <input type="text" class="form-control" @bind="route.Source">
+                                            <button class="btn btn-outline-secondary" @onclick="() => OpenTopicBuilder(route, true)"><i class="bi bi-tools"></i></button>
+                                        </div>
+                                        <div class="input-group input-group-sm mb-1">
+                                            <span class="input-group-text bg-light text-muted" style="width: 45px;">Out</span>
+                                            <input type="text" class="form-control" @bind="route.Destination">
+                                            <button class="btn btn-outline-secondary" @onclick="() => OpenTopicBuilder(route, false)"><i class="bi bi-tools"></i></button>
+                                        </div>
+                                        <div class="input-group input-group-sm">
+                                            <span class="input-group-text"><i class="bi bi-shuffle"></i></span>
+                                            <input type="text" class="form-control" @bind="route.Handler">
+                                            <button class="btn btn-warning" @onclick="() => OpenHandlerBuilder(route)"><i class="bi bi-magic"></i></button>
+                                        </div>
+                                    </div>
+                                }
+                            </div>
+                        }
+                    </div>
+                }
+            </div>
+        </div>
+
+        <div class="col-3 bg-dark text-white p-0 d-flex flex-column border-start border-secondary h-100">
+            <div class="p-3 bg-dark border-bottom border-secondary">
+                <h6 class="m-0 text-warning small">Live JSON Output</h6>
+            </div>
+            <textarea readonly class="form-control bg-dark text-info border-0 w-100 h-100 p-3" style="font-family: monospace; font-size: 0.75rem;">@GetJson()</textarea>
+        </div>
+    </div>
+</div>
+
+@if (_showTopicModal)
+{
+    <div class="modal-backdrop-custom">
+        <div class="modal-content-fire">
+            <div class="modal-header-fire"><h6>Topic Builder</h6><button class="btn-close btn-close-white" @onclick="CloseTopicBuilder"></button></div>
+            <div class="modal-body p-3">
+                <select class="form-select mb-2" @bind="_builderDevice">
+                    @foreach(var d in _deviceSpace.DeviceList) { <option value="@d.Name">@d.Name</option> }
+                </select>
+                <select class="form-select mb-2" @bind="_builderType">
+                    <option value="Status">Status</option><option value="Command">Command</option><option value="Data">Data</option>
+                </select>
+                <input class="form-control mb-2" @bind="_builderDisc" placeholder="Discriminator" />
+                <div class="alert alert-secondary text-center small"><strong>@($"{_builderDevice}.{_builderType}.{_builderDisc}")</strong></div>
+            </div>
+            <div class="modal-footer p-2"><button class="btn btn-sm btn-warning w-100" @onclick="ApplyTopicBuilder">Apply</button></div>
+        </div>
+    </div>
+}
+
+@if (_showHandlerModal)
+{
+    <div class="modal-backdrop-custom">
+        <div class="modal-content-fire" style="width: 600px;">
+            <div class="modal-header-fire"><h6>Field Mapper</h6><button class="btn-close btn-close-white" @onclick="CloseHandlerBuilder"></button></div>
+            <div class="modal-body p-3 bg-light">
+                <div class="row g-2 mb-3">
+                    <div class="col-6"><select class="form-select" @bind="_builderInput">@foreach(var m in _messageTypes){<option value="@m">@m</option>}</select></div>
+                    <div class="col-6"><select class="form-select" @bind="_builderOutput">@foreach(var m in _messageTypes){<option value="@m">@m</option>}</select></div>
+                </div>
+                <div class="row g-2 bg-white border p-2" style="max-height: 250px; overflow-y: auto;">
+                    <div class="col-5">
+                        @foreach(var f in _messageSchemas[_builderInput]){<div class="p-2 mb-1 mapper-field @(_activeSourceField == f ? "active" : "")" @onclick="() => _activeSourceField = f">@f</div>}
+                    </div>
+                    <div class="col-2 text-center pt-4"><i class="bi bi-arrow-right fs-4"></i></div>
+                    <div class="col-5">
+                        @foreach(var f in _messageSchemas[_builderOutput]){
+                            var map = _currentMappings.FirstOrDefault(m => m.Target == f);
+                            <div class="p-2 mb-1 mapper-field" @onclick="() => ConnectToTargetField(f)">
+                                <strong>@f</strong> @if(map.Source != null){ <span class="text-primary d-block small">@map.Source</span> }
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer p-2"><button class="btn btn-sm btn-warning w-100" @onclick="ApplyHandlerBuilder">Apply</button></div>
+        </div>
+    </div>
+}
+
+@code {
+    private DeviceSpace _deviceSpace = new DeviceSpace();
+    private string _draggedType;
+    private HashSet<object> _collapsedItems = new HashSet<object>();
+
+    private Dictionary<string, List<string>> _messageSchemas = new() {
+        { "DReqM", new() { "Gin", "Sku", "Qty", "StationId" } },
+        { "LabelToPrint", new() { "PrinterName", "RawData", "JobId" } },
+        { "StatusUpdate", new() { "DeviceId", "Code", "Message" } }
+    };
+    private List<string> _messageTypes => _messageSchemas.Keys.ToList();
+
+    private bool _showTopicModal, _showHandlerModal, _isEditingSource;
+    private WorkflowRoute _editingRoute;
+    private string _builderDevice, _builderType = "Status", _builderDisc, _builderInput, _builderOutput, _activeSourceField;
+    private List<(string Source, string Target)> _currentMappings = new();
+
+    private void OnDragStart(string type) => _draggedType = type;
+
+    private void OnDrop()
+    {
+        if (string.IsNullOrEmpty(_draggedType)) return;
+
+        if (_draggedType == "Workflow") {
+            _deviceSpace.WorkflowList.Add(new WorkflowConfig { Name = $"Workflow_{_deviceSpace.WorkflowList.Count + 1}", Enable = true });
+        } else {
+            var newDev = new DeviceConfig { Name = "New_Device", Manager = _draggedType, Enable = true, Properties = new() };
+            switch (_draggedType) {
+                case "PlcDevice":
+                    newDev.Name = $"PLC_{_deviceSpace.DeviceList.Count + 1}";
+                    newDev.Manager = "PlcDeviceManager";
+                    newDev.Properties = new() { { "DevicePort", "6999" }, { "DeviceTimeout", "10000" } };
+                    break;
+                case "ActiveMqDevice":
+                    newDev.Name = $"Broker_{_deviceSpace.DeviceList.Count + 1}";
+                    newDev.Manager = "ActiveMQManager";
+                    newDev.Properties = new() { { "ConnectionString", "tcp://localhost:61616" }, { "DoubleQueue", true } };
+                    break;
+                case "PrinterDevice":
+                    newDev.Name = $"P{(_deviceSpace.DeviceList.Count + 1).ToString("D3")}";
+                    newDev.Manager = "PrinterManager";
+                    newDev.Properties = new() { { "IPAddress", "127.0.0.1" }, { "PrintPort", 9100 }, { "Brand", "Zebra" } };
+                    break;
+                case "VirtualPlcDevice":
+                    newDev.Name = $"VirtPLC_{_deviceSpace.DeviceList.Count + 1}";
+                    newDev.Manager = "VirtualPlcManager";
+                    newDev.Properties = new() { { "IPAddress", "127.0.0.1" }, { "Port", 5000 } };
+                    break;
+                case "VirtualPrinterDevice":
+                    newDev.Name = $"VirtP{(_deviceSpace.DeviceList.Count + 1).ToString("D3")}";
+                    newDev.Manager = "VirtualPrinterManager";
+                    newDev.Properties = new() { { "Port", 9100 } };
+                    break;
+            }
+            _deviceSpace.DeviceList.Add(newDev);
+        }
+        StateHasChanged();
+    }
+
+    private string GetIconForManager(string m) => m switch {
+        string s when s.Contains("Plc") => "bi-hdd-rack-fill text-danger",
+        string s when s.Contains("ActiveMq") => "bi-envelope-paper-fill text-info",
+        string s when s.Contains("Printer") => "bi-printer-fill text-warning",
+        _ => "bi-cpu-fill text-white-50"
+    };
+
+    private void ConnectToTargetField(string t) { if (!string.IsNullOrEmpty(_activeSourceField)) { _currentMappings.RemoveAll(m => m.Target == t); _currentMappings.Add((_activeSourceField, t)); _activeSourceField = null; } }
+    private void OpenTopicBuilder(WorkflowRoute r, bool isSrc) { _editingRoute = r; _isEditingSource = isSrc; _builderDevice = _deviceSpace.DeviceList.FirstOrDefault()?.Name; _showTopicModal = true; }
+    private void CloseTopicBuilder() => _showTopicModal = false;
+    private void ApplyTopicBuilder() { var t = $"{_builderDevice}.{_builderType}.{_builderDisc}"; if(_isEditingSource) _editingRoute.Source = t; else _editingRoute.Destination = t; _showTopicModal = false; }
+    private void OpenHandlerBuilder(WorkflowRoute r) { _editingRoute = r; _builderInput = _messageTypes.First(); _builderOutput = _messageTypes.First(); _currentMappings.Clear(); _showHandlerModal = true; }
+    private void CloseHandlerBuilder() => _showHandlerModal = false;
+    private void ApplyHandlerBuilder() { var map = string.Join(",", _currentMappings.Select(m => $"{m.Source}>{m.Target}")); _editingRoute.Handler = $"{_builderInput}->{_builderOutput} [{map}]"; _showHandlerModal = false; }
+    
+    private void ToggleCollapse(object i) { if(_collapsedItems.Contains(i)) _collapsedItems.Remove(i); else _collapsedItems.Add(i); }
+    private bool IsCollapsed(object i) => _collapsedItems.Contains(i);
+    
+    private void CollapseAll()
+    {
+        foreach(var d in _deviceSpace.DeviceList) _collapsedItems.Add(d);
+        foreach(var w in _deviceSpace.WorkflowList) _collapsedItems.Add(w);
+    }
+
+    private void AddAdapter(WorkflowConfig wf) => wf.Routes.Add(new WorkflowRoute { Source = "In", Destination = "Out", Handler = "DefaultHandler" });
+    private void UpdateProperty(DeviceConfig d, string k, object v) { if(d.Properties.ContainsKey(k)) d.Properties[k] = v; }
+    private void RemoveDevice(DeviceConfig d) => _deviceSpace.DeviceList.Remove(d);
+    private void RemoveWorkflow(WorkflowConfig w) => _deviceSpace.WorkflowList.Remove(w);
+    
+    private string GetJson() => JsonSerializer.Serialize(new { AppSettings = new { Devices = _deviceSpace.DeviceList.ToDictionary(d => d.Name, d => d), Workflows = _deviceSpace.WorkflowList.ToDictionary(w => w.Name, w => w) } }, new JsonSerializerOptions { WriteIndented = true });
+    private async Task DownloadJson() => await JSRuntime.InvokeVoidAsync("downloadFile", "DeviceSpace.json", GetJson());
+}
