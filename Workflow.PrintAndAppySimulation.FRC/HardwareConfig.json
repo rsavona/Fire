@@ -1,0 +1,51 @@
+﻿{
+  "conveyorConfiguration": {
+    "id": "CONV_MAIN_001",
+    "description": "100ft Tote Conveyor with Print-and-Apply and Reject",
+    "parameters": {
+      "totalLengthFeet": 100,
+      "inchesPerCell": 5,
+      "totalCells": 240,
+      "toteLengthFeet": 2,
+      "toteCellOccupancy": 5
+    },
+    "nodes": [
+      {
+        "id": "SCAN_INDUCT",
+        "type": "Scanner",
+        "description": "Induct Arrival Scanner",
+        "positionFeet": 2,
+        "cellIndex": 5
+      },
+      {
+        "id": "PRINTER_GRP_01",
+        "type": "PrinterBank",
+        "description": "In-line Printer Array",
+        "nodes": [
+          { "id": "PRT_01", "positionFeet": 20, "cellIndex": 48 },
+          { "id": "PRT_02", "positionFeet": 25, "cellIndex": 60 },
+          { "id": "PRT_03", "positionFeet": 30, "cellIndex": 72 },
+          { "id": "PRT_04", "positionFeet": 35, "cellIndex": 84 }
+        ]
+      },
+      {
+        "id": "SCAN_VERIFY",
+        "type": "Scanner",
+        "description": "Post-Print Verification Scanner",
+        "positionFeet": 85,
+        "cellIndex": 204
+      },
+      {
+        "id": "DIVERT_SORTER",
+        "type": "Divert",
+        "description": "Reject Sorter",
+        "positionFeet": 95,
+        "cellIndex": 228,
+        "outputs": [
+          { "id": "STRAIGHT", "logic": "PASS", "description": "Main Line" },
+          { "id": "REJECT", "logic": "FAIL", "description": "Manual Audit Lane" }
+        ]
+      }
+    ]
+  }
+}

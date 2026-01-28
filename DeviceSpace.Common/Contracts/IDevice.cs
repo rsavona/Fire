@@ -53,7 +53,13 @@ namespace DeviceSpace.Common.Contracts // Or your preferred core namespace
 
         IEnumerable<DiagCommand> GetAvailableCommands();
         
-        void OnError(string context, Exception ex);
+        void OnError(string context, Exception ex = null);
+        
+        public event Action<IDevice>? DeviceReady;
+        
+        bool NeedsHeartbeat { get; set; }
+        
+        
     }
 
 

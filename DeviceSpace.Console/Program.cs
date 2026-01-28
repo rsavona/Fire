@@ -12,6 +12,11 @@ try
     HostApplicationBuilder builder = Host.CreateApplicationBuilder(args);
     if (Environment.UserInteractive && !args.Contains("--service"))
         builder.Services.AddSingleton<ConsoleStatusMonitor>();
+    //else 
+    //  .UseWindowsService(options =>
+     //   {
+     //       options.ServiceName = "PandABridge"; // Set your service name
+     ///   })
     builder = builder.AddCoreServices(args); 
     builder.Logging.ClearProviders();
     IHost host = builder.Build();

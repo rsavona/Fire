@@ -6,6 +6,7 @@ using DeviceSpace.Common.BaseClasses;
 using DeviceSpace.Common.Configurations;
 using DeviceSpace.Common.Contracts;
 using DeviceSpace.Common.Enums;
+using DeviceSpace.Common.Logging;
 using Serilog;
 
 namespace Workflow.PrintAndApplyFrc;
@@ -23,6 +24,14 @@ public class PrintAndApplyFrc : WorkflowBase
     private List<string> _printTypes = [];
     private readonly Lock _lock = new Lock();
 
+    /// <summary>
+    /// Represents the PrintAndApplyFrc workflow class, responsible for managing
+    /// the printing and application of labels in a distribution or manufacturing system.
+    /// Extends the WorkflowBase class to provide specific implementations for handling
+    /// device status messages and coordinating label requests with printers.
+    /// Subscribes to device status messages and initializes the printer status store
+    /// upon instantiation.
+    /// </summary>
     public PrintAndApplyFrc(IMessageBus messageBus, WorkflowConfig config, ILogger logger)
         : base(messageBus, config, logger)
     {
@@ -39,6 +48,7 @@ public class PrintAndApplyFrc : WorkflowBase
         }
     }
 
+
     /// <summary>
     /// Initializes the printer status store by gathering printer configurations
     /// and creating a collection of unique printer types based on device settings.
@@ -52,7 +62,7 @@ public class PrintAndApplyFrc : WorkflowBase
 
         foreach (var dev in alldevices)
         {
-            if (dev is { Manager: "PrinterManager", Enable: true })
+            if (dev is { Manager: "PrintClientManager", Enable: true })
             {
                 var pType = ConfigurationLoader.GetOptionalConfig<string>(dev.Properties, "aSPrintType", "SHIPTOP");
                 var pInduct = ConfigurationLoader.GetRequiredConfig<string>(dev.Properties, "Induct");
@@ -88,16 +98,16 @@ public class PrintAndApplyFrc : WorkflowBase
     public async Task<object?> HandlePrintersToUseAsync(MessageEnvelope envelope, CancellationToken ct)
     {
         Logger.Verbose("[{Workflow}] Handling Printer Selection for envelope: {Dest}",
-            WorkflowKey.DeviceName, envelope.Destination);
-
-        // 1. Parsing - usually synchronous unless reading from a stream
+            "HandlePrintersToUseAsync", envelope.Destination);
+        
+        // 1. Parsing - Make the payload safe to use as a JSON object
         var node = JsonNode.Parse(envelope.Payload.ToString() ?? "{}");
         if (node == null) return null;
         var jsonObj = node.AsObject();
 
-        var descPoint = jsonObj["DecisionPoint"]?.GetValue<string>();
-        var gin = jsonObj["GIN"]?.GetValue<int>();
-        var bcNode = jsonObj["Barcodes"]?.AsArray();
+        var descPoint =         jsonObj["DecisionPoint"]?.GetValue<string>();
+        var gin =               jsonObj["GIN"]?.GetValue<int>();
+        var bcNode=    jsonObj["Barcodes"]?.AsArray();
 
         if (descPoint == null || gin == null) return null;
 
@@ -105,23 +115,35 @@ public class PrintAndApplyFrc : WorkflowBase
             ? bcNode[0]?.GetValue<string>()
             : null;
 
+        Logger.Debug("[{Workflow}] Handling Printer Selection for Decision Point: {DecisionPoint} and GIN: {GIN}",
+            null);
         // 2. Await the logic that fetches printer status (WCS Logic)
         var printers = await GetNextAvailablePrintersAsync(descPoint, ct);
 
-        if (firstBarcode != null && printers.Count > 0)
+        if (firstBarcode == null)
         {
-            // 3. Update state. If using a DB/Cache, await it.
-            // If _labelStore is a ConcurrentDictionary, keep it sync or use a SemaphoreSlim for async locking.
-            await UpdateLabelStoreAsync(firstBarcode, printers, ct);
-
-            Logger.Debug("[{Workflow}] GIN {Gin} assigned to printers: {Printers}",
-                WorkflowKey.DeviceName, gin, printers);
+              Logger.Warning("[{Workflow}] No Barcode found in DReqM : {DecisionPoint}.",
+                "HandlePrintersToUseAsync", descPoint);
+              Tracker.IncrementError("No Barcode found in DReqM");
+              return null;
         }
-
-        var payload = new { DecisionPoint = descPoint, GIN = gin, Actions = printers };
-
+        if (printers.Count == 0)
+        {
+            Logger.Warning("[{Workflow}] No printers available for Decision Point: {DecisionPoint}.",
+                "HandlePrintersToUseAsync", descPoint);
+            Tracker.IncrementError("No printers available for Decision Point");
+            return null;
+        }
+        
+        //  Sending these to the MQ, this is a running list of what is expected to comeback  
+        await UpdateLabelStoreAsync(firstBarcode, printers, ct);
+        
+        Logger.Debug("[{Workflow}] GIN {Gin} assigned to printers: {Printers}",
+                "HandlePrintersToUseAsync", gin, printers);
+        
+        var payload = new { DecisionPoint = descPoint, GIN = gin, Actions = printers , Type = "MRespM"};
         // 4. Wrap return in a Task (already handled by the method signature)
-        return new MessageEnvelope(envelope.Destination, JsonSerializer.Serialize(payload));
+        return JsonSerializer.Serialize(payload);
     }
 
     /// <summary>
@@ -153,7 +175,7 @@ public class PrintAndApplyFrc : WorkflowBase
                         (k, existingEntry) => new LabelWithTracking(data, existingEntry.PendingPrinters));
 
                     Logger.Information("[{Workflow}] Label data stored for Barcode: {BC}",
-                        WorkflowKey.DeviceName, key);
+                        "HandleLabelToStorageAsync", key);
 
                     // Update the health/status
                     UpdateStatus(WorkflowState.Active, WorkflowEvent.MessageProcessed, DeviceHealth.Normal,
@@ -163,12 +185,11 @@ public class PrintAndApplyFrc : WorkflowBase
         }
         catch (OperationCanceledException)
         {
-            Logger.Warning("[{Workflow}] Storage operation was cancelled.", WorkflowKey.DeviceName);
+            Logger.Warning("[{Workflow}] Storage operation was cancelled.", "HandleLabelToStorageAsync");
         }
         catch (Exception ex)
         {
-            Logger.Error(ex, "[{Workflow}] Failed to store label data.", WorkflowKey.DeviceName);
-
+            Logger.Error(ex, "[{Workflow}] Failed to store label data.", "HandleLabelToStorageAsync");
             // Ensure error status updates are also handled safely
             UpdateStatus(WorkflowState.ActiveWithErrors, WorkflowEvent.Error, DeviceHealth.Warning,
                 $"Failed to store label data: {ex.Message}");
@@ -196,7 +217,7 @@ public class PrintAndApplyFrc : WorkflowBase
         // This allows the MessageBus listener to go back to the queue immediately.
         return await Task.Run(() =>
         {
-            Logger.Debug("[{Workflow}] Generating Broker Request for MQ...", WorkflowKey.DeviceName);
+            Logger.Debug("[{Workflow}] Generating Broker Request for MQ...", "HandleLabelRequestToMqAsync");
 
             // 2. Safely parse the JSON
             var payloadString = envelope.Payload.ToString() ?? "{}";
@@ -265,7 +286,7 @@ public class PrintAndApplyFrc : WorkflowBase
                 };
 
                 Logger.Debug("[{Workflow}] Label retrieved for {BC} -> Sending to {Printer}",
-                    WorkflowKey.DeviceName, firstBarcode, printerName);
+                    "HandleBarcodeToPrinterAsync", firstBarcode, printerName);
 
                 return new MessageEnvelope(envelope.Destination, JsonSerializer.Serialize(printerPayload));
             }
@@ -321,14 +342,14 @@ public class PrintAndApplyFrc : WorkflowBase
                 };
 
                 Logger.Debug("[{Workflow}] Content label retrieved for {BC} -> Sending to {Printer}",
-                    WorkflowKey.DeviceName, firstBarcode, printerName);
+                    "HandleContentToPrinterAsync", firstBarcode, printerName);
 
                 // 4. Wrap in Envelope and return
                 return new MessageEnvelope(envelope.Destination, JsonSerializer.Serialize(printerPayload));
             }
 
             Logger.Warning("[{Workflow}] Content not found for Barcode: {BC} at Printer: {Printer}",
-                WorkflowKey.DeviceName, firstBarcode, printerName);
+                "HandleContentToPrinterAsync", firstBarcode, printerName);
 
             return null;
         }, ct);
@@ -352,13 +373,13 @@ public class PrintAndApplyFrc : WorkflowBase
                     tracker.PendingPrinters.Remove(printerName);
 
                     Logger.Debug("[{Workflow}] Printer {Printer} cleared for barcode {BC}. Pending: {Count}",
-                        WorkflowKey.DeviceName, printerName, key, tracker.PendingPrinters.Count);
+                        "RetrieveAndDecrement", printerName, key, tracker.PendingPrinters.Count);
 
                     if (tracker.PendingPrinters.Count == 0)
                     {
                         _labelStore.TryRemove(key, out _);
                         Logger.Verbose("[{Workflow}] Barcode {BC} fully processed and removed from store.",
-                            WorkflowKey.DeviceName, key);
+                            "RetrieveAndDecrement", key);
                     }
 
                     return tracker.Data;
@@ -367,7 +388,7 @@ public class PrintAndApplyFrc : WorkflowBase
         }
 
         Logger.Warning("[{Workflow}] Barcode {BC} not found or printer {Printer} not authorized.",
-            WorkflowKey.DeviceName, key, printerName);
+            "RetrieveAndDecrement", key, printerName);
         return null;
     }
 
@@ -399,12 +420,14 @@ public class PrintAndApplyFrc : WorkflowBase
     {
         List<string> selectedPrinters = new();
 
+        Logger.Verbose("Entering GetNextAvailablePrintersAsync with Decision Point: {DecisionPoint}.  This should return a list of printers that should print a label to the container.",dPoint);
 
         // This prevents the Workflow thread from blocking during the LINQ execution
         return await Task.Run(() =>
         {
             using (_lock.EnterScope())
             {
+                Logger.FireLogDebug("_printerStatusStore",_printerStatusStore);
                 var distinctTypes = _printerStatusStore.Values
                     .Select(p => p.Type)
                     .Distinct()
@@ -470,7 +493,7 @@ public class PrintAndApplyFrc : WorkflowBase
                 {
                     status.IsAvailable = isNowAvailable;
                     Logger.Information("[{Workflow}] Printer {Printer} availability changed to: {Available}",
-                        WorkflowKey.DeviceName, printerName, isNowAvailable);
+                        "HandleStatusMessageAsync", printerName, isNowAvailable);
 
                     // 3. Trigger an async update notification if needed
                     // await NotifyAvailabilityChangedAsync(printerName, isNowAvailable);
@@ -480,7 +503,7 @@ public class PrintAndApplyFrc : WorkflowBase
         catch (Exception ex)
         {
             Logger.Warning(ex, "[{Workflow}] Failed to parse status message for {Printer}",
-                WorkflowKey.DeviceName, printerName);
+                "HandleStatusMessageAsync", printerName);
         }
 
         // No need for Task.CompletedTask if you actually awaited something above!
@@ -524,7 +547,7 @@ public class PrintAndApplyFrc : WorkflowBase
                 );
 
                 Logger.Debug("[{Workflow}] JSON successfully mapped to LabelRequest for PLC: {PLC}",
-                    WorkflowKey.DeviceName, plcName);
+                    "ConvertGenericJsonToLabelRequestAsync", plcName);
 
                 // Create the FRC request
                 return new LabelRequestFrcMessage(
@@ -542,7 +565,7 @@ public class PrintAndApplyFrc : WorkflowBase
             catch (Exception ex)
             {
                 Logger.Error(ex, "[{Workflow}] Failed to convert generic JSON for {PLC}",
-                    WorkflowKey.DeviceName, plcName);
+                    "ConvertGenericJsonToLabelRequestAsync", plcName);
                 return null;
             }
         }, ct);

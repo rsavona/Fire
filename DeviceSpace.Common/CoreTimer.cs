@@ -3,8 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 
 
-namespace DeviceSpace.Utilities;
-
+namespace DeviceSpace.Common;
 
 /// <summary>
 /// Thread-safe static utility class for tracking performance metrics (Count, Total Time, Average Time)

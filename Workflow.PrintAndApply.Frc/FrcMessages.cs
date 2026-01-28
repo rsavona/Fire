@@ -1,22 +1,26 @@
 ﻿using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
+using DeviceSpace.Common.BaseClasses;
+using DeviceSpace.Common.Contracts;
 
 namespace Workflow.PrintAndApplyFrc;
 
-public record LabelRequestFrcMessage(
-    [property: JsonPropertyName("sessionId")]
-    Guid SessionId,
-    [property: JsonPropertyName("controllerId")]
-    string ControllerId,
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text.Json.Serialization;
+
+public record LabelRequestFrcMessage  (
+    [property: JsonPropertyName("sessionId")] Guid SessionId, // Updated to Guid
+    [property: JsonPropertyName("controllerId")] string ControllerId,
     [property: JsonPropertyName("lineId")] string? LineId,
-    [property: JsonPropertyName("barcodes")]
-    List<string> Barcodes,
-    [property: JsonPropertyName("characteristics")]
-    Characteristics Characteristics
-)
+    [property: JsonPropertyName("barcodes")] List<string> Barcodes,
+    [property: JsonPropertyName("characteristics")] Characteristics Characteristics
+): DeviceMessageBase
 {
-    [JsonPropertyName("type")] public string Type { get; } = "LabelRequest";
+    [JsonPropertyName("type")] 
+    public string Type { get; init; } = "LabelRequest";
 }
 
 public record Characteristics(
@@ -26,41 +30,37 @@ public record Characteristics(
     [property: JsonPropertyName("weight")] string Weight
 );
 
-// Refactoring LabelDataMessageFrc
 public record LabelDataFrcMessage(
-    [property: JsonPropertyName("sessionId")]
-    string SessionId,
-    [property: JsonPropertyName("controllerId")]
-    string ControllerId,
+    [property: JsonPropertyName("sessionId")] Guid SessionId, // Updated to Guid
+    [property: JsonPropertyName("controllerId")] string ControllerId,
     [property: JsonPropertyName("lineId")] string LineId,
-    [property: JsonPropertyName("barcodes")]
-    List<string> Barcodes,
-    [property: JsonPropertyName("statusCode")]
-    string StatusCode,
-    [property: JsonPropertyName("statusMessage")]
-    string StatusMessage,
+    [property: JsonPropertyName("barcodes")] List<string> Barcodes,
+    [property: JsonPropertyName("statusCode")] string StatusCode,
+    [property: JsonPropertyName("statusMessage")] string StatusMessage,
     [property: JsonPropertyName("labels")] List<LabelInfo> Labels
-)
+): DeviceMessageBase
 {
-    [JsonPropertyName("type")] public string Type { get; init; } = "LabelData"; // Default
+    [JsonPropertyName("type")] 
+    public string Type { get; init; } = "LabelData";
 
-    // Logic belongs in methods, not constructors
-    public string? GetExpectedScan() => Labels?.FirstOrDefault(l => l.ApplicatorType == "SHIPTOP")?.ExpectedScan;
+    [JsonIgnore]
+    public bool IsSuccess => 
+        string.Equals(StatusCode, "OKAY", StringComparison.OrdinalIgnoreCase) || 
+        StatusCode == "200";
+
+    public string? GetExpectedScan() => 
+        Labels?.FirstOrDefault(l => string.Equals(l.ApplicatorType, "SHIPTOP", StringComparison.OrdinalIgnoreCase))?.ExpectedScan;
 
     public string? GetPrinterDataForType(string applicatorType) =>
-        Labels?.FirstOrDefault(label => label.ApplicatorType == applicatorType)?.PrinterData;
+        Labels?.FirstOrDefault(label => string.Equals(label.ApplicatorType, applicatorType, StringComparison.OrdinalIgnoreCase))?.PrinterData;
 
+    // Use Guid.Empty for the default state
     public static LabelDataFrcMessage Empty =>
-        new(string.Empty, string.Empty, string.Empty, new List<string>(),
-            string.Empty, string.Empty, new List<LabelInfo>());
+        new(Guid.Empty, string.Empty, string.Empty, new List<string>(), "ERROR", "Empty message", new List<LabelInfo>());
 }
 
-public record LabelInfo(string applicatorType, string expectedScan, string printerData)
-{
-    [JsonPropertyName("applicatorType")] public string ApplicatorType { get; set; } = applicatorType;
-
-    [JsonPropertyName("expectedScan")] public string ExpectedScan { get; set; } = expectedScan;
-
-    [JsonPropertyName("printerData")] public string PrinterData { get; set; } = printerData;
-}
-
+public record LabelInfo(
+    [property: JsonPropertyName("applicatorType")] string ApplicatorType,
+    [property: JsonPropertyName("expectedScan")] string ExpectedScan,
+    [property: JsonPropertyName("printerData")] string PrinterData
+);

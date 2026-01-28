@@ -1,6 +1,7 @@
-﻿using DeviceSpace.Common.Contracts;
+﻿using System.Text.Json;
+using DeviceSpace.Common.Contracts;
 using Microsoft.Extensions.Configuration;
-
+    using System.Text.Json; // Add this at the top
 namespace DeviceSpace.Common.Configurations;
 
 public static class ConfigurationLoader
@@ -10,7 +11,7 @@ public static class ConfigurationLoader
 
     public static IConfiguration? InitConfig(string[]? args)
     {
-        if (! _initCalled)
+        if (!_initCalled)
         {
             _initCalled = true;
             var fileName = args is { Length: > 0 } ? args[0] : "DeviceSpace.json";
@@ -21,6 +22,7 @@ public static class ConfigurationLoader
                 .AddJsonFile("appsettings.json", optional: false, reloadOnChange: true);
             _configuration = builder.Build();
         }
+
         return _configuration;
     }
 
@@ -56,24 +58,31 @@ public static class ConfigurationLoader
         return allDevices;
     }
 
-    /// <summary>
-    /// 
-    /// </summary>
-    /// <param name="properties"></param>
-    /// <param name="key"></param>
-    /// <typeparam name="T"></typeparam>
-    /// <returns></returns>
-    /// <exception cref="ArgumentException"></exception>
-    public static T GetRequiredConfig<T>(Dictionary<string, object> properties, string key)
-    {
-        if (properties.TryGetValue(key, out object? value) && Convert.ChangeType(value, typeof(T)) is T typedValue)
-        {
-            return typedValue;
-        }
 
-        throw new ArgumentException($"Configuration is missing or has an invalid type for required key: '{key}'.");
+public static T? GetRequiredConfig<T>(Dictionary<string, object> properties, string key)
+{
+    if (!properties.TryGetValue(key, out object? value) || value == null)
+    {
+        throw new KeyNotFoundException($"Key '{key}' missing.");
     }
 
+    // 1. If it's already the type we want
+    if (value is T typedValue) return typedValue;
+
+    // 2. Base Type Conversion (int, bool, string)
+    try
+    {
+        Type t = typeof(T);
+        Type u = Nullable.GetUnderlyingType(t) ?? t;
+        
+        // Convert.ChangeType works perfectly for string -> int, string -> bool, etc.
+        return (T)Convert.ChangeType(value.ToString(), u);
+    }
+    catch (Exception ex)
+    {
+        throw new InvalidCastException($"Key '{key}' could not be converted to {typeof(T).Name}.", ex);
+    }
+}
     /// <summary>
     /// 
     /// </summary>
@@ -82,24 +91,37 @@ public static class ConfigurationLoader
     /// <param name="defaultValue"></param>
     /// <typeparam name="T"></typeparam>
     /// <returns></returns>
-    public static T GetOptionalConfig<T>(Dictionary<string, object> properties, string key, T defaultValue )
+    public static T GetOptionalConfig<T>(Dictionary<string, object> properties, string key, T defaultValue)
     {
+        if (properties == null || !properties.TryGetValue(key, out object? value) || value == null)
+        {
+            return defaultValue;
+        }
+
+        // 1. Try direct casting (Works for List<string>, custom classes, etc.)
+        if (value is T typedValue)
+        {
+            return typedValue;
+        }
+
+        // 2. Try conversion for base types (int, bool, double, etc.)
         try
         {
-            if (properties.TryGetValue(key, out object? value) &&
-                Convert.ChangeType(value, typeof(T)) is T typedValue)
-            {
-                return typedValue;
-            }
+            Type targetType = typeof(T);
+
+            // Handle Nullable types (e.g., int?)
+            Type underlyingType = Nullable.GetUnderlyingType(targetType) ?? targetType;
+
+            return (T)Convert.ChangeType(value, underlyingType);
         }
         catch (Exception)
         {
-            // Ignore conversion errors, just use default
+            // 3. Last resort: If it's a string and we want a complex type, 
+            // you could add JSON deserialization here if needed.
+            return defaultValue;
         }
-
-        return defaultValue;
     }
-    
+
     /// <summary>
     /// Retrieves all enabled workflows from the configuration.
     /// </summary>
@@ -107,16 +129,16 @@ public static class ConfigurationLoader
     {
         // Get the root object
         var deviceSpaceConfig = _configuration?.GetSection("AppSettings:DeviceSpace").Get<DeviceSpace>();
-        
+
         var activeWorkflows = new List<WorkflowConfig>();
 
-        
+
         if (deviceSpaceConfig?.WorkflowList.Any() == true)
         {
             foreach (var wf in deviceSpaceConfig.WorkflowList)
             {
                 // Only return workflows that are explicitly enabled
-                if (wf.Enable) 
+                if (wf.Enable)
                 {
                     activeWorkflows.Add(wf);
                 }
@@ -124,7 +146,9 @@ public static class ConfigurationLoader
         }
 
         return activeWorkflows;
-    }/// <summary>
+    }
+
+    /// <summary>
     /// Retrieves configuration for a specific type of Manager (e.g. "PlcManager").
     /// </summary>
     public static List<IDeviceConfig> GetDeviceConfig(string type)
@@ -142,7 +166,7 @@ public static class ConfigurationLoader
                 if (string.Equals(dev.Manager, type, StringComparison.OrdinalIgnoreCase))
                 {
                     // Ensure Scope is set, consistent with GetAllDeviceConfig
-                 
+
                     // Optional: You might want to check 'if (dev.Enable)' here too 
                     // if you only want enabled devices for this specific manager.
                     matchingDevices.Add(dev);
@@ -152,6 +176,4 @@ public static class ConfigurationLoader
 
         return matchingDevices;
     }
-  
 }
-

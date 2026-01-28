@@ -1,14 +1,16 @@
-﻿using System.Net;
-using System.Net.Sockets;
-using DeviceSpace.Common.Configurations;
+﻿using DeviceSpace.Common.Configurations;
 using DeviceSpace.Common.Contracts;
 using DeviceSpace.Common.Enums;
-using Stateless;
+using Serilog.Core;
 using ILogger = Serilog.ILogger;
 
 namespace DeviceSpace.Common.BaseClasses;
 
-public abstract class ClientDeviceBase : DeviceBase<ClientDeviceBase.State, ClientDeviceBase.Event>
+/// <summary>
+/// Abstract base class for client-side devices providing built-in state management, 
+/// reconnection logic, automated heartbeats, and metric tracking.
+/// </summary>
+public abstract class ClientDeviceBase : DeviceBase<ClientDeviceBase.State, ClientDeviceBase.Event, DeviceMetric>
 {
     public enum State
     {
@@ -18,7 +20,7 @@ public abstract class ClientDeviceBase : DeviceBase<ClientDeviceBase.State, Clie
         Connected,
         Processing,
         Faulted,
-        Reconnect,
+        ServerOffline,
         Stopping
     }
 
@@ -28,102 +30,222 @@ public abstract class ClientDeviceBase : DeviceBase<ClientDeviceBase.State, Clie
         Stop,
         ConnectSuccess,
         ConnectFailed,
-        DataReceived,
+        MessageReceived,
         MessageSent,
         ConnectionLost,
         Error
     }
 
-    /// <summary>
-    /// Returns true if the TCP client is initialized and the underlying socket is connected.
-    /// </summary>
-    protected ClientDeviceBase(IDeviceConfig config, ILogger logger)
-        : base(config, logger, State.Offline, Event.Start)
+    private CancellationTokenSource? _heartbeatCts;
+    private int _connectionAttempts = 0;
+    private DateTime _lastHeartbeatResponse = DateTime.MinValue;
+
+    protected ClientDeviceBase(IDeviceConfig config, ILogger logger, LoggingLevelSwitch ls, bool 
+        needsHb = false)
+        : base(config, logger,  ls, State.Offline, Event.Start)
     {
+        NeedsHeartbeat = needsHb;
         ConfigureStateMachine();
     }
 
-    /// <summary>
-    /// Starts the device asynchronously and transitions its state to the initial state.
-    /// </summary>
-    /// <param name="token">A cancellation token that can be used to cancel the start operation.</param>
-    /// <returns>A task that represents the asynchronous operation.</returns>
-    public override async Task StartAsync(CancellationToken token)
-    {
-        await Machine.FireAsync(Event.Start);
-    }
+    // --- Abstract Requirements ---
+    public abstract Task SendAsync(string message, CancellationToken token, bool fireEvent = true);
+    public abstract Task SendHeartbeatAsync(CancellationToken token);
+    protected abstract void OnDeviceFaultedAsync(CancellationToken token = default);
+    protected abstract Task ConnectAsync( CancellationToken ct = default);
+    protected abstract Task HandleReceivedDataAsync(byte[] buffer, int bytesRead, CancellationToken ct);
 
-    private int _connectionAttempts = 0; // Added counter
+    
+    protected virtual Task OnDeviceConnectedAsync() { return Task.CompletedTask; }
+    protected virtual Task OnDeviceDisconnectedAsync() {return Task.CompletedTask; }
+    protected virtual Task OnDeviceStoppingAsync() {return Task.CompletedTask; }
+    protected virtual Task OnDeviceConnectingAsync() {return Task.CompletedTask; }
+    protected virtual Task OnDeviceOfflineAsync() {return Task.CompletedTask; }
+    protected virtual Task OnDeviceServerOfflineAsync() {return Task.CompletedTask; }
+    
+    
+    // --- State Machine Configuration ---
 
-    protected sealed override void ConfigureStateMachine()
+   protected sealed override void ConfigureStateMachine()
     {
         Machine.Configure(State.Offline)
+            .OnEntry(()=>
+            {
+                Tracker.SetConnectionCount(0);
+                OnDeviceOfflineAsync();
+            })
             .Permit(Event.Start, State.Connecting);
-
 
         Machine.Configure(State.Connecting)
             .OnEntry(t =>
             {
-                _connectionAttempts++; // Increment every time we enter Connecting
-                Logger.Information("[{Dev}] Connection attempt #{Count} ",
-                    Config.Name, _connectionAttempts); // Added attempt logging
+                _connectionAttempts++;
+                 OnDeviceConnectingAsync();
+                Logger.Information("[{Dev}] Connection attempt #{Count}", Config.Name, _connectionAttempts);
                 _ = ConnectAsync();
             })
             .Permit(Event.ConnectSuccess, State.Connected)
-            .Permit(Event.ConnectFailed, State.Reconnect)
+            .Permit(Event.ConnectFailed, State.ServerOffline)
             .Permit(Event.Stop, State.Offline);
 
         Machine.Configure(State.Connected)
             .OnEntry(() =>
             {
                 Tracker.IncrementConnections();
-                Logger.Information("[{Dev}] Connected successfully after {Count} attempts.",
-                    Config.Name, _connectionAttempts); // Log total attempts on success
-                _connectionAttempts = 0; // Reset counter upon success
+                Tracker.SetConnectionCount(1);
+                _connectionAttempts = 0;
+                OnDeviceConnectedAsync();
+                _lastHeartbeatResponse = DateTime.UtcNow; // Reset on connect
+                if (NeedsHeartbeat)
+                    StartHeartbeat(); 
             })
-            // ... existing permits ...
-            .Permit(Event.ConnectionLost, State.Reconnect)
-            .Ignore(Event.MessageSent)
-            .Ignore(Event.DataReceived);
+            .OnExit(() =>
+            {
+                Tracker.IncrementDisconnects();
+                Tracker.SetConnectionCount(0);
+                OnDeviceDisconnectedAsync();
+                if (NeedsHeartbeat)
+                    StopHeartbeat();
+            })
+            .InternalTransition(Event.MessageSent, () =>
+            {
+                  Tracker.IncrementOutbound();
+                  UpdateAndNotify();
+            })
+            .InternalTransition(Event.MessageReceived, () =>
+            {
+                Tracker.IncrementInbound();
+                  UpdateAndNotify();
+          
+            })
+            .Permit(Event.ConnectionLost, State.ServerOffline)
+            .Permit(Event.Error, State.Faulted)
+            .Permit(Event.Stop, State.Stopping);
 
-        Machine.Configure(State.Reconnect)
+        Machine.Configure(State.ServerOffline)
             .OnEntry(t =>
             {
-                Logger.Warning("[{Dev}] Waiting 5s before attempt #{Next}",
-                    Config.Name, _connectionAttempts + 1); // Informative warning
+                OnDeviceServerOfflineAsync();
+                Logger.Warning("[{Dev}] Server offline. Retrying in 5s...", Config.Name);
                 _ = Task.Delay(5000).ContinueWith(_ => Machine.Fire(Event.Start));
             })
-            .Permit(Event.Start, State.Connecting);
-
-
-        Machine.Configure(State.Processing)
-            .Permit(Event.MessageSent, State.Connected)
-            .Permit(Event.ConnectionLost, State.Connecting)
-            .Permit(Event.Error, State.Faulted);
-
+            .Permit(Event.Start, State.Connecting)
+            .Permit(Event.Stop, State.Offline);
+        
         Machine.Configure(State.Faulted)
-            .OnEntry(_ => DeviceFaultedAsync())
+            .OnEntry(_ => 
+            {
+                Tracker.IncrementError("Device Faulted");
+                OnDeviceFaultedAsync();
+            })
             .Permit(Event.Start, State.Starting)
+            .Permit(Event.Stop, State.Offline);
+
+        Machine.Configure(State.Stopping)
+            .OnEntry(_ => OnDeviceStoppingAsync() )
             .Permit(Event.Stop, State.Offline);
 
         Machine.OnUnhandledTrigger((state, trigger) =>
         {
-            var ex = new InvalidOperationException($"Invalid transition: {trigger} is not allowed in {state}");
+            var ex = new InvalidOperationException($"Invalid transition: {trigger} in {state}");
             OnError("StateMachine_LogicGap", ex);
         });
     }
+    // --- Heartbeat Logic ---
 
-    protected abstract void DeviceFaultedAsync();
+    protected virtual Task InitHeartbeatAsync() { return Task.CompletedTask; }
 
-    protected abstract Task ConnectAsync();
+    protected virtual void EndHeartbeat() {}
 
 
+    private void StartHeartbeat()
+    {
+        InitHeartbeatAsync();
+        _heartbeatCts?.Cancel();
+        _heartbeatCts = new CancellationTokenSource();
+        _ = HeartbeatLoopAsync(_heartbeatCts.Token);
+    }
+
+    private void StopHeartbeat()
+    {
+        EndHeartbeat();
+        _heartbeatCts?.Cancel();
+        _heartbeatCts?.Dispose();
+        _heartbeatCts = null;
+    }
+
+   private async Task HeartbeatLoopAsync(CancellationToken ct)
+    {
+        int interval = ConfigurationLoader.GetOptionalConfig(Config.Properties, "HeartbeatInterval", 5000);
+        int timeout = ConfigurationLoader.GetOptionalConfig(Config.Properties, "HeartbeatTimeout", 15000);
+
+        try
+        {
+            while (!ct.IsCancellationRequested)
+            {
+                await Task.Delay(interval, ct);
+
+                if (Machine.State == State.Connected || Machine.State == State.Processing)
+                {
+                    // 1. Check for timeout (Active Heartbeat)
+                    var timeSinceLastResponse = (DateTime.UtcNow - _lastHeartbeatResponse).TotalMilliseconds;
+                    if (timeSinceLastResponse > timeout)
+                    {
+                        Logger.Error("[{Dev}] Heartbeat timeout! No response for {ms}ms", Config.Name, timeSinceLastResponse);
+                        await Machine.FireAsync(Event.ConnectionLost);
+                        break;
+                    }
+
+                    // 2. Send the next heartbeat
+                    try
+                    {
+                        await SendHeartbeatAsync(ct);
+                    }
+                    catch (Exception ex)
+                    {
+                        Logger.Error(ex, "[{Dev}] Heartbeat send failure.", Config.Name);
+                        await Machine.FireAsync(Event.ConnectionLost);
+                        break;
+                    }
+                }
+            }
+        }
+        catch (OperationCanceledException) { }
+    }
    
+  
     /// <summary>
-    /// Maps the provided device state to a corresponding health status value.
+    /// Derived classes must call this method when a valid heartbeat response is detected 
+    /// from the remote server or PLC.
     /// </summary>
-    /// <param name="state">The current state of the device.</param>
-    /// <returns>The corresponding <see cref="DeviceHealth"/> value based on the given state.</returns>
+   protected void NotifyHeartbeatReceived(string s, string s1)
+    {
+        _lastHeartbeatResponse = DateTime.UtcNow;
+        Tracker.HeartBeat(); // Toggles visual H/B on dashboard
+        UpdateAndNotify();
+    }
+    // --- Core Lifecycle Overrides ---
+
+    public override async Task StartAsync(CancellationToken cancellationToken)
+    {
+        Logger.Information("[{Dev}] WCS Service Starting...", Config.Name);
+
+        // 1. Trigger the 'Start' event in your State Machine
+        await Machine.FireAsync(Event.Start);
+    }
+
+    public override async Task StopAsync(CancellationToken token) => await Machine.FireAsync(Event.Stop);
+
+    public override void OnError(string context, Exception? ex = null)
+    {
+        var errorMsg = $"[{Config.Name}] Error in {context}. State: {Machine.State}" ;
+        if  (ex != null)   errorMsg += $", {ex.Message}";
+        Logger.Error(ex, errorMsg);
+        Tracker.IncrementError(errorMsg);
+        UpdateAndNotify();
+        if (Machine.CanFire(Event.Error)) Machine.Fire(Event.Error);
+    }
+
     protected override DeviceHealth MapStateToHealth(State state)
     {
         return state switch
@@ -132,36 +254,9 @@ public abstract class ClientDeviceBase : DeviceBase<ClientDeviceBase.State, Clie
             State.Connected => DeviceHealth.Normal,
             State.Offline => DeviceHealth.Warning,
             State.Connecting => DeviceHealth.Warning,
-            State.Reconnect => DeviceHealth.Warning,
+            State.ServerOffline => DeviceHealth.Warning,
             State.Faulted => DeviceHealth.Critical,
             _ => DeviceHealth.Warning
         };
-    }
-
-    protected abstract Task HandleReceivedDataAsync(byte[] buffer, int bytesRead, CancellationToken ct);
-
-    /// <summary>
-    /// Stops the device asynchronously by canceling operations, closing the client connection,
-    /// and transitioning the state machine to the 'Stop' event.
-    /// </summary>
-    /// <param name="token">A cancellation token that can be used to cancel the stop operation.</param>
-    /// <returns>A task that represents the asynchronous stop operation.</returns>
-    public override async Task StopAsync(CancellationToken token)
-    {
-        await Machine.FireAsync(Event.Stop);
-    }
-
-    public override void OnError(string context, Exception ex)
-    {
-        Logger.Error(ex, "[{Dev}] Error in context: {Context}. Current State: {State}",
-            Config.Name, context, Machine.State);
-        Tracker.IncrementError(ex.Message);
-
-        UpdateAndNotify();
-
-        if (Machine.CanFire(Event.Error))
-        {
-            Machine.Fire(Event.Error);
-        }
     }
 }

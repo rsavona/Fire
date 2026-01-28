@@ -1,7 +1,4 @@
-﻿using System;
-using System.Collections.Concurrent;
-using System.Threading;
-using System.Threading.Tasks;
+﻿using System.Collections.Concurrent;
 using DeviceSpace.Common;
 using DeviceSpace.Common.Contracts;
 using DeviceSpace.Common.Enums;
@@ -18,9 +15,11 @@ public class ConsoleStatusMonitor
     private readonly ConcurrentDictionary<string, int> _lineMap = new();
     private int _lines;
     private int _errorLine;
+    private DateTime _startTime;
 
     public ConsoleStatusMonitor(IMessageBus bus)
     {
+        _startTime =  DateTime.Now;
         var messageBus = bus ?? throw new ArgumentNullException(nameof(bus));
         _lines = 0;
         _errorLine = 30;
@@ -41,8 +40,7 @@ public class ConsoleStatusMonitor
         if (string.IsNullOrEmpty(value)) return value;
         return value.Length <= maxLength ? value : value.Substring(0, maxLength);
     }
-
-
+    
     private async Task HandleStatusMessageAsync(MessageEnvelope? message, CancellationToken ct)
     {
         await Task.Run(() =>
@@ -59,7 +57,7 @@ public class ConsoleStatusMonitor
             // Prepare the comment
             string raw = string.IsNullOrEmpty(msg.Comment) ? "" : $" - {msg.Comment}";
             string commentSuffix = raw.Length > 35 ? $"{raw.Substring(0, 33)}..." : raw;
-            string formattedLine = $"{name,-17}{color}{msg.State,-11} ";
+            string formattedLine = $"{Truncate(name,12),-12}{color}{Truncate(msg.State,12),-12}";
 
             if (name.Contains("Manager", StringComparison.OrdinalIgnoreCase))
             {
@@ -69,9 +67,12 @@ public class ConsoleStatusMonitor
             {
                 TimeSpan cleanTime = new TimeSpan(msg.Timestamp.TimeOfDay.Hours, msg.Timestamp.TimeOfDay.Minutes,
                     msg.Timestamp.TimeOfDay.Seconds);
-                formattedLine +=
-                    $"Con: {msg.CountConnections,-2} APT: {msg.AvgProcessTime,-5} I/O:{msg.CountInbound % 1000,4}|{msg.CountOutbound % 1000,-4} Er:{msg.CountError,-2} {msg.HbVisual , -1}{cleanTime.ToString(),-9} {commentSuffix,-40}{reset}";
+                var hbString = "   ";
+                if (msg.HbVisual != ' ')
+                    hbString = $"({msg.HbVisual})";
+                formattedLine += $"{hbString}C/D:{msg.CountConnections % 100,2}/{msg.CountDisconnects % 100,-2} APT:{msg.AvgProcessTime,-5} I/O:{msg.CountInbound % 1000,3}/{msg.CountOutbound % 1000,-3} Er:{msg.CountError,-2}  {cleanTime.ToString(),-9} {commentSuffix,-40}{reset}";
             }
+            
 
             int lineIndex;
             lock (ConsoleLock)
@@ -111,8 +112,9 @@ public class ConsoleStatusMonitor
                     {
                         // Reset _lines occasionally or just ensure header is printed
                         Console.SetCursorPosition(0, startingLine);
-                        Console.WriteLine(
-                            $"\x1b[48;2;100;100;100m\x1b[38;2;0;0;0m== Device Name ==  Status  =Connected=ProcTime=    Msgs     =Errors= Last Active  --Time: {DateTime.Now:T} UTC: {DateTime.UtcNow:T}\x1b[0m");
+                                // line 12,12,3,10,10,
+                                Console.WriteLine(
+                                    $"\x1b[48;2;220;220;220m\x1b[38;2;0;90;190mDevice Name \x1b[38;2;0;0;0m|\x1b[38;2;0;90;190m   Status  \x1b[38;2;0;0;0m|\x1b[38;2;0;90;190mHB\x1b[38;2;0;0;0m|\x1b[38;2;0;90;190m Con/Dis \x1b[38;2;0;0;0m|\x1b[38;2;0;90;190mProcTime \x1b[38;2;0;0;0m|\x1b[38;2;0;90;190mMsgs IN/OUT\x1b[38;2;0;0;0m|\x1b[38;2;0;90;190mErrors\x1b[38;2;0;0;0m|\x1b[38;2;0;90;190mLast Active\x1b[38;2;0;0;0m| Started:{_startTime:T} Now:{DateTime.Now:T} \x1b[0m");
                         if (_lines == 0)
                             _lines = startingLine + 1;
                     }
@@ -132,7 +134,7 @@ public class ConsoleStatusMonitor
             {
                 Console.CursorVisible = true;
                 Console.Clear();
-                Console.WriteLine("Status monitor stopped.");
+                Console.WriteLine("`Status monitor stopped.");
             }
         }, cancellationToken);
     }

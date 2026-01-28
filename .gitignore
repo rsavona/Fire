@@ -9,6 +9,8 @@ GeneratedFiles/
 # Ignore published output folders
 [Pp]ublish/
 
+[Oo]Output/
+
 # ==============================================
 # --- Visual Studio / Rider Metadata ---
 # ==============================================
@@ -71,3 +73,4 @@ TestResults/
 Thumbs.db
 ehthumbs.db
 desktop.ini
+

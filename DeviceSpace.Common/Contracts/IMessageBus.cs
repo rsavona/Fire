@@ -25,7 +25,7 @@ public interface IMessageBus
     /// </summary>
     /// <param name="topic">The topic/route name.</param>
     /// <param name="handler">The async function to execute upon message receipt.</param>
-    Task<bool> SubscribeAsync(string topic, Func<MessageEnvelope, CancellationToken, Task> handler);
+    Task<bool> SubscribeAsync(string topic, Delegate handler);
 
     /// <summary>
     /// Subscribes an async handler to a specific topic, using a type-safe message payload.
@@ -68,6 +68,12 @@ public interface IMessageBus
     /// <returns>A Task representing the asynchronous publish operation.</returns>
     Task PublishAsync(string topic, MessageEnvelope messageEnvelope, CancellationToken cancellationToken = default);
 
+    Task PublishAsync(MessageBusTopic topic, MessageEnvelope messageEnvelope,
+        CancellationToken cancellationToken = default);
+
+    Task PublishStatusAsync(DeviceStatusMessage snapshot, CancellationToken cancellationToken = default);
+
+
     // ---------------------------------------------------------------------
     //                              DIAGNOSTICS
     // ---------------------------------------------------------------------
@@ -76,6 +82,7 @@ public interface IMessageBus
     /// Gets a list of all currently known topics with active subscriptions.
     /// </summary>
     List<string> GetActiveTopics();
-
-    Task PublishStatusAsync(string keyDeviceName, IDeviceStatus status);
+    List<string> GetSubscriptionList(MessageBusTopic messageBusTopic);
+    List<string> GetSubscriptionList(string messageBusTopic);
 }
+    

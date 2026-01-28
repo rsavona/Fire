@@ -1,5 +1,6 @@
 ﻿
 using System.Collections.Concurrent;
+using DeviceSpace.Common;
 using DeviceSpace.Common.Contracts;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -81,6 +82,12 @@ public class DeviceSpaceCore : BackgroundService
         _logger.LogInformation("DeviceSpaceCore shutting down...");
 
         await base.StopAsync(cancellationToken);
+    }
+    
+    public IEnumerable<DiagCommand> GetAvailableCommands()
+    {
+        yield return new DiagCommand("ListSubscriptions",
+            "Returns a list of all active topics and their handlers on the MessageBus.");
     }
 }
 

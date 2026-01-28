@@ -1,12 +1,10 @@
-﻿using System.Runtime.CompilerServices;
+﻿using System.Collections.Concurrent;
+using System.Runtime.CompilerServices;
 using System.Text.Json;
 using Serilog;
 using Serilog.Events;
 
 namespace DeviceSpace.Common.Logging;
-
-
-
 
 public static class FireLog
 {
@@ -21,7 +19,7 @@ public static class FireLog
             string @object,
             string comment)
         {
-            FireLogBase(logger, subject, verb, identifier, @object,  SafeFormat(@comment , 40) );
+            FireLogBase(logger, subject, verb, identifier, @object, SafeFormat(@comment, 40));
         }
 
         public void FireLogWarning(string subject,
@@ -30,7 +28,7 @@ public static class FireLog
             string @object,
             string comment)
         {
-            FireLogBase(logger, subject, verb, identifier, @object,  SafeFormat(@comment , 40),LogEventLevel.Warning );
+            FireLogBase(logger, subject, verb, identifier, @object, SafeFormat(@comment, 40), LogEventLevel.Warning);
         }
 
         public void FireLogError(string subject,
@@ -39,25 +37,25 @@ public static class FireLog
             string @object,
             string comment)
         {
-            FireLogBase(logger, subject, error, identifier, @object,  comment ,LogEventLevel.Error );
+            FireLogBase(logger, subject, error, identifier, @object, comment, LogEventLevel.Error);
         }
 
-        
-        public void FireLogTrace( string comment,  [CallerLineNumber] int lineNumber = 0,
-            [CallerMemberName] string methodName = "" )
+
+        public void FireLogTrace(string comment, [CallerLineNumber] int lineNumber = 0,
+            [CallerMemberName] string methodName = "")
         {
-            Log.Logger.Write(LogEventLevel.Debug, comment);
+            Log.Logger.Write(LogEventLevel.Verbose, comment);
         }
-            
+
         public void FireLogDebug(
-            string comment, 
+            string comment,
             Dictionary<string, string>? watchList,
             [CallerLineNumber] int lineNumber = 0,
             [CallerMemberName] string methodName = "")
         {
             // 1. Serialize the dictionary to a compact JSON string
-            string jsonWatch = watchList != null && watchList.Count > 0 
-                ? JsonSerializer.Serialize(watchList) 
+            string jsonWatch = watchList != null && watchList.Count > 0
+                ? JsonSerializer.Serialize(watchList)
                 : "{}";
 
             // 2. Build a natural, unaligned message string
@@ -66,6 +64,32 @@ public static class FireLog
 
             // 3. Write directly to Serilog at the Verbose (Trace) level
             Log.Logger.Write(LogEventLevel.Verbose, formattedMessage);
+        }
+
+        public void FireLogDebug<TValue>(string listName, ConcurrentDictionary<string, TValue> dictionary)
+        {
+            if (dictionary == null || dictionary.IsEmpty)
+            {
+                Log.Debug("{DictName}: [Empty]", listName);
+                return;
+            }
+
+            // This works for PrinterStatus because it calls the .ToString() override you wrote
+            var entries = dictionary.Select(kvp => $"{kvp.Key}: {kvp.Value}");
+            Log.Debug("{DictName}: [{Contents}]", listName, string.Join(" | ", entries));
+        }
+        
+        public void FireLogDebug(string listName, List<string> list)
+        {
+            if (list == null || list.Count == 0)
+            {
+                Log.Debug("{ListName}: [Empty]", listName);
+                return;
+            }
+
+            // Joins the list into a string: "Item1, Item2, Item3"
+            string joinedList = string.Join(", ", list);
+            Log.Debug("{ListName}: [{ListContents}]", listName, joinedList);
         }
 
         /// <summary>
@@ -77,12 +101,11 @@ public static class FireLog
         /// <param name="lineNumber">The line number in the calling code. Automatically captured unless explicitly provided.</param>
         /// <param name="methodName">The name of the method in the calling code. Automatically captured unless explicitly provided.</param>
         public void FireLogDebug(
-            string comment, 
-             string stack, 
+            string comment,
+            string stack,
             [CallerLineNumber] int lineNumber = 0,
             [CallerMemberName] string methodName = "")
         {
-
             // 2. Build a natural, unaligned message string
             // Format: LineNumber [MethodName] Comment | JSON
             string formattedMessage = $"L{lineNumber} [{methodName}] {stack} | {comment}";
@@ -90,12 +113,12 @@ public static class FireLog
             // 3. Write directly to Serilog at the Verbose (Trace) level
             Log.Logger.Write(LogEventLevel.Verbose, formattedMessage);
         }
-        
+
         /// <summary>
         /// Logs a structured 5-part message. 
         /// Restricted to: Information, Warning, and Error levels only.
         /// </summary>
-        private void    FireLogBase(string subject,
+        private void FireLogBase(string subject,
             string verb,
             string identifier,
             string @object,
@@ -103,11 +126,11 @@ public static class FireLog
             LogEventLevel level = LogEventLevel.Information)
         {
             // 1. Level Filter: Only allow high-value logs
-            if (level != LogEventLevel.Information && 
-                level != LogEventLevel.Warning && 
+            if (level != LogEventLevel.Information &&
+                level != LogEventLevel.Warning &&
                 level != LogEventLevel.Error)
             {
-                return; 
+                return;
             }
 
             // 2. Format the 5-part message with fixed widths
@@ -130,9 +153,5 @@ public static class FireLog
         if (text.Length > width) return text.Substring(0, width);
         return text.PadRight(width);
     }
+
 }
-
-
-
-
-

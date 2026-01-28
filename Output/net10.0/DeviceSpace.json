@@ -2,7 +2,7 @@
 {
   "AppSettings": {
     "DeviceSpace": {
-      "Name": "Fire-Print-Apply",
+      "Name": "PNA2",
       "DiagnosticPort": 9999,
       "WorkflowList": [
         {
@@ -12,46 +12,45 @@
           "Routes": [
             {
               "Mode": 1,
-              "Source": "MEDPLC.DReqM.PNA_Induct",
+              "Source": "TPNA2.DReqM.PNALINE-2",
               "Handler": "HandlePrintersToUseAsync",
-              "Destination": "MEDPLC.DRespM.PNA_Induct"
-              
+              "Destination": "TPNA2.DRespM.PNALINE-2"
             },
             {
-              "Mode": 1,
-              "Source": "MEDPLC.DReqM.PNA_Induct",
+              "Mode": 0,
+              "Source": "TPNA2.DReqM.PNALINE-2",
               "Handler": "HandleLabelRequestToMqAsync",
-              "Destination": "MEDBROKER.LabelRequestFrcMessage.LabelLookupQueue"
+              "Destination": "TBROKER.LabelRequestFrcMessage.AC.PNA.LABELREQUEST"
             },
             {
-              "Mode": 1,
-              "Source": "MEDPLC.DReq M.Verification",
+              "Mode": 0,
+              "Source": "TPNA2.DReq M.Verification",
               "Handler": "HandleLabelRequestToMqAsync",
-              "Destination": "MEDBROKER.LabelVerifyFrcMessage.VerifyQueue"
+              "Destination": "TBROKER.LabelVerifyFrcMessage.AC.PNA.LABELVERIFY"
             },{
-              "Mode": 1,
-              "Source": "MEDBROKER.LabelDataFrcMessage.LabelDataQueue",
+              "Mode": 0,
+              "Source": "TBROKER.LabelDataFrcMessage.AC.PNA.LABELDATA",
               "Handler": "HandleLabelToStorageAsync",
-              "Destination": "PNA1.LabelToPrint.Storage"
+              "Destination": "PrintAndApplyFrc.LabelToPrint.Storage"
               
             },{
-              "Mode": 1,
-              "Source": "MEDPLC.DReqM.P001",
+              "Mode": 0,
+              "Source": "TPNA2.DReqM.PNA2 152",
               "Destination": "P001.LabelToPrint.",
               "Handler": "HandleBarcodeToPrinterAsync"
             },{
-              "Mode": 1,
-              "Source": "MEDPLC.DReqM.P002",
+              "Mode": 0,
+              "Source": "TPNA2.DReqM.PNA2 153",
               "Destination": "P002.LabelToPrint.",
               "Handler": "HandleBarcodeToPrinterAsync"
             },{
-              "Mode": 1,
-              "Source": "MEDPLC.DReqM.I001",
+              "Mode": 0,
+              "Source": "TPNA2.DReqM.I001",
               "Handler": "HandleContentToPrinterAsync",
               "Destination": "I001.LabelToPrint."
             },{
-              "Mode": 1,
-              "Source": "MEDPLC.DReqM.I002",
+              "Mode": 0,
+              "Source": "TPNA2.DReqM.I002",
               "Handler": "HandleContentToPrinterAsync",
                "Destination": "I002.LabelToPrint."
             }
@@ -60,17 +59,17 @@
       ],
       "DeviceList": [
         {
-          "Name": "MEDPLC",
+          "Name": "TPNA2",
           "Manager": "PlcDeviceManager",
           "Enable": true,
           "ModuleID": "",
           "Properties": {
             "DevicePort": "6999",
-            "DeviceTimeout": "10000"
+            "DeviceTimeout": "15000"
           }
         },
         {
-          "Name": "MEDBROKER",
+          "Name": "TBROKER",
           "Manager": "ActiveMQManager",
           "Enable": true,
           "Properties": {
@@ -79,9 +78,9 @@
             }
         },
         {
-          "Name": "P001",
-          "Manager": "PrinterManager",
-          "Enable": false,
+          "Name": "PNA2 151",
+          "Manager": "PrintClientManager",
+          "Enable": true,
           "Properties": {
             "IPAddress": "127.0.0.1",
             "Port": 9100,
@@ -89,7 +88,7 @@
             "Brand": "Zebra",
             "DestinationType": "Ship",
             "PrintType": "SHIPTOP",
-            "Induct": "PNA_Induct",
+            "Induct": "PNALINE-2",
             "DeviceTimeout": 2000,
             "PollRateMs": 1000,
             "PrintTimeoutMs": 5000,
@@ -99,16 +98,16 @@
           }
         },
         {
-          "Name": "P002",
-          "Manager": "PrinterManager",
-          "Enable": false,
+          "Name": "PNA2 152",
+          "Manager": "PrintClientManager",
+          "Enable": true,
           "Properties": {
             "IPAddress": "127.0.0.1",
             "Port": 9101,
             "Brand": "Zebra",
             "DestinationType": "Ship",
             "PrintType": "SHIPTOP",
-            "Induct": "PNA_Induct",
+            "Induct": "PNALINE-2",
             "DeviceTimeout": 2000,
             "PollRateMs": 1000,
             "PrintTimeoutMs": 5000,
@@ -119,7 +118,7 @@
         },
         {
           "Name": "I001",
-          "Manager": "PrinterManager",
+          "Manager": "PrintClientManager",
           "Enable": false,
           "Properties": {
             "IPAddress": "127.0.0.1",
@@ -127,7 +126,7 @@
             "Brand": "Zebra",
             "DestinationType": "Ship",
             "PrintType": "CONTENTSDROP",
-            "Induct": "PNA_Induct",
+            "Induct": "PNALINE-2",
             "DeviceTimeout": 2000,
             "PollRateMs": 1000,
             "PrintTimeoutMs": 5000,
@@ -138,7 +137,7 @@
         },
         {
           "Name": "I002",
-          "Manager": "PrinterManager",
+          "Manager": "PrintClientManager",
           "Enable": false,
           "Properties": {
             "IPAddress": "127.0.0.1",

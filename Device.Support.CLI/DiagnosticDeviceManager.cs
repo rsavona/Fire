@@ -7,13 +7,10 @@ namespace Device.Support.CLI;
 
 public class DiagnosticDeviceManager 
 {
-    private readonly string _mapExportPath;
-
     public DiagnosticDeviceManager(string mapExportPath, IMessageBus mb, List<IDeviceConfig> config, ILoggerFactory lf) 
         
     {
-        _mapExportPath = mapExportPath;
-        if (!Directory.Exists(_mapExportPath)) Directory.CreateDirectory(_mapExportPath);
+        if (!Directory.Exists(mapExportPath)) Directory.CreateDirectory(mapExportPath);
     }
 
     public void RefreshSystemVisuals()

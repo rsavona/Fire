@@ -60,18 +60,18 @@ public static class SplashScreenFire
     {red}  ( * )     █████╗  ██║██████╔╝█████╗       ( | )  {green}I{sil}ndustrial
     {fed}  / ) \     ██╔══╝  ██║██╔══██╗██╔══╝       \\/ /   {green}R{sil}outing
     {red}  \| |/     ██║     ██║██║  ██║███████╗     || ||   {green}E{sil}ngine
-    {sil}  █████ {fed}    ╚═╝     ╚═╝╚═╝  ╚═╝╚══════╝   {sil}  █████  {reset}");
+    {sil}  ▒▒▒▒▒ {fed}    ╚═╝     ╚═╝╚═╝  ╚═╝╚══════╝   {sil}  ▒▒▒▒▒  {reset}");
 
             Console.ResetColor();
 
             // --- Print the App Description (NEW) ---
             Console.ForegroundColor = ConsoleColor.Yellow;
             string appDescription = $@"{sil}Without the WCS, the hardware is just cold steel. {fed}'FIRE'{sil} brings the system to life.";
-            PrintTypewriter($"\n    {appDescription}\n", 50); // 50ms delay
+           // PrintTypewriter($"\n    {appDescription}\n", 50); // 50ms delay
 
             // --- SCROLL UP 8 LINES ---
             Console.ResetColor(); // Ensure we don't scroll yellow/red backgrounds
-            SmoothScrollUp(20, 100); // 8 lines, 100ms speed
+            SmoothScrollUp(21, 100); // 8 lines, 100ms speed
         }
 
         static void SmoothScrollUp(int lines, int delay)

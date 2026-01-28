@@ -25,7 +25,7 @@ public record MessageBusTopic
         {
             throw new ArgumentException("Topic can not be empty");
         }
-        var parts = strTopic.Split('.');
+        var parts = strTopic.ToUpper().Split('.');
         DeviceName = parts[0];
         MessageType = parts[1];
 

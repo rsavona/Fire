@@ -3,6 +3,7 @@ using DeviceSpace.Common;
 using DeviceSpace.Common.BaseClasses;
 using DeviceSpace.Common.Configurations;
 using DeviceSpace.Common.Contracts;
+using DeviceSpace.Common.logging;
 using DeviceSpace.Common.Logging;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -12,23 +13,27 @@ using Serilog;
 using Serilog.Core;
 using Serilog.Events;
 using Serilog.Formatting.Compact;
+using Serilog.Enrichers;
 
 namespace DeviceSpace.Core;
 
 public static class CoreServicesExtensions
 {
-    public static  LoggingLevelSwitch LevelSwitch = new LoggingLevelSwitch(LogEventLevel.Verbose);
+    public static LoggingLevelSwitch LevelSwitch = new LoggingLevelSwitch(LogEventLevel.Verbose);
 
     public static TBuilder AddCoreServices<TBuilder>(this TBuilder builder, string[]? args = null)
-    where TBuilder : IHostApplicationBuilder
+        where TBuilder : IHostApplicationBuilder
     {
         var baseFolderPath = AppContext.BaseDirectory;
-        if (args != null) 
+        var isFire = false;
+        if (args != null)
         {
+            isFire = true;
+          
             var appconfig = ConfigurationLoader.InitConfig(args);
             var config = appconfig?.GetSection("AppSettings:DeviceSpace").Get<Common.Configurations.DeviceSpace>();
             var appName = config?.Name is { Length: > 0 } ? config.Name : "DeviceSpace.json";
-       
+
 
             if (config != null)
             {
@@ -38,44 +43,49 @@ public static class CoreServicesExtensions
             }
             else
             {
+                Log.Logger.FireLogTrace("This is a fatal error. An exception will be thrown because the config file was not found");
                 Log.Logger.FireLogError("CORE", "ERROR", "CONFIG", "SYSTEM", "No Config File Found");
                 throw new Exception("No Config File Found");
             }
 
+            Log.Logger.FireLogTrace(  $"The application is starting. We are in CoreServicesExtensions - AddCoreServices");
             Log.Logger.FireLogInfo("SYSTEM", "STARTUP", "CORE", "FIRE", $"=== {appName} Starting ===");
 
-
-            // Core Infrastructure
+            Log.Logger.FireLogTrace(  "First we register our Singletons like the MessageBus, DeviceManagerFactory, and DeviceSpaceCore "); 
             builder.Services.AddSingleton(Log.Logger);
             builder.Services.AddSingleton(LevelSwitch);
             builder.Services.AddSingleton<IMessageBus, MessageBus>();
             builder.Services.AddSingleton<DeviceManagerFactory>();
             builder.Services.AddSingleton<WorkflowFactory>();
             builder.Services.AddHostedService<DeviceSpaceCore>();
-
-        }    
-        LoadAvailableDeviceManagersFromDll(builder, baseFolderPath);
-        LoadAvailableWorkflowsFromDll(builder, baseFolderPath);
+            
+        }
+        
+        Log.Logger.FireLogTrace(  $"In AddCoreServices - First the reflection information is loaded for Devices and Workflows from the dlls in {baseFolderPath} "); 
+        LoadAvailableDeviceManagersFromDll(builder, baseFolderPath, isFire);
+        LoadAvailableWorkflowsFromDll(builder, baseFolderPath, isFire);
         if (args != null)
         {
             LoadConfiguredDevices(builder);
             LoadConfiguredWorkflow(builder);
         }
-
+        Log.Logger.FireLogTrace(  "At the end of AddCoreServices returning back to Program.cs"); 
         return builder;
     }
 
-  
+
     private static IHostApplicationBuilder LoadConfiguredDevices(IHostApplicationBuilder builder)
     {
         try
         {
+            Log.Logger.Verbose("Entered LoadConfigedDevices -  pulled all devices from ConfigurationLoader");
             var allDevices = ConfigurationLoader.GetAllDeviceConfig();
 
             // Check if configuration returned null before processing
             if (!allDevices.Any())
             {
-                Log.Logger.Warning("HOSTED", "LOAD", "CONFIG", "NONE", "No device configurations were found.");
+                Log.Logger.Verbose("No devices were found in the configuration.  Check the JSON for correct formatting");
+                Log.Logger.Error("HOSTED", "LOAD", "CONFIG", "NONE", "No device configurations were found.");
                 return builder;
             }
 
@@ -83,7 +93,11 @@ public static class CoreServicesExtensions
                 .GroupBy(device => device.Manager)
                 .Select(group => group.First())
                 .ToList();
-
+             
+            Log.Logger.Verbose("Devices were found - entering a loop to register each DeviceManger needed.");
+            Log.Logger.Verbose("The loop uses a DeviceManagerFactory and will make the Managers when we tell the builder to build.");
+            Log.Logger.Verbose("Here is where we need to make sure dependancy injection can provide each parameter for the DeviceManager's constructor ");
+            Log.Logger.Verbose("When the DeviceMangers are instantiated, they will throw an exception because somehting isn't right here or in the factory ");
             foreach (var deviceConfig in uniqueDevices)
             {
                 try
@@ -108,7 +122,7 @@ public static class CoreServicesExtensions
                         }
                         catch (Exception ex)
                         {
-                            // This catch handles failures DURING service resolution (at runtime)
+                            Log.Logger.Verbose("I really don't except a exception here, we are just telling the builder how to build the managers..");
                             Log.Logger.Fatal(ex, "HOSTED", "STARTUP", "FACTORY", managerName,
                                 "Failed to resolve device manager");
                             throw; // Re-throw to prevent the service from starting in an invalid state
@@ -117,6 +131,7 @@ public static class CoreServicesExtensions
                 }
                 catch (Exception ex)
                 {
+                    Log.Logger.Verbose("I really don't except a exception here, we are just telling the builder how to build the managers..");
                     // This catch handles failures DURING the registration loop
                     Log.Logger.Error(ex, "HOSTED", "REGISTER", "DI", deviceConfig.Manager?.ToString() ?? "Unknown",
                         "Failed to register manager in DI");
@@ -125,18 +140,20 @@ public static class CoreServicesExtensions
         }
         catch (Exception ex)
         {
+            Log.Logger.Verbose("I really don't except a exception here, we are just telling the builder how to build the managers..");
             // This catch handles failures in GetAllDeviceConfig or the GroupBy logic
             Log.Logger.Fatal(ex, "HOSTED", "LOAD", "CRITICAL", "GLOBAL",
                 "Critical failure loading device configurations");
             throw; // Usually, you want the service to stop if the config itself is broken
         }
-
         return builder;
     }
 
-    private static IHostApplicationBuilder LoadConfiguredWorkflow(IHostApplicationBuilder builder)
+   private static IHostApplicationBuilder LoadConfiguredWorkflow(IHostApplicationBuilder builder)
     {
+        Log.Logger.Verbose("Entered LoadConfiguredWorkflow - fetching workflow definitions from configuration.");
         var allWorkflows = ConfigurationLoader.GetAllWorkflowConfig();
+        
         foreach (var workflowConfig in allWorkflows)
         {
             var wfConfig = (WorkflowConfig)workflowConfig;
@@ -146,7 +163,9 @@ public static class CoreServicesExtensions
                 continue;
             }
 
+            Log.Logger.FireLogTrace($"Registering workflow '{wfConfig.Name}' into the DI container as a Hosted Service.");
             Log.Logger.FireLogInfo("HOSTED", "CREATE", "WORKFLOW", wfConfig.Name, "Initializing Service");
+            
             builder.Services.AddSingleton<IHostedService>(provider =>
             {
                 var factory = provider.GetRequiredService<WorkflowFactory>();
@@ -157,8 +176,10 @@ public static class CoreServicesExtensions
         return builder;
     }
 
-    private static IHostApplicationBuilder LoadAvailableWorkflowsFromDll(IHostApplicationBuilder builder, string baseFolderPath)
+    private static IHostApplicationBuilder LoadAvailableWorkflowsFromDll(IHostApplicationBuilder builder,
+        string baseFolderPath, bool fire)
     {
+        Log.Logger.FireLogTrace("Beginning dynamic discovery of Workflow DLLs to identify available logic modules.");
         var workflowList = new List<Type>();
         if (workflowList == null) throw new ArgumentNullException(nameof(workflowList));
         if (Directory.Exists(baseFolderPath))
@@ -169,6 +190,7 @@ public static class CoreServicesExtensions
             {
                 try
                 {
+                    Log.Logger.Verbose($"Loading assembly {Path.GetFileName(dllPath)} and scanning for WorkflowBase implementations.");
                     Assembly assembly = Assembly.LoadFrom(dllPath);
                     var foundWorkflows = assembly.GetTypes()
                         .Where(t => t.BaseType == typeof(WorkflowBase) && !t.IsAbstract)
@@ -180,7 +202,11 @@ public static class CoreServicesExtensions
                     }
 
                     workflowList.AddRange(foundWorkflows);
-                    //RegisterPlugins(builder, assembly);
+                    if (fire)
+                    {
+                        Log.Logger.FireLogTrace($"Registering associated plugins found in {Path.GetFileName(dllPath)}");
+                        RegisterPlugins(builder, assembly);
+                    }
                 }
                 catch (Exception ex)
                 {
@@ -188,13 +214,15 @@ public static class CoreServicesExtensions
                 }
             }
 
+            Log.Logger.FireLogTrace("Finalizing Workflow discovery; injecting the list of Type definitions into Keyed Services.");
             builder.Services.AddKeyedSingleton<IEnumerable<Type>>("WorkflowTypes", workflowList);
         }
 
         return builder;
     }
 
-    private static IHostApplicationBuilder LoadAvailableDeviceManagersFromDll(IHostApplicationBuilder builder, string baseFolderPath)
+    private static IHostApplicationBuilder LoadAvailableDeviceManagersFromDll(IHostApplicationBuilder builder,
+        string baseFolderPath, bool fire)
     {
         var managerList = new List<Type>();
         if (managerList == null) throw new ArgumentNullException(nameof(managerList));
@@ -203,11 +231,12 @@ public static class CoreServicesExtensions
             var deviceDlls = Directory.GetFiles(baseFolderPath, "Device.*.dll");
             Log.Logger.FireLogInfo("DISCOVERY", "SCAN", "DLL", "DEVICE", $"Found {deviceDlls.Length} assemblies");
 
-            Log.Logger.FireLogTrace(" CoreServicesExtensions  - (1 of 4) Searching for Device Managers");
+            Log.Logger.FireLogTrace("CoreServicesExtensions - Searching for Device Managers in discovered DLLs.");
             foreach (string dllPath in deviceDlls)
             {
                 try
                 {
+                    Log.Logger.Verbose($"Inspecting {Path.GetFileName(dllPath)} for classes implementing IDeviceManager.");
                     Assembly assembly = Assembly.LoadFrom(dllPath);
                     var version = assembly.GetName().Version;
                     var managers = assembly.GetTypes()
@@ -221,7 +250,8 @@ public static class CoreServicesExtensions
                     }
 
                     managerList.AddRange(managers);
-                    //RegisterPlugins(builder, assembly);
+                    if (fire)
+                        RegisterPlugins(builder, assembly);
                 }
                 catch (Exception ex)
                 {
@@ -229,6 +259,7 @@ public static class CoreServicesExtensions
                 }
             }
 
+            Log.Logger.FireLogTrace("Device Manager discovery complete. Storing metadata in the DeviceManagerTypes service collection.");
             builder.Services.AddKeyedSingleton<IEnumerable<Type>>("DeviceManagerTypes", managerList);
         }
 
@@ -237,6 +268,7 @@ public static class CoreServicesExtensions
 
     private static IHostApplicationBuilder RegisterPlugins(IHostApplicationBuilder builder, Assembly assembly)
     {
+        Log.Logger.Verbose($"Scanning assembly '{assembly.GetName().Name}' for IDeviceRegistrar implementations to handle custom DI wiring.");
         var registrars = assembly.GetTypes()
             .Where(t => typeof(IDeviceRegistrar).IsAssignableFrom(t) && !t.IsInterface && !t.IsAbstract);
 
@@ -244,11 +276,10 @@ public static class CoreServicesExtensions
         {
             try
             {
+                Log.Logger.FireLogTrace($"Instantiating registrar '{type.Name}' and executing its service registration logic.");
                 if (Activator.CreateInstance(type) is IDeviceRegistrar registrar)
                 {
                     registrar.RegisterServices(builder.Services);
-                    // Using FireLogTrace style for internal DI discovery
-             
                 }
             }
             catch (Exception ex)
@@ -256,30 +287,50 @@ public static class CoreServicesExtensions
                 Log.Logger.FireLogError("PLUGINS", "ERROR", "REGISTRAR", type.Name, ex.Message);
             }
         }
+
         return builder;
     }
 
     /// <summary>
     /// Configures Serilog and adds the Audit Logger.
-    /// TODO -- add a variety of logging capabilities
     /// </summary>
     private static void SetupLogger(this IHostApplicationBuilder builder, string configName)
     {
+        Log.Logger.FireLogTrace("Initializing the Serilog multi-pipeline architecture for Audit, Device-Level, and GIN tracking.");
+        
         Log.Logger = new LoggerConfiguration()
             .MinimumLevel.ControlledBy(LevelSwitch)
             .Enrich.FromLogContext()
 
-            // --- PIPELINE 1: Audit (Unchanged) ---
+            // --- PIPELINE 1: Audit ---
             .WriteTo.Logger(lc => lc
                 .Filter.ByIncludingOnly(evt => evt.Properties.ContainsKey("AuditLog"))
                 .WriteTo.Async(a => a.File(
                     new CompactJsonFormatter(),
                     $"logs/audit/{configName}_audit_.json",
                     rollingInterval: RollingInterval.Day)))
-
-            // --- PIPELINE 2: GIN-Specific Logging (ONLY if GIN exists) ---
+            
+            // --- PIPELINE 2: Device-Specific Log Files ---
             .WriteTo.Logger(lc => lc
-                // This is the key: Only proceed if the "GIN" property is present and has a value
+                .Filter.ByIncludingOnly(evt => evt.Properties.ContainsKey("DeviceName"))
+                .Filter.ByIncludingOnly(LogControl.DynamicFilter)
+                
+                .WriteTo.Sink(new BufferedLog())
+                .WriteTo.Map(
+                    keyPropertyName: "DeviceName",
+                    defaultKey: "System",
+                    configure: (deviceName, wt) =>
+                    {
+                        wt.Async(a => a.File(
+                            path: $"logs/devices/{configName}_{deviceName}_.log",
+                            outputTemplate:
+                            "{Timestamp:yyyy-MM-dd HH:mm:ss.fff} [{Level:u3}] {Message:lj}{NewLine}{Exception}",
+                            rollingInterval: RollingInterval.Day,
+                            retainedFileCountLimit: 14));
+                    }))
+
+            // --- PIPELINE 3: GIN Tracking ---
+            .WriteTo.Logger(lc => lc
                 .Filter.ByIncludingOnly(evt =>
                     evt.Properties.ContainsKey("GIN") &&
                     evt.Properties["GIN"] is ScalarValue { Value: string s } &&
@@ -294,18 +345,24 @@ public static class CoreServicesExtensions
                         retainedFileCountLimit: 7));
                 }))
 
-            // --- PIPELINE 3: General System Logs (Excluding Audit) ---
+
+            // --- PIPELINE 4: General System Logs ---
             .WriteTo.Logger(lc => lc
-                .Filter.ByExcluding(evt => evt.Properties.ContainsKey("AuditLog"))
+                .Filter.ByExcluding(evt =>
+                    evt.Properties.ContainsKey("AuditLog") ||
+                    evt.Properties.ContainsKey("GIN") ||
+                    evt.Properties.ContainsKey("DeviceName")) 
                 .WriteTo.Async(a => a.File(
                     $"logs/app/{configName}_system_.log",
                     rollingInterval: RollingInterval.Day,
                     retainedFileCountLimit: 30)))
             .CreateLogger();
 
+        Log.Logger.FireLogTrace("Clearing default logging providers and finalizing the Serilog DI registration.");
         builder.Services.AddSingleton(LevelSwitch);
         builder.Logging.ClearProviders();
         builder.Services.AddSerilog();
         builder.Services.AddSingleton<BusAuditLogger>();
     }
+    
 }

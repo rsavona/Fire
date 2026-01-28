@@ -10,7 +10,7 @@ public enum PrintType
 /// <summary>
 /// 
 /// </summary>
-public class PrinterStatus
+public class PrinterStatus : object
 {
     // The unique identifier for the printer/device.
     public readonly string Name;
@@ -40,4 +40,6 @@ public class PrinterStatus
         Type = type;
         IsAvailable = isAvailable;
     }
+    
+    public override string ToString() => $"{Name} ({Type})";
 }

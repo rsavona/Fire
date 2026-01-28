@@ -44,10 +44,7 @@ public class BusAuditLogger : BackgroundService
         using (_logger.BeginScope(new Dictionary<string, object> { { "AuditLog", true } }))
         {
             // We use structured logging "{@Payload}" to serialize the object to JSON automatically
-            _logger.LogInformation("{Topic} {MessageType} {@Payload}",
-                topic,
-                messageType,
-                message);
+            _logger.LogInformation($"[{topic,-40}] [{messageType,-15}]  {message}");
         }
     }
 

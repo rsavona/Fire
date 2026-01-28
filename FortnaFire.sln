@@ -6,29 +6,19 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DeviceSpace.Core", "DeviceS
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DeviceSpace.Common", "DeviceSpace.Common\DeviceSpace.Common.csproj", "{5534FF98-046B-41B2-BC66-8969DDE87303}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Device.Connector.Plc", "Device.Connector.Plc\Device.Connector.Plc.csproj", "{4DE87AB5-F321-4262-8783-F0BBCD8E0178}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Device.Plc.Suite", "Device.Plc.Suite\Device.Plc.Suite.csproj", "{4DE87AB5-F321-4262-8783-F0BBCD8E0178}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Device.Connector.Printer", "Device.Connector.Printer\Device.Connector.Printer.csproj", "{C1059026-E9ED-416D-BDD8-51029E0DF139}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Device.Printer.Suite", "Device.Printer.Suite\Device.Printer.Suite.csproj", "{C1059026-E9ED-416D-BDD8-51029E0DF139}"
 EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Device.Connector.ActiveMQ", "Device.Connector.ActiveMQ\Device.Connector.ActiveMQ.csproj", "{AFF84EEF-69DE-43FC-84DD-F7019DBD4435}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Device.ActiveMQ", "Device.ActiveMQ\Device.ActiveMQ.csproj", "{AFF84EEF-69DE-43FC-84DD-F7019DBD4435}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Workflow.PrintAndApply.Frc", "Workflow.PrintAndApply.Frc\Workflow.PrintAndApply.Frc.csproj", "{607E2B8C-8456-448E-A122-2661B89CBF83}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FireBuilder", "FireBuilder\FireBuilder.csproj", "{091C8AD7-3146-48F3-BCF6-68E3DFE94032}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Device.Virtual.Plc", "Device.Virtual.Plc\Device.Virtual.Plc.csproj", "{849F9B4C-8E7D-4F33-855E-52FC1A6B74A5}"
-EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Workflow.TestPrintAndAppy.FRC", "Workflow.TestPrintAndAppy.FRC\Workflow.TestPrintAndAppy.FRC.csproj", "{B0591D24-76CF-400A-A011-0A07B4E5CD76}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Workflow.PrintAndAppySimulation.FRC", "Workflow.PrintAndAppySimulation.FRC\Workflow.PrintAndAppySimulation.FRC.csproj", "{B0591D24-76CF-400A-A011-0A07B4E5CD76}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Device.Support.CLI", "Device.Support.CLI\Device.Support.CLI.csproj", "{914E1F4C-DDCE-422A-8DC4-C3D37A7FE485}"
-EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DeviceTest.Connector.ActiveMq", "DeviceTest.Connector.ActiveMq\DeviceTest.Connector.ActiveMq.csproj", "{03BA3C4F-ECAE-41F9-A536-1BFD8955C39F}"
-EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DeviceTest.Connector.Plc", "DeviceTest.Connector.Plc\DeviceTest.Connector.Plc.csproj", "{0B13756D-46DB-4AA8-AF09-D24D696F5369}"
-EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DeviceTest.Connector.Printer", "DeviceTest.Connector.Printer\DeviceTest.Connector.Printer.csproj", "{EC39F953-E4BF-45DA-8315-3072CA0E4661}"
-EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Device.Virtual.Printer", "Device.Virtual.Printer\Device.Virtual.Printer.csproj", "{E64DDF15-935E-4130-A874-88E43FACF87B}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DeviceTest.Common", "DeviceTest.Common\DeviceTest.Common.csproj", "{7C2117C8-44E7-4300-B291-EED398830F79}"
 EndProject
@@ -70,10 +60,6 @@ Global
 		{091C8AD7-3146-48F3-BCF6-68E3DFE94032}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{091C8AD7-3146-48F3-BCF6-68E3DFE94032}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{091C8AD7-3146-48F3-BCF6-68E3DFE94032}.Release|Any CPU.Build.0 = Release|Any CPU
-		{849F9B4C-8E7D-4F33-855E-52FC1A6B74A5}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{849F9B4C-8E7D-4F33-855E-52FC1A6B74A5}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{849F9B4C-8E7D-4F33-855E-52FC1A6B74A5}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{849F9B4C-8E7D-4F33-855E-52FC1A6B74A5}.Release|Any CPU.Build.0 = Release|Any CPU
 		{B0591D24-76CF-400A-A011-0A07B4E5CD76}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{B0591D24-76CF-400A-A011-0A07B4E5CD76}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{B0591D24-76CF-400A-A011-0A07B4E5CD76}.Release|Any CPU.ActiveCfg = Release|Any CPU
@@ -82,22 +68,6 @@ Global
 		{914E1F4C-DDCE-422A-8DC4-C3D37A7FE485}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{914E1F4C-DDCE-422A-8DC4-C3D37A7FE485}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{914E1F4C-DDCE-422A-8DC4-C3D37A7FE485}.Release|Any CPU.Build.0 = Release|Any CPU
-		{03BA3C4F-ECAE-41F9-A536-1BFD8955C39F}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{03BA3C4F-ECAE-41F9-A536-1BFD8955C39F}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{03BA3C4F-ECAE-41F9-A536-1BFD8955C39F}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{03BA3C4F-ECAE-41F9-A536-1BFD8955C39F}.Release|Any CPU.Build.0 = Release|Any CPU
-		{0B13756D-46DB-4AA8-AF09-D24D696F5369}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{0B13756D-46DB-4AA8-AF09-D24D696F5369}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{0B13756D-46DB-4AA8-AF09-D24D696F5369}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{0B13756D-46DB-4AA8-AF09-D24D696F5369}.Release|Any CPU.Build.0 = Release|Any CPU
-		{EC39F953-E4BF-45DA-8315-3072CA0E4661}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{EC39F953-E4BF-45DA-8315-3072CA0E4661}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{EC39F953-E4BF-45DA-8315-3072CA0E4661}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{EC39F953-E4BF-45DA-8315-3072CA0E4661}.Release|Any CPU.Build.0 = Release|Any CPU
-		{E64DDF15-935E-4130-A874-88E43FACF87B}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{E64DDF15-935E-4130-A874-88E43FACF87B}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{E64DDF15-935E-4130-A874-88E43FACF87B}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{E64DDF15-935E-4130-A874-88E43FACF87B}.Release|Any CPU.Build.0 = Release|Any CPU
 		{7C2117C8-44E7-4300-B291-EED398830F79}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{7C2117C8-44E7-4300-B291-EED398830F79}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{7C2117C8-44E7-4300-B291-EED398830F79}.Release|Any CPU.ActiveCfg = Release|Any CPU

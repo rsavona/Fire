@@ -2,6 +2,7 @@
 using Microsoft.Extensions.Logging;
 using DeviceSpace.Common;
 using DeviceSpace.Common.Contracts;
+using System.Reflection;
 
 namespace DeviceSpace.Core;
 
@@ -9,9 +10,11 @@ public class MessageBus : IMessageBus
 {
     private readonly BusAuditLogger _auditLogger;
     private readonly ILogger _logger;
-    
-    private readonly ConcurrentDictionary<string, ConcurrentBag<Delegate>> _subscriptions;
-    private readonly ConcurrentBag<Delegate> _globalSubscribers;
+
+    // Using ConcurrentDictionary as a Set (Delegate is key, byte is a dummy value)
+    private readonly ConcurrentDictionary<string, ConcurrentDictionary<Delegate, byte>> _subscriptions;
+    private readonly ConcurrentDictionary<Delegate, byte> _globalSubscribers;
+
     private long _messagesPublished = 0;
     private long _messagesFailed = 0;
 
@@ -19,8 +22,9 @@ public class MessageBus : IMessageBus
     {
         _auditLogger = auditLogger;
         _logger = logger;
-        _subscriptions = new ConcurrentDictionary<string, ConcurrentBag<Delegate>>();
-        _globalSubscribers = new ConcurrentBag<Delegate>();
+        _subscriptions =
+            new ConcurrentDictionary<string, ConcurrentDictionary<Delegate, byte>>(StringComparer.OrdinalIgnoreCase);
+        _globalSubscribers = new ConcurrentDictionary<Delegate, byte>();
     }
 
     public (long Published, long Failed) GetMetrics()
@@ -32,174 +36,191 @@ public class MessageBus : IMessageBus
     //                         SUBSCRIPTIONS
     // ---------------------------------------------------------------------
 
-    /// <summary>
-    /// 
-    /// </summary>
-    /// <param name="topic"></param>
-    /// <param name="handler"></param>
-    /// <exception cref="ArgumentNullException"></exception>
-    public Task<bool> SubscribeAsync(string topic, Func<MessageEnvelope, CancellationToken, Task> handler)
+    public Task<bool> SubscribeAsync(string topic, Delegate handler)
     {
         if (handler == null) throw new ArgumentNullException(nameof(handler));
-        GetHandlersForTopic(topic).Add(handler);
-        LogSubscription(topic, handler);
-        return Task.FromResult(true);
+
+        var handlers = _subscriptions.GetOrAdd(topic, _ => new ConcurrentDictionary<Delegate, byte>());
+        bool added = handlers.TryAdd(handler, 0);
+
+        if (added) LogSubscription(topic, handler);
+        return Task.FromResult(added);
     }
 
-    /// <summary>
-    /// 
-    /// </summary>
-    /// <param name="topic"></param>
-    /// <param name="handler"></param>
-    /// <typeparam name="TMessage"></typeparam>
-    /// <exception cref="ArgumentNullException"></exception>
     public Task<bool> SubscribeAsync<TMessage>(string topic, Func<TMessage, Task> handler)
     {
-        if (handler == null) throw new ArgumentNullException(nameof(handler));
-        GetHandlersForTopic(topic).Add(handler);
-        LogSubscription(topic, handler);
-        return Task.FromResult(true);
+        return SubscribeAsync(topic, (Delegate)handler);
     }
 
-    /// <summary>
-    /// 
-    /// </summary>
-    /// <param name="topic"></param>
-    /// <param name="handler"></param>
-    /// <typeparam name="TRequest"></typeparam>
-    /// <typeparam name="TResponse"></typeparam>
-    /// <exception cref="ArgumentNullException"></exception>
     public Task<bool> SubscribeAsync<TRequest, TResponse>(string topic, Func<TRequest, Task<TResponse>> handler)
     {
-        if (handler == null) throw new ArgumentNullException(nameof(handler));
-        GetHandlersForTopic(topic).Add(handler); 
-        LogSubscription(topic, handler);
-        return Task.FromResult(true);
+        return SubscribeAsync(topic, (Delegate)handler);
     }
 
     /// <summary>
-    /// 
+    /// Removes a specific handler from a topic.
     /// </summary>
-    /// <param name="topic"></param>
-    /// <param name="handler"></param>
-    /// <exception cref="NotImplementedException"></exception>
     public void Unsubscribe(string topic, Delegate handler)
     {
-        throw new NotImplementedException();
+        if (handler == null) return;
+
+        if (_subscriptions.TryGetValue(topic, out var handlers))
+        {
+            if (handlers.TryRemove(handler, out _))
+            {
+                string name = $"{handler.Method.DeclaringType?.Name}.{handler.Method.Name}";
+                _logger.LogInformation("UNSUBSCRIBED: {HandlerName} from topic '{Topic}'", name, topic);
+
+                // Optional: Clean up the topic key if no listeners remain
+                if (handlers.IsEmpty) _subscriptions.TryRemove(topic, out _);
+            }
+        }
     }
 
-    /// <summary>
-    /// Subscribes to ALL messages flowing through the bus, regardless of topic.
-    /// Useful for Dashboards, Recorders, and Debugging.
-    /// </summary>
-    public void SubscribeToAllAsync(Func<string, MessageEnvelope, CancellationToken, Task> handler)
-    {
-        if (handler == null) throw new ArgumentNullException(nameof(handler));
-        _globalSubscribers.Add(handler);
-        
-        string handlerName = $"{handler.Method.DeclaringType?.Name}.{handler.Method.Name}";
-        _logger.LogInformation("GLOBAL SUBSCRIPTION: '{HandlerName}' is listening to all topics.", handlerName);
-    }
+    // ---------------------------------------------------------------------
+    //                              PUBLISHING
+    // ---------------------------------------------------------------------
 
     /// <summary>
-    /// 
+    /// Core publish method. Logs to audit trail and dispatches to listeners.
     /// </summary>
-    /// <param name="topic"></param>
-    /// <param name="handler"></param>
-    private void LogSubscription(string topic, Delegate handler)
-    {
-        string handlerName = $"{handler.Method.DeclaringType?.Name}.{handler.Method.Name}";
-        _logger.LogInformation("Subscribed to topic '{Topic}' with {HandlerName}", topic, handlerName);
-    }
-    
-    /// <summary>
-    /// 
-    /// </summary>
-    /// <param name="topic"></param>
-    /// <returns></returns>
-    private ConcurrentBag<Delegate> GetHandlersForTopic(string topic)
-    {
-        return _subscriptions.GetOrAdd(topic, _ => new ConcurrentBag<Delegate>());
-    }
-
-    /// <summary>
-    /// Publish a status message to the Status Topic.
-    /// </summary>
-    /// <param name="sourceDevice"></param>
-    /// <param name="status"></param>
-    /// <param name="token"></param>
-    /// <returns></returns>
-    public Task PublishStatusAsync(string sourceDevice, IDeviceStatus status, CancellationToken token )
-    {
-        var t = new MessageBusTopic(sourceDevice);
-        var envelope = new MessageEnvelope(t, status);
-        return DispatchMessageInternal(MessageBusTopic.DeviceStatus.ToString(), envelope, token);
-    }
-
-    /// <summary>
-    ///     
-    /// </summary>
-    /// <param name="topic"></param>
-    /// <param name="messageEnvelope"></param>
-    /// <param name="cancellationToken"></param>
-    /// <returns></returns>
     public Task PublishAsync(string topic, MessageEnvelope messageEnvelope, CancellationToken cancellationToken = default)
     {
         _auditLogger.LogMessage(messageEnvelope.Payload, topic);
         return DispatchMessageInternal(topic, messageEnvelope, cancellationToken);
     }
 
-
-   /// <summary>
-   /// Dispatches a message to all subscribers.
-   /// </summary>
-   /// <param name="topic"></param>
-   /// <param name="envelope"></param>
-   /// <param name="token"></param>
-   /// <returns></returns>
-    private Task DispatchMessageInternal(string topic, MessageEnvelope envelope, CancellationToken token = default)
+    /// <summary>
+    /// Publishes using the strongly-typed MessageBusTopic.
+    /// </summary>
+    public Task PublishAsync(MessageBusTopic topic, MessageEnvelope messageEnvelope, CancellationToken cancellationToken = default)
     {
-        Interlocked.Increment(ref _messagesPublished);
+        return PublishAsync(topic.ToString(), messageEnvelope, cancellationToken);
+    }
 
-        var allTasks = new List<Task>();
+    /// <summary>
+    /// Publishes a general status snapshot to the default DeviceStatus topic.
+    /// </summary>
+    public Task PublishStatusAsync(DeviceStatusMessage snapshot, CancellationToken cancellationToken = default)
+    {
+        if (snapshot == null) return Task.CompletedTask;
 
-        //  Process GLOBAL Subscribers first (The Firehose)
-        if (!_globalSubscribers.IsEmpty)
+        var topic = MessageBusTopic.DeviceStatus.ToString();
+        var envelope = new MessageEnvelope(topic, snapshot);
+        
+        return PublishAsync(topic, envelope, cancellationToken);
+    }
+
+    public void SubscribeToAllAsync(Func<string, MessageEnvelope, CancellationToken, Task> handler)
+    {
+        if (handler == null) throw new ArgumentNullException(nameof(handler));
+        _globalSubscribers.TryAdd(handler, 0);
+
+        string name = $"{handler.Method.DeclaringType?.Name}.{handler.Method.Name}";
+        _logger.LogInformation("GLOBAL SUBSCRIPTION: '{HandlerName}' is listening to all topics.", name);
+    }
+
+    public void UnsubscribeFromAll(Delegate handler)
+    {
+        if (handler != null) _globalSubscribers.TryRemove(handler, out _);
+    }
+
+   public Task PublishStatusAsync(string topic, DeviceStatusMessage snapshot, CancellationToken ct)
+    {
+        var envelope = new MessageEnvelope(topic, snapshot);
+        return PublishAsync(topic, envelope, ct);
+    }
+
+    public Task PublishStatusAsync(string keyDeviceName, IDeviceStatus status)
+    {
+        var envelope = new MessageEnvelope(keyDeviceName, status);
+        // Usually published to a general status topic or a device-specific one
+        return PublishAsync("DeviceStatus", envelope);
+    }
+
+    public List<string> GetSubscriptionList(string topic)
+    {
+        var listeners = new List<string>();
+
+        if (_subscriptions.TryGetValue(topic, out var handlers))
         {
-            foreach (var globalHandler in _globalSubscribers)
+            foreach (var handler in handlers.Keys)
             {
-                if (token.IsCancellationRequested) break;
-
-                // Global handlers signature: Func<string, MessageEnvelope, CancellationToken, Task>
-                if (globalHandler is Func<string, MessageEnvelope, CancellationToken, Task> typedGlobal)
-                {
-                    allTasks.Add(typedGlobal(topic, envelope, token)
-                        .ContinueWith(t => HandleHandlerFailure(t, topic, envelope), TaskContinuationOptions.OnlyOnFaulted));
-                }
+                listeners.Add($"{handler.Method.DeclaringType?.Name}.{handler.Method.Name}");
             }
         }
 
-        if (_subscriptions.TryGetValue(topic, out var handlers) && !handlers.IsEmpty)
+        foreach (var global in _globalSubscribers.Keys)
         {
-            foreach (var handler in handlers)
+            listeners.Add($"[GLOBAL] {global.Method.DeclaringType?.Name}.{global.Method.Name}");
+        }
+
+        return listeners;
+    }
+
+ 
+    public List<string> GetSubscriptionList(MessageBusTopic messageBusTopic)
+     {
+         return GetSubscriptionList(messageBusTopic.ToString());
+     }
+     
+    public List<string> GetSubscriptionList()
+    {
+        var lines = new List<string>();
+        foreach (var sub in _subscriptions)
+        {
+            lines.Add($"Topic: {sub.Key}");
+            foreach (var handler in sub.Value.Keys)
+            {
+                lines.Add($"  - Handler: {handler.Method.DeclaringType?.Name}.{handler.Method.Name}");
+            }
+        }
+
+        return lines;
+    }
+
+    // ---------------------------------------------------------------------
+    //                         PUBLISHING
+    // ---------------------------------------------------------------------
+
+
+    private Task DispatchMessageInternal(string topic, MessageEnvelope envelope, CancellationToken token = default)
+    {
+        Interlocked.Increment(ref _messagesPublished);
+        var allTasks = new List<Task>();
+
+        // 1. Global Subscribers
+        foreach (var globalHandler in _globalSubscribers.Keys)
+        {
+            if (token.IsCancellationRequested) break;
+            if (globalHandler is Func<string, MessageEnvelope, CancellationToken, Task> typedGlobal)
+            {
+                allTasks.Add(typedGlobal(topic, envelope, token)
+                    .ContinueWith(t => HandleHandlerFailure(t, topic, envelope),
+                        TaskContinuationOptions.OnlyOnFaulted));
+            }
+        }
+
+        // 2. Topic Subscribers
+        if (_subscriptions.TryGetValue(topic, out var handlers))
+        {
+            foreach (var handler in handlers.Keys)
             {
                 if (token.IsCancellationRequested) break;
-
                 try
                 {
                     if (handler is Func<MessageEnvelope, CancellationToken, Task> envelopeHandler)
                     {
                         allTasks.Add(envelopeHandler(envelope, token)
-                            .ContinueWith(t => HandleHandlerFailure(t, topic, envelope), TaskContinuationOptions.OnlyOnFaulted));
+                            .ContinueWith(t => HandleHandlerFailure(t, topic, envelope),
+                                TaskContinuationOptions.OnlyOnFaulted));
                     }
-                    else if (handler.Method.ReturnType == typeof(Task) && handler.Method.GetParameters().Length == 1)
+                    else
                     {
-                        // Handle Generic <T> handlers (Reflection)
-                        var payloadType = handler.Method.GetParameters()[0].ParameterType;
-                        
+                        // Handle Dynamic Invocations (Generic T handlers)
                         var handlerTask = (Task)handler.DynamicInvoke(envelope)!;
-                            allTasks.Add(handlerTask
-                                .ContinueWith(t => HandleHandlerFailure(t, topic, envelope), TaskContinuationOptions.OnlyOnFaulted));
+                        allTasks.Add(handlerTask.ContinueWith(t => HandleHandlerFailure(t, topic, envelope),
+                            TaskContinuationOptions.OnlyOnFaulted));
                     }
                 }
                 catch (Exception ex)
@@ -208,34 +229,24 @@ public class MessageBus : IMessageBus
                 }
             }
         }
+
         return Task.CompletedTask;
     }
 
-   
-    /// <summary>
-    ///   Handles a failed handler task by publishing an error message to the Error Topic.
-    /// </summary>
-    /// <param name="faultedTask"></param>
-    /// <param name="originalTopic"></param>
-    /// <param name="originalMessage"></param>
+    // ---------------------------------------------------------------------
+    //                         ERROR HANDLING
+    // ---------------------------------------------------------------------
+
     private void HandleHandlerFailure(Task faultedTask, string originalTopic, MessageEnvelope originalMessage)
     {
         var ex = faultedTask.Exception?.InnerException ?? faultedTask.Exception;
-        PublishErrorInternal(originalTopic, originalMessage, ex);
         _logger.LogError(ex, "Error handling message on topic '{Topic}'", originalTopic);
+        PublishErrorInternal(originalTopic, originalMessage, ex);
     }
 
-    /// <summary>
-    ///  
-    /// </summary>
-    /// <param name="originalTopic"></param>
-    /// <param name="originalMessage"></param>
-    /// <param name="ex"></param>
-    /// <returns></returns>
     private Task PublishErrorInternal(string originalTopic, MessageEnvelope originalMessage, Exception? ex)
     {
         Interlocked.Increment(ref _messagesFailed);
-
         try
         {
             var errorPayload = new BusErrorMessage
@@ -243,36 +254,48 @@ public class MessageBus : IMessageBus
                 OriginalTopic = originalTopic,
                 ExceptionMessage = ex?.Message ?? "Unknown Error",
                 StackTrace = ex?.StackTrace,
-                Timestamp = DateTime.UtcNow,
+                Timestamp = DateTime.Now, // Swapped to Local Time
                 OriginalPayload = originalMessage.Payload
             };
 
             var errorEnvelope = new MessageEnvelope(MessageBusTopic.InternalError, errorPayload);
-            
-            // Recursive call is safe due to the Topic check above
-            PublishAsync(MessageBusTopic.InternalError.ToString(), errorEnvelope, CancellationToken.None);
+            _ = PublishAsync(MessageBusTopic.InternalError.ToString(), errorEnvelope, CancellationToken.None);
         }
         catch (Exception logEx)
         {
-            _logger.LogError(logEx, "CRITICAL: Failed to publish to Error Topic.");
+            _logger.LogError(logEx, "Failed to publish error message.");
         }
-        return  Task.CompletedTask;
+
+        return Task.CompletedTask;
     }
 
-    public List<string> GetActiveTopics()
+    private void LogSubscription(string topic, Delegate handler)
     {
-        return _subscriptions.Keys.ToList();
+        string name = $"{handler.Method.DeclaringType?.Name}.{handler.Method.Name}";
+        _logger.LogInformation("Subscribed to topic '{Topic}' with {HandlerName}", topic, name);
     }
-    
+
+    public List<string> GetActiveTopics() => _subscriptions.Keys.ToList();
+
     /// <summary>
-    ///     
+    /// Publishes a device status snapshot to the bus on a specific topic.
     /// </summary>
-    /// <param name="keyDeviceName"></param>
     /// <param name="status"></param>
-    /// <returns></returns>
-    public Task PublishStatusAsync(string keyDeviceName, IDeviceStatus status)
+    /// <param name="token"></param>
+    public Task PublishStatusAsync( IDeviceStatus status, CancellationToken token)
     {
-        var envelope = new MessageEnvelope(MessageBusTopic.DeviceStatus, status);
-        return  PublishAsync(MessageBusTopic.DeviceStatus.ToString(), envelope);
+        var envelope = new MessageEnvelope(new MessageBusTopic(MessageBusTopic.DeviceStatus.ToString()), status);
+        return PublishAsync(MessageBusTopic.DeviceStatus.ToString(), envelope, token);
+    }
+
+    public int GetListenerCount(string topic)
+    {
+        int count = _globalSubscribers.Count;
+        if (_subscriptions.TryGetValue(topic, out var handlers))
+        {
+            count += handlers.Count;
+        }
+
+        return count;
     }
 }

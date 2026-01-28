@@ -4,25 +4,26 @@ using DeviceSpace.Common.Configurations;
 using DeviceSpace.Common.Contracts;
 using DeviceSpace.Common.Enums; // Ensure Enums are available for Machine.State
 using Serilog;
+using Serilog.Core;
 using Stateless;
 
 namespace DeviceSpace.Common.BaseClasses;
 
-public class TcpClientDeviceBase : ClientDeviceBase
+public abstract class TcpClientDeviceBase : ClientDeviceBase
 {
     private TcpClient? _tcpClient;
-    private readonly string _host;
+    private readonly string? _host;
     private readonly int _port;
     private NetworkStream? TransportStream { get; set; }
 
-    public TcpClientDeviceBase(IDeviceConfig config, ILogger logger)
-        : base(config, logger)
+    public TcpClientDeviceBase(IDeviceConfig config, ILogger logger, LoggingLevelSwitch ls, bool needsHb = false)
+        : base(config, logger, ls, needsHb)
     {
         _host = ConfigurationLoader.GetRequiredConfig<string>(config.Properties, "IPAddress");
         _port = ConfigurationLoader.GetRequiredConfig<int>(config.Properties, "Port");
     }
 
-    protected override async void DeviceFaultedAsync()
+    protected override async void OnDeviceFaultedAsync(CancellationToken token = default)
     {
         Logger.Error("[{Dev}] Device Faulted. Closing TCP connection to {Host}:{Port}", Config.Name, _host, _port);
         try
@@ -35,7 +36,7 @@ public class TcpClientDeviceBase : ClientDeviceBase
         }
     }
 
-    protected override async Task ConnectAsync()
+    protected override async Task ConnectAsync(CancellationToken ct = default)
     {
         try
         {
@@ -71,8 +72,9 @@ public class TcpClientDeviceBase : ClientDeviceBase
         {
             // When connected, show WHO connected and WHERE (IP and Port)
             contextComment = $"Connected: {_host} port {_port}";
+            
         }
-        else if (transition.Destination == State.Connecting || transition.Destination == State.Reconnect)
+        else if (transition.Destination == State.Connecting || transition.Destination == State.ServerOffline)
         {
             contextComment = $" {_host} port {_port}";
         }
@@ -85,19 +87,16 @@ public class TcpClientDeviceBase : ClientDeviceBase
             transition.Destination,
             transition.Trigger,
             MapStateToHealth(transition.Destination),
-            -1,
             contextComment);
 
         UpdateAndNotify();
     }
 
      
-    protected override Task HandleReceivedDataAsync(byte[] buffer, int bytesRead, CancellationToken ct)
-    {
-        // Must be implemented by VirtualPlcDevice or BrandZebra
-        return Task.CompletedTask;
-    }
-
+    
+    /// <summary>
+    /// Close the TCP connection and dispose of the underlying resources.
+    /// </summary>
     protected async Task CloseConnectionAsync()
     {
         Logger.Debug("[{Dev}] Closing TCP resources.", Config.Name);
@@ -109,6 +108,11 @@ public class TcpClientDeviceBase : ClientDeviceBase
         }
     }
 
+    /// <summary>
+    /// Detects if the remote side (PLC/Printer) closed the connection gracefully.
+    /// </summary>
+    /// <param name="client"></param>
+    /// <returns></returns>
     private bool CheckTcpConnection(TcpClient? client)
     {
         if (client == null || !client.Connected)
@@ -122,6 +126,7 @@ public class TcpClientDeviceBase : ClientDeviceBase
                 byte[] buff = new byte[1];
                 if (client.Client.Receive(buff, SocketFlags.Peek) == 0)
                 {
+                    Tracker.IncrementDisconnects();
                     Logger.Warning("[{Dev}] Peer closed the connection (Zero-byte receive).", Config.Name);
                     return false;
                 }
@@ -136,6 +141,9 @@ public class TcpClientDeviceBase : ClientDeviceBase
         return true;
     }
 
+    /// <summary>
+    /// Returns true if the device is connected and the TCP connection is active.
+    /// </summary>
     public bool IsConnected
     {
         get
@@ -147,7 +155,29 @@ public class TcpClientDeviceBase : ClientDeviceBase
         }
     }
 
-    protected async Task ReadLoopAsync(CancellationToken ct)
+    /// <summary>
+    ///    
+    /// </summary>
+    /// <param name="incomingData"></param>
+    /// <returns></returns>
+    protected abstract Task HandleReceivedDataAsync(string incomingData);
+
+
+    /// <summary>
+    /// Override this method to detect heartbeat messages.
+    /// </summary>
+    /// <param name="incomingData"></param>
+    /// <returns></returns>
+    protected virtual bool IsHeartbeat(string incomingData)
+    {
+        return false;
+    }
+    
+    /// <summary>
+    /// Read loop for the TCP connection.
+    /// </summary>
+    /// <param name="ct"></param>
+    private async Task ReadLoopAsync(CancellationToken ct)
     {
         var buffer = new byte[8192];
         Logger.Debug("[{Dev}] Starting Read Loop.", Config.Name);
@@ -158,20 +188,22 @@ public class TcpClientDeviceBase : ClientDeviceBase
             while (!ct.IsCancellationRequested && IsConnected)
             {
                 if (TransportStream == null) break;
-
                 int bytesRead = await TransportStream.ReadAsync(buffer, 0, buffer.Length, ct);
-
                 if (bytesRead == 0)
                 {
                     Logger.Warning("[{Dev}] Read zero bytes. Peer has disconnected.", Config.Name);
                     break;
                 }
-
                 Logger.Verbose("[{Dev}] RX RAW >> {Bytes} bytes", Config.Name, bytesRead);
-                await Machine.FireAsync(Event.DataReceived);
-
-                Tracker.IncrementInbound();
-                await HandleReceivedDataAsync(buffer, bytesRead, ct);
+                string incomingData = Encoding.ASCII.GetString(buffer, 0, bytesRead);
+               // Immediate Check: If it's a heartbeat, return true/exit immediately
+               if (IsHeartbeat(incomingData))
+               {
+                   NotifyHeartbeatReceived("", "");
+                    continue; 
+               }
+                await HandleReceivedDataAsync(incomingData);
+                await Machine.FireAsync(Event.MessageReceived);
             }
         }
         catch (Exception ex)
@@ -186,7 +218,13 @@ public class TcpClientDeviceBase : ClientDeviceBase
         }
     }
 
-    public async Task SendAsync(string data)
+    /// <summary>
+    /// Send a message over the TCP connection.
+    /// </summary>
+    /// <param name="message"></param>
+    /// <param name="token"></param>
+    /// <param name="fireEvent"></param>
+     public override async Task SendAsync(string message, CancellationToken token, bool fireEvent = true)
     {
         if (!IsConnected || TransportStream == null)
         {
@@ -196,12 +234,15 @@ public class TcpClientDeviceBase : ClientDeviceBase
 
         try
         {
-            byte[] buffer = Encoding.ASCII.GetBytes(data);
+            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(token);
+            timeoutCts.CancelAfter(TimeSpan.FromSeconds(2));
+            byte[] buffer = Encoding.ASCII.GetBytes(message);
             await TransportStream.WriteAsync(buffer, 0, buffer.Length);
             await TransportStream.FlushAsync();
 
-            Logger.Verbose("[{Dev}] TX RAW << {Data}", Config.Name, data.Trim());
-            await Machine.FireAsync(Event.MessageSent);
+            Logger.Verbose("[{Dev}] TX RAW << {Data}", Config.Name, message.Trim());
+            if(fireEvent)
+                 _ = Machine.FireAsync(Event.MessageSent);
         }
         catch (Exception ex)
         {
@@ -211,5 +252,27 @@ public class TcpClientDeviceBase : ClientDeviceBase
         }
     }
 
+    /// <summary>
+    /// Returns the underlying NetworkStream for the TCP connection.
+    /// </summary>
+    /// <returns></returns>
     protected NetworkStream? GetStream() => TransportStream;
+
+    /// <summary>
+    /// Override this method to return the heartbeat message.
+    /// </summary>
+    /// <returns></returns>
+    protected abstract string GetHeartbeatMessage();
+    
+    /// <summary>
+    /// Override this method to send the heartbeat message.
+    /// </summary>
+    /// <param name="token"></param>
+    /// <returns></returns>
+    public override Task SendHeartbeatAsync( CancellationToken token = default)
+    {
+            _ = SendAsync(GetHeartbeatMessage(), token, false);
+            Logger.Verbose("[{Dev}] Heartbeat sent.*********", Config.Name);
+            return Task.CompletedTask; 
+    }
 }
