@@ -41,10 +41,9 @@ public class DiagnosticDevice
             _listener.Start();
             _isRunning = true;
             Task.Run(AcceptClientsAsync);
-            var stat = new DeviceStatusMessage(new DeviceKey("SYS","DiagServer"), "Online", DeviceHealth.Normal, 
-                        $"Started on port {_port}.",0,0,0,0);
+           
             
-            _messageBus.PublishStatusAsync("DiagnosticServer", stat);
+            // _messageBus.PublishStatusAsync("DiagnosticServer", stat);
         }
         catch (Exception ex)
         {
@@ -107,10 +106,10 @@ public class DiagnosticDevice
         }
         catch (Exception e)
         {
-            var stat = new DeviceStatusMessage(new DeviceKey("SYS","DiagServer"), "Online", DeviceHealth.Normal, 
-                $"Internal error - reconnect to {_port}.",0,0,0,0);
+          //  var stat = new DeviceStatusMessage(new DeviceKey("SYS","DiagServer"), "Online", DeviceHealth.Normal, 
+           //     $"Internal error - reconnect to {_port}.",0,0,0,0);
             
-            await _messageBus.PublishStatusAsync("DiagnosticServer", stat);
+            // await _messageBus.PublishStatusAsync("DiagnosticServer", stat);
         }
         finally
         {

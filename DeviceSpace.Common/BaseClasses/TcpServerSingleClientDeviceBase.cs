@@ -1,9 +1,5 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Net.Sockets;
+﻿using System.Net.Sockets;
 using System.Text;
-using System.Threading;
-using System.Threading.Tasks;
 using System.Timers;
 using DeviceSpace.Common.Contracts;
 using DeviceSpace.Common.Enums;
@@ -12,7 +8,7 @@ using ILogger = Serilog.ILogger;
 namespace DeviceSpace.Common.BaseClasses;
 
 public abstract class TcpServerSingleClientDeviceBase<TProcessor>
-    : DeviceBase<TcpServerSingleClientDeviceBase<TProcessor>.State, TcpServerSingleClientDeviceBase<TProcessor>.Event>
+    : DeviceBase<TcpServerSingleClientDeviceBase<TProcessor>.State, TcpServerSingleClientDeviceBase<TProcessor>.Event, DeviceMetric>
     where TProcessor : IMessageProcessor
 {
     #region Enums
@@ -68,7 +64,7 @@ public abstract class TcpServerSingleClientDeviceBase<TProcessor>
 
         HeartbeatTimeoutMs = config.Properties.TryGetValue("HeartbeatTimeoutMs", out var ms)
             ? Convert.ToInt32(ms)
-            : 10000;
+            : 30000;
 
         Watchdog = new System.Timers.Timer(1000) { AutoReset = true };
         Watchdog.Elapsed += OnWatchdogScan;

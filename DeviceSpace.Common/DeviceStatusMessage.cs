@@ -1,9 +1,8 @@
-﻿using System;
+﻿using System.Collections.ObjectModel;
+using System.Text.Json;
 using DeviceSpace.Common.BaseClasses;
 using DeviceSpace.Common.Contracts;
 using DeviceSpace.Common.Enums;
-
-namespace DeviceSpace.Common;
 
 public record DeviceStatusMessage : DeviceMessageBase, IDeviceStatus
 {
@@ -12,16 +11,36 @@ public record DeviceStatusMessage : DeviceMessageBase, IDeviceStatus
     public string State { get; init; }
     public DeviceHealth Health { get; init; }
     public string Comment { get; init; }
+    
+    // --- Standard Metrics (Keep for UI Compatibility) ---
     public int CountInbound { get; init; }
     public int CountOutbound { get; init; }
     public int CountConnections { get; init; }
+    public int CountDisconnects { get; init; }
     public int CountError { get; init; }
-    public double AvgProcessTime { get; set; }
-    
-    public char HbVisual { get; set;}
+    public double AvgProcessTime { get; set; } // Changed to init and double
+    public char HbVisual { get; init; }
 
-    public DeviceStatusMessage(IDeviceKey deviceId, string state, DeviceHealth health, string comment,
-        int countInbound, int countOutbound, int countWarning, int countError, int avgProcessTime = 0, char hb = ' ')
+    // --- NEW: Dynamic Metrics Dictionary ---
+    // This allows the UI to display any new enum-based metrics automatically
+    public IReadOnlyDictionary<string, long> Metrics { get; init; }
+
+    /// <summary>
+    /// Primary constructor used by the DeviceStatusTracker.
+    /// </summary>
+    public DeviceStatusMessage(
+        IDeviceKey deviceId, 
+        string state, 
+        DeviceHealth health, 
+        string comment,
+        int countInbound, 
+        int countOutbound, 
+        int countConnections, 
+        int countDisconnects, 
+        int countError, 
+        double avgProcessTime, 
+        char hb,
+        IDictionary<string, long>? extraMetrics = null) 
     {
         DeviceId = deviceId;
         Timestamp = DateTime.UtcNow;
@@ -30,41 +49,29 @@ public record DeviceStatusMessage : DeviceMessageBase, IDeviceStatus
         Comment = comment;
         CountInbound = countInbound;
         CountOutbound = countOutbound;
-        CountConnections = countWarning;
+        CountConnections = countConnections;
+        CountDisconnects = countDisconnects;
         CountError = countError;
         AvgProcessTime = avgProcessTime;
         HbVisual = hb;
-    }
-
-  
-    public DeviceStatusMessage(DeviceKey managerKey, string state, DeviceHealth health, string comment, 
-        int countInbound, int countOutbound, int countWarning, int countError, double avgProcessTime, char hb = ' ')
-    {
         
-        DeviceId = managerKey;
-        Timestamp = DateTime.UtcNow;
-        State = state;
-        Health = health;
-        Comment = comment;
-        CountInbound = countInbound;
-        CountOutbound = countOutbound;
-        CountConnections = countWarning;
-        CountError = countError;
-        AvgProcessTime = (int)avgProcessTime;
-        HbVisual = hb;
+        // Wrap the dictionary in a ReadOnly collection for the record
+        Metrics = new ReadOnlyDictionary<string, long>(extraMetrics ?? new Dictionary<string, long>());
     }
 
     public string GetShortStatusJson()
     {
-        int totalMessages = CountInbound + CountOutbound;
-        bool showComment = Health == DeviceHealth.Error || Health == DeviceHealth.Critical;
-
-        return $$"""
+        // Now includes dynamic metrics in the JSON output
+        var options = new JsonSerializerOptions { WriteIndented = true };
+        var shortObj = new
         {
-            "deviceId": "{{DeviceId}}",
-            "health": "{{Health}}",
-            "messageCount": {{totalMessages}}{{ (showComment ? $",\n    \"comment\": \"{Comment}\"" : "") }}
-        }
-        """;
+            deviceId = DeviceId.ToString(),
+            health = Health.ToString(),
+            state = State,
+            mainMetrics = new { In = CountInbound, Out = CountOutbound, Err = CountError },
+            customMetrics = Metrics // All your Enum-based metrics appear here!
+        };
+
+        return JsonSerializer.Serialize(shortObj, options);
     }
 }

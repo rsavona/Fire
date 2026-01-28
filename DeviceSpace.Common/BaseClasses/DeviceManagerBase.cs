@@ -18,7 +18,7 @@ public abstract class DeviceManagerBase<TDevice> : BackgroundService, IDeviceMan
     protected readonly ILogger<DeviceManagerBase<TDevice>> Logger;
     protected readonly List<TDevice> DeviceInstances = new();
 
-    protected readonly Func<IDeviceConfig, Serilog.ILogger, TDevice> _deviceFactory;
+    protected Func<IDeviceConfig, Serilog.ILogger, TDevice> DeviceFactory;
 
     /// <summary>
     /// Constructor.
@@ -33,7 +33,7 @@ public abstract class DeviceManagerBase<TDevice> : BackgroundService, IDeviceMan
         MessageBus = bus;
         Logger = logger;
         DeviceConfigList = configs ?? new List<IDeviceConfig>();
-        _deviceFactory = deviceFactory;
+        DeviceFactory = deviceFactory;
     }
 
     /// <summary>
@@ -47,8 +47,10 @@ public abstract class DeviceManagerBase<TDevice> : BackgroundService, IDeviceMan
         // for each device in the config that this mmanager is responsible for
         foreach (var config in DeviceConfigList.Where(c => c.Enable))
         {
-            var device = _deviceFactory(config, Serilog.Log.Logger);
+           
+            var device = DeviceFactory(config, Log.Logger);
             DeviceInstances.Add(device);
+           
             try
             {
                 // message handler for all external communication (not from the message bus) coming into the device 
@@ -59,14 +61,14 @@ public abstract class DeviceManagerBase<TDevice> : BackgroundService, IDeviceMan
                 }
                 // staus update handler
                 device.StatusUpdated += OnDeviceStatusUpdated;
-                // handlers for device specific functionality
-                RegisterDeviceHandlers(device);
-                // register all workflow routes
-                RegisterWorkflowSubscriptions(device);
+               
                 // announce presence to the Diag Server
                 if (device is IDiagnosticProvider diagProvider)
                     await AnnouncePresenceAsync((IDevice)diagProvider);
                 await device.StartAsync(stoppingToken);
+
+                SubscribeToRouteDestinations(device);
+                RegisterRouteSources(device);
             }
             catch (Exception ex)
             {
@@ -120,25 +122,26 @@ public abstract class DeviceManagerBase<TDevice> : BackgroundService, IDeviceMan
     protected virtual Task<TDevice> CreateDeviceAsync(IDeviceConfig config)
     {
        var deviceLogger = Log.ForContext("DeviceName", config.Name);
-       var device = _deviceFactory(config, deviceLogger);
+       var device = DeviceFactory(config, deviceLogger);
        return Task.FromResult(device);
     }
 
     /// abstract methods
-    protected abstract void RegisterDeviceHandlers(TDevice device);
+    protected virtual void RegisterRouteSources(IDevice device)
+    {
+    }
 
     protected abstract void OnDeviceMessageReceivedAsync(object? sender, object messageEnv);
 
-    protected abstract Task HandleBusMessageAsync(TDevice device, string routeSource, string routeDest,
+    protected abstract Task HandleBusMessageAsync(IDevice device, string routeSource, string routeDest,
         MessageEnvelope envelope,
         CancellationToken ct);
 
     /// <summary>
-    /// Register all Workflow Route Destinations
-    /// where the topic starts with the Device Name.
+    /// Registers all workflow routes where the destination of the route is equal to the device name.
     /// </summary>
     /// <param name="device"></param>
-    private void RegisterWorkflowSubscriptions(TDevice device)
+    protected virtual void SubscribeToRouteDestinations(IDevice device)
     {
         var workflows = ConfigurationLoader.GetAllWorkflowConfig();
         foreach (var workflow in workflows)
@@ -148,15 +151,21 @@ public abstract class DeviceManagerBase<TDevice> : BackgroundService, IDeviceMan
                 if (route.Destination.StartsWith(device.Config.Name))
                 {
                     Logger.LogDebug("[{Dev}] Subscribing to {Route}", device.Config.Name, route.Destination);
-                    MessageBus.SubscribeAsync(route.Destination,
-                        (msg, ct) =>
-                            HandleBusMessageAsync(device, route.Source, route.Destination.ToString(), msg, ct));
+                    MessageBus.SubscribeAsync(route.Destination, async (MessageEnvelope msg) =>
+                    {
+                        await HandleBusMessageAsync(
+                            device, 
+                            route.Source, 
+                            route.Destination.ToString(), 
+                            msg, 
+                            CancellationToken.None);
+                    });
                 }
             }
         }
     }
     
-    public virtual async Task StopAsync(CancellationToken cancellationToken)
+    public override async Task StopAsync(CancellationToken cancellationToken)
     {
         foreach (var device in DeviceInstances)
         {

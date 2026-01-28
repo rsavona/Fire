@@ -1,5 +1,6 @@
 ﻿using System.Diagnostics;
-using Device.Connector.Plc;
+using Device.Plc.Suite;
+using Device.Plc.Suite.Connector;
 using DeviceSpace.Common.Contracts;
 using DeviceSpace.Common.Enums;
 using FluentAssertions;
@@ -34,7 +35,7 @@ public class PlcMultiClientDeviceTests : IDisposable
     public void Constructor_ShouldInitializeToOfflineState()
     {
         // Act
-        var device = new PlcMultiClientDevice(_mockConfig.Object, _mockLogger.Object);
+        var device = new PlcServerDevice(_mockConfig.Object, _mockLogger.Object);
 
         // Assert
         device.CurrentStateAsString.Should().Be("Offline");
@@ -44,7 +45,7 @@ public class PlcMultiClientDeviceTests : IDisposable
     public async Task StartAsync_ShouldTransitionToStarting()
     {
         // Arrange
-        var device = new PlcMultiClientDevice(_mockConfig.Object, _mockLogger.Object);
+        var device = new PlcServerDevice(_mockConfig.Object, _mockLogger.Object);
 
         // Act
         await device.StartAsync(_cts.Token);
@@ -55,17 +56,17 @@ public class PlcMultiClientDeviceTests : IDisposable
     }
 
     [Theory]
-    [InlineData(PlcMultiClientDevice.State.Connected, DeviceHealth.Normal)]
-    [InlineData(PlcMultiClientDevice.State.Listening, DeviceHealth.Normal)]
-    [InlineData(PlcMultiClientDevice.State.Faulted, DeviceHealth.Critical)]
-    [InlineData(PlcMultiClientDevice.State.Offline, DeviceHealth.Warning)]
-    public void MapStateToHealth_ShouldAlignWithFireAmStandards(PlcMultiClientDevice.State state, DeviceHealth expectedHealth)
+    [InlineData(PlcServerDevice.State.Connected, DeviceHealth.Normal)]
+    [InlineData(PlcServerDevice.State.Listening, DeviceHealth.Normal)]
+    [InlineData(PlcServerDevice.State.Faulted, DeviceHealth.Critical)]
+    [InlineData(PlcServerDevice.State.Offline, DeviceHealth.Warning)]
+    public void MapStateToHealth_ShouldAlignWithFireAmStandards(PlcServerDevice.State state, DeviceHealth expectedHealth)
     {
         // Arrange
-        var device = new PlcMultiClientDevice(_mockConfig.Object, _mockLogger.Object);
+        var device = new PlcServerDevice(_mockConfig.Object, _mockLogger.Object);
         
         // Use reflection to test the protected MapStateToHealth method
-        var method = typeof(PlcMultiClientDevice).GetMethod("MapStateToHealth", 
+        var method = typeof(PlcServerDevice).GetMethod("MapStateToHealth", 
             System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
 
         // Act
@@ -81,7 +82,7 @@ public class PlcMultiClientDeviceTests : IDisposable
     public async Task SendResponseAsync_ShouldLogWarning_WhenClientIsDisconnected()
     {
         // Arrange
-        var device = new PlcMultiClientDevice(_mockConfig.Object, _mockLogger.Object);
+        var device = new PlcServerDevice(_mockConfig.Object, _mockLogger.Object);
         string fakeClient = "non-existent-client";
 
         // Act

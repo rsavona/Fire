@@ -1,14 +1,16 @@
 ﻿using DeviceSpace.Common.Contracts;
 using DeviceSpace.Common.Enums;
 using Serilog;
+using Serilog.Context;
 using Stateless;
 using Stateless.Graph;
 
 namespace DeviceSpace.Common.BaseClasses;
 
-public abstract class DeviceBase<TState, TEvent> : IDevice, IDiagnosticProvider
-    where TState : Enum
-    where TEvent : Enum
+public abstract class DeviceBase<TState, TEvent, TMetric> : IDevice, IDiagnosticProvider
+    where TState : struct, Enum
+    where TEvent : struct, Enum
+    where TMetric : struct, Enum
 {
     // --- Core Dependencies ---
     protected readonly StateMachine<TState, TEvent> Machine;
@@ -16,11 +18,14 @@ public abstract class DeviceBase<TState, TEvent> : IDevice, IDiagnosticProvider
     protected readonly DeviceStatusTracker<TState, TEvent> Tracker;
     protected readonly ILogger Logger;
 
+    public bool NeedsHeartbeat { get; set; }
+    private bool _disposed = false;
+
     // --- IDevice Properties ---
     public string CurrentStateAsString => Machine.State.ToString();
     public DeviceKey Key { get; }
     public event Action<IDevice, IDeviceStatus>? StatusUpdated;
-
+    public event Action<IDevice>? DeviceReady;
     // --- Abstract Methods ---
     protected abstract void ConfigureStateMachine();
     public abstract Task StartAsync(CancellationToken token);
@@ -37,7 +42,9 @@ public abstract class DeviceBase<TState, TEvent> : IDevice, IDiagnosticProvider
     protected DeviceBase(IDeviceConfig config, ILogger logger, TState statDef, TEvent eventDef)
     {
         Config = config;
-        Logger = logger;
+        Logger = logger.ForContext("DeviceName", config.Name);
+
+
         Key = new DeviceKey("SYS", config.Name);
         Tracker = new DeviceStatusTracker<TState, TEvent>(statDef, eventDef);
 
@@ -51,10 +58,12 @@ public abstract class DeviceBase<TState, TEvent> : IDevice, IDiagnosticProvider
 
     public string GetDeviceVersion()
     {
+  
         // Pulls the version from the actual DLL (e.g., 2.5.0.0)
         return GetType().Assembly.GetName().Version?.ToString() ?? "0.0.0";
     }
 
+   
     protected virtual void ConfigureGlobalErrorHandling(TEvent errorTrigger)
     {
         Machine.OnUnhandledTrigger((state, trigger) =>
@@ -89,11 +98,13 @@ public abstract class DeviceBase<TState, TEvent> : IDevice, IDiagnosticProvider
     /// </summary>
     protected virtual void OnStateChange(StateMachine<TState, TEvent>.Transition transition)
     {
-        // LOGGING: extensive info on every state change
-        Logger.Debug("[{Device}] Transition:{Source} -> {Dest} (Trigger: {Trigger})",
-            Config.Name, transition.Source, transition.Destination, transition.Trigger);
+        using (LogContext.PushProperty("DeviceName", Config.Name))
 
-        Tracker.Update(transition.Destination, transition.Trigger, MapStateToHealth(transition.Destination), -1,
+            // LOGGING: extensive info on every state change
+            Logger.Debug("[{Device}] Transition:{Source} -> {Dest} (Trigger: {Trigger})",
+                Config.Name, transition.Source, transition.Destination, transition.Trigger);
+
+        Tracker.Update(transition.Destination, transition.Trigger, MapStateToHealth(transition.Destination),
             $"Event: {transition.Trigger}");
         StatusUpdated?.Invoke(this, CreateStatusSnapshot());
     }
@@ -107,12 +118,8 @@ public abstract class DeviceBase<TState, TEvent> : IDevice, IDiagnosticProvider
     /// </param>
     protected void UpdateAndNotify(bool log = true)
     {
-        if (log)
-        {
-            Logger.Verbose("[{Dev}] Stats: In={In}, Out={Out}, Err={Err}",
-                Config.Name, Tracker.CountInbound, Tracker.CountOutbound, Tracker.CountError);
-        }
-
+        Logger.Verbose("[{Dev}] Stats: In={In}, Out={Out}, Err={Err}",
+            Config.Name, Tracker.CountInbound, Tracker.CountOutbound, Tracker.CountError);
         StatusUpdated?.Invoke(this, CreateStatusSnapshot());
     }
 
@@ -145,13 +152,9 @@ public abstract class DeviceBase<TState, TEvent> : IDevice, IDiagnosticProvider
     /// <returns>A representation of the current device status as an <see cref="IDeviceStatus"/> object.</returns>
     public IDeviceStatus CreateStatusSnapshot()
     {
-        return new DeviceStatusMessage(this.Key, Tracker.State.ToString(),
-            Tracker.Health, Tracker.Comments, Tracker.CountInbound, Tracker.CountOutbound,
-            Tracker.CountConnections, Tracker.CountError, Tracker.AvgProcessTime, Tracker.GetHeartBeatVisual());
+        return Tracker.ToStatusMessage(this.Key);
     }
 
-
-    private bool _disposed = false;
 
     /// <summary>
     /// Disposes the resources used by the instance.
@@ -218,40 +221,45 @@ public abstract class DeviceBase<TState, TEvent> : IDevice, IDiagnosticProvider
     /// </summary>
     protected void UpdateTracker(TState newState, TEvent lastEvent, DeviceHealth health, string message)
     {
-        switch (health)
+        using (LogContext.PushProperty("DeviceName", Config.Name))
         {
-            case DeviceHealth.Critical:
-            case DeviceHealth.Error:
-                Logger.Error("[{Device}] CRITICAL UPDATE: State={State} | {Msg}", Config.Name, newState, message);
-                break;
+            switch (health)
+            {
+                case DeviceHealth.Critical:
+                case DeviceHealth.Error:
+                    Logger.Error("[{Device}] CRITICAL UPDATE: State={State} | {Msg}", Config.Name, newState, message);
+                    break;
 
-            case DeviceHealth.Warning:
-                Logger.Warning("[{Device}] WARNING: State={State} | {Msg}", Config.Name, newState, message);
-                break;
+                case DeviceHealth.Warning:
+                    Logger.Warning("[{Device}] WARNING: State={State} | {Msg}", Config.Name, newState, message);
+                    break;
 
-            default:
-                // For normal operations, use Debug to keep logs clean, or Info if it's a state change
-                // Since OnStateChange already logs transitions as Info, we can keep this as Debug 
-                // unless it's a specific status message update.
-                Logger.Debug("[{Device}] Status Update: State={State} | {Msg}", Config.Name, newState, message);
-                break;
+                default:
+                    // For normal operations, use Debug to keep logs clean, or Info if it's a state change
+                    // Since OnStateChange already logs transitions as Info, we can keep this as Debug 
+                    // unless it's a specific status message update.
+                    Logger.Debug("[{Device}] Status Update: State={State} | {Msg}", Config.Name, newState, message);
+                    break;
+            }
         }
     }
 
 
     public virtual void OnError(string context, Exception ex)
     {
-        Logger.Error(ex, "[{Dev}] Error in context: {Context}. Current State: {State}",
-            Config.Name, context, Machine.State);
-        Tracker.IncrementError(ex.Message);
-        UpdateAndNotify();
+        using (LogContext.PushProperty("DeviceName", Config.Name))
+        {
+            Logger.Error(ex, "[{Dev}] Error in context: {Context}. Current State: {State}",
+                Config.Name, context, Machine.State);
+            Tracker.IncrementError(ex.Message);
+            UpdateAndNotify();
+        }
     }
 
-
-    protected void UpdateStatus(TState state, TEvent evt, DeviceSpace.Common.Enums.DeviceHealth health, string comment)
+    protected void UpdateStatus(TState state, TEvent evt, DeviceHealth health, string comment)
     {
         // 1. Update the internal tracker
-        Tracker.Update(state, evt, health, -1, comment);
+        Tracker.Update(state, evt, health, comment);
 
         // 2. Create the snapshot
         var snapshot = Tracker.ToStatusMessage(Key);

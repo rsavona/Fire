@@ -23,6 +23,14 @@ public class PrintAndApplyFrc : WorkflowBase
     private List<string> _printTypes = [];
     private readonly Lock _lock = new Lock();
 
+    /// <summary>
+    /// Represents the PrintAndApplyFrc workflow class, responsible for managing
+    /// the printing and application of labels in a distribution or manufacturing system.
+    /// Extends the WorkflowBase class to provide specific implementations for handling
+    /// device status messages and coordinating label requests with printers.
+    /// Subscribes to device status messages and initializes the printer status store
+    /// upon instantiation.
+    /// </summary>
     public PrintAndApplyFrc(IMessageBus messageBus, WorkflowConfig config, ILogger logger)
         : base(messageBus, config, logger)
     {
@@ -52,7 +60,7 @@ public class PrintAndApplyFrc : WorkflowBase
 
         foreach (var dev in alldevices)
         {
-            if (dev is { Manager: "PrinterManager", Enable: true })
+            if (dev is { Manager: "PrintClientManager", Enable: true })
             {
                 var pType = ConfigurationLoader.GetOptionalConfig<string>(dev.Properties, "aSPrintType", "SHIPTOP");
                 var pInduct = ConfigurationLoader.GetRequiredConfig<string>(dev.Properties, "Induct");

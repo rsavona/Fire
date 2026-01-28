@@ -45,6 +45,10 @@
       </None>
     </ItemGroup>
 
+    <ItemGroup>
+      <Folder Include="Documentation\" />
+    </ItemGroup>
+
     <Target Name="CopyConfigAfterBuild" AfterTargets="Build">
         <Message Text="Copying DeviceSpace.json to Output folder..." Importance="high" />
         <Copy SourceFiles="$(ProjectDir)DeviceSpace.json"

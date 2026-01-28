@@ -17,18 +17,20 @@ namespace DeviceSpace.Core;
 
 public static class CoreServicesExtensions
 {
-    public static  LoggingLevelSwitch LevelSwitch = new LoggingLevelSwitch(LogEventLevel.Verbose);
+    public static LoggingLevelSwitch LevelSwitch = new LoggingLevelSwitch(LogEventLevel.Verbose);
 
     public static TBuilder AddCoreServices<TBuilder>(this TBuilder builder, string[]? args = null)
-    where TBuilder : IHostApplicationBuilder
+        where TBuilder : IHostApplicationBuilder
     {
         var baseFolderPath = AppContext.BaseDirectory;
-        if (args != null) 
+        var isFire = false;
+        if (args != null)
         {
+            isFire = true;
             var appconfig = ConfigurationLoader.InitConfig(args);
             var config = appconfig?.GetSection("AppSettings:DeviceSpace").Get<Common.Configurations.DeviceSpace>();
             var appName = config?.Name is { Length: > 0 } ? config.Name : "DeviceSpace.json";
-       
+
 
             if (config != null)
             {
@@ -44,7 +46,6 @@ public static class CoreServicesExtensions
 
             Log.Logger.FireLogInfo("SYSTEM", "STARTUP", "CORE", "FIRE", $"=== {appName} Starting ===");
 
-
             // Core Infrastructure
             builder.Services.AddSingleton(Log.Logger);
             builder.Services.AddSingleton(LevelSwitch);
@@ -52,10 +53,10 @@ public static class CoreServicesExtensions
             builder.Services.AddSingleton<DeviceManagerFactory>();
             builder.Services.AddSingleton<WorkflowFactory>();
             builder.Services.AddHostedService<DeviceSpaceCore>();
+        }
 
-        }    
-        LoadAvailableDeviceManagersFromDll(builder, baseFolderPath);
-        LoadAvailableWorkflowsFromDll(builder, baseFolderPath);
+        LoadAvailableDeviceManagersFromDll(builder, baseFolderPath, isFire);
+        LoadAvailableWorkflowsFromDll(builder, baseFolderPath, isFire);
         if (args != null)
         {
             LoadConfiguredDevices(builder);
@@ -65,7 +66,7 @@ public static class CoreServicesExtensions
         return builder;
     }
 
-  
+
     private static IHostApplicationBuilder LoadConfiguredDevices(IHostApplicationBuilder builder)
     {
         try
@@ -75,7 +76,7 @@ public static class CoreServicesExtensions
             // Check if configuration returned null before processing
             if (!allDevices.Any())
             {
-                Log.Logger.Warning("HOSTED", "LOAD", "CONFIG", "NONE", "No device configurations were found.");
+                Log.Logger.Error("HOSTED", "LOAD", "CONFIG", "NONE", "No device configurations were found.");
                 return builder;
             }
 
@@ -157,7 +158,8 @@ public static class CoreServicesExtensions
         return builder;
     }
 
-    private static IHostApplicationBuilder LoadAvailableWorkflowsFromDll(IHostApplicationBuilder builder, string baseFolderPath)
+    private static IHostApplicationBuilder LoadAvailableWorkflowsFromDll(IHostApplicationBuilder builder,
+        string baseFolderPath, bool fire)
     {
         var workflowList = new List<Type>();
         if (workflowList == null) throw new ArgumentNullException(nameof(workflowList));
@@ -180,7 +182,8 @@ public static class CoreServicesExtensions
                     }
 
                     workflowList.AddRange(foundWorkflows);
-                    //RegisterPlugins(builder, assembly);
+                    if (fire)
+                        RegisterPlugins(builder, assembly);
                 }
                 catch (Exception ex)
                 {
@@ -194,7 +197,8 @@ public static class CoreServicesExtensions
         return builder;
     }
 
-    private static IHostApplicationBuilder LoadAvailableDeviceManagersFromDll(IHostApplicationBuilder builder, string baseFolderPath)
+    private static IHostApplicationBuilder LoadAvailableDeviceManagersFromDll(IHostApplicationBuilder builder,
+        string baseFolderPath, bool fire)
     {
         var managerList = new List<Type>();
         if (managerList == null) throw new ArgumentNullException(nameof(managerList));
@@ -221,7 +225,8 @@ public static class CoreServicesExtensions
                     }
 
                     managerList.AddRange(managers);
-                    //RegisterPlugins(builder, assembly);
+                    if (fire)
+                        RegisterPlugins(builder, assembly);
                 }
                 catch (Exception ex)
                 {
@@ -248,7 +253,6 @@ public static class CoreServicesExtensions
                 {
                     registrar.RegisterServices(builder.Services);
                     // Using FireLogTrace style for internal DI discovery
-             
                 }
             }
             catch (Exception ex)
@@ -256,6 +260,7 @@ public static class CoreServicesExtensions
                 Log.Logger.FireLogError("PLUGINS", "ERROR", "REGISTRAR", type.Name, ex.Message);
             }
         }
+
         return builder;
     }
 
@@ -269,7 +274,7 @@ public static class CoreServicesExtensions
             .MinimumLevel.ControlledBy(LevelSwitch)
             .Enrich.FromLogContext()
 
-            // --- PIPELINE 1: Audit (Unchanged) ---
+            // --- PIPELINE 1: Audit ---
             .WriteTo.Logger(lc => lc
                 .Filter.ByIncludingOnly(evt => evt.Properties.ContainsKey("AuditLog"))
                 .WriteTo.Async(a => a.File(
@@ -277,7 +282,24 @@ public static class CoreServicesExtensions
                     $"logs/audit/{configName}_audit_.json",
                     rollingInterval: RollingInterval.Day)))
 
-            // --- PIPELINE 2: GIN-Specific Logging (ONLY if GIN exists) ---
+            // --- PIPELINE 2: Device-Specific Log Files ---
+            // This creates a separate file for each "DeviceName" pushed to the LogContext
+            .WriteTo.Logger(lc => lc
+                .Filter.ByIncludingOnly(evt => evt.Properties.ContainsKey("DeviceName"))
+                .WriteTo.Map(
+                    keyPropertyName: "DeviceName",
+                    defaultKey: "System",
+                    configure: (deviceName, wt) =>
+                    {
+                        wt.Async(a => a.File(
+                            path: $"logs/devices/{configName}_{deviceName}_.log",
+                            outputTemplate:
+                            "{Timestamp:yyyy-MM-dd HH:mm:ss.fff} [{Level:u3}] {Message:lj}{NewLine}{Exception}",
+                            rollingInterval: RollingInterval.Day,
+                            retainedFileCountLimit: 14));
+                    }))
+
+            // --- PIPELINE 3: GIN Tracking ---
             .WriteTo.Logger(lc => lc
                 // This is the key: Only proceed if the "GIN" property is present and has a value
                 .Filter.ByIncludingOnly(evt =>
@@ -294,9 +316,13 @@ public static class CoreServicesExtensions
                         retainedFileCountLimit: 7));
                 }))
 
-            // --- PIPELINE 3: General System Logs (Excluding Audit) ---
+
+            // --- PIPELINE 4: General System Logs ---
             .WriteTo.Logger(lc => lc
-                .Filter.ByExcluding(evt => evt.Properties.ContainsKey("AuditLog"))
+                .Filter.ByExcluding(evt =>
+                    evt.Properties.ContainsKey("AuditLog") ||
+                    evt.Properties.ContainsKey("GIN") ||
+                    evt.Properties.ContainsKey("DeviceName")) // Exclude device logs from main app log
                 .WriteTo.Async(a => a.File(
                     $"logs/app/{configName}_system_.log",
                     rollingInterval: RollingInterval.Day,

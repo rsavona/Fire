@@ -5,7 +5,8 @@ using DeviceTest.Common;
 using FluentAssertions;
 using Microsoft.Extensions.Logging;
 using Moq;
-using Xunit; // Added missing Xunit reference
+using Xunit;
+using ILogger = Serilog.ILogger; // Added missing Xunit reference
 
 namespace Device.Printer.Test;
 
@@ -15,7 +16,7 @@ public class TestablePrinterManager : PrinterManager
         IMessageBus bus, 
         List<IDeviceConfig> configs, 
         ILogger<DeviceManagerBase<IDevice>> logger,
-        Func<IDeviceConfig, Serilog.ILogger, IDevice> deviceFactory) 
+        Func<IDeviceConfig, ILogger, ITcpPrinter> deviceFactory) 
         : base(bus, configs, logger, deviceFactory) 
     {
     }
@@ -26,7 +27,7 @@ public class TestablePrinterManager : PrinterManager
 public class PrinterManagerTests : DeviceManagerTestBase<IDevice>
 {
     private readonly List<IDeviceConfig> _configs;
-    private readonly Func<IDeviceConfig, Serilog.ILogger, IDevice> _factory;
+    private readonly Func<IDeviceConfig, ILogger, ITcpPrinter> _factory;
 
     public PrinterManagerTests()
     {
@@ -48,7 +49,7 @@ public class PrinterManagerTests : DeviceManagerTestBase<IDevice>
         {
             var mockDevice = new Mock<IDevice>();
             mockDevice.SetupGet(d => d.Config).Returns(cfg);
-            return mockDevice.Object;
+            return (ITcpPrinter)mockDevice.Object;
         };
     }
 

@@ -10,7 +10,7 @@ using Stateless.Reflection;
 namespace DeviceSpace.Common.BaseClasses;
 
 public abstract class TcpServerMultiClientDeviceBase<TProcessor>
-    : DeviceBase<TcpServerMultiClientDeviceBase<TProcessor>.State, TcpServerMultiClientDeviceBase<TProcessor>.Event>
+    : DeviceBase<TcpServerMultiClientDeviceBase<TProcessor>.State, TcpServerMultiClientDeviceBase<TProcessor>.Event, DeviceMetric>
     where TProcessor : IMessageProcessor
 {
     public enum State
@@ -34,7 +34,6 @@ public abstract class TcpServerMultiClientDeviceBase<TProcessor>
         MessageSent,
         ClientConnected,
         ClientDisconnected,
-        ProcessingComplete,
         RecoverableError,
         FatalError
     }
@@ -63,9 +62,9 @@ public abstract class TcpServerMultiClientDeviceBase<TProcessor>
 
         HeartbeatTimeoutMs = config.Properties.TryGetValue("HeartbeatTimeoutMs", out var ms)
             ? Convert.ToInt32(ms)
-            : 10000;
+            : 30000;
 
-        Watchdog = new System.Timers.Timer(HeartbeatTimeoutMs / 2) { AutoReset = true };
+        Watchdog = new System.Timers.Timer(HeartbeatTimeoutMs ) { AutoReset = true };
         Watchdog.Elapsed += OnWatchdogScan;
 
         Server = new TcpServer(Port, Processor, logger);
@@ -109,8 +108,16 @@ public abstract class TcpServerMultiClientDeviceBase<TProcessor>
             // Dynamic check: Go to Listening ONLY if it was the last client
             .PermitDynamic(_clientDisconnectedTrigger, clientId => OnClientDisconnected(clientId))
             .Permit(Event.FatalError, State.Faulted)
-            .Ignore(Event.MessageReceived)
-            .Ignore(Event.MessageSent);
+            .InternalTransition(Event.MessageSent, () =>
+            {
+                Tracker.IncrementOutbound();
+                UpdateAndNotify();
+            })
+            .InternalTransition(Event.MessageReceived, () =>
+            {
+                Tracker.IncrementInbound();
+                UpdateAndNotify();
+            });
 
         Machine.Configure(State.Faulted)
             .OnEntry(OnEnterFaulted)
@@ -166,6 +173,7 @@ public abstract class TcpServerMultiClientDeviceBase<TProcessor>
         Logger.Information("[{Dev}] Client {Id} disconnected. Remaining: {Count}",
             Config.Name, clientId, ConnectedClients.Count);
         Tracker.SetConnectionCount(ConnectedClients.Count);
+        Tracker.IncrementDisconnects();
         UpdateAndNotify();
         return clientsRemaining ? State.Connected : State.Listening;
     }
@@ -173,7 +181,6 @@ public abstract class TcpServerMultiClientDeviceBase<TProcessor>
     private void OnEnterFaulted()
     {
         _ = Server.StopAsync(); // Fire and forget stop
-        UpdateAndNotify();
     }
 
     private async Task OnEnterStoppingAsync()
@@ -189,11 +196,11 @@ public abstract class TcpServerMultiClientDeviceBase<TProcessor>
         if (connected)
         {
              ConnectedClients.TryAdd(key, DateTime.UtcNow);
+             Tracker.SetConnectionCount(ConnectedClients.Count);
              Machine.Fire(Event.ClientConnected);
         }
         else
         {
-            // The logic for removal is handled inside OnClientDisconnected via the trigger
             Machine.Fire(_clientDisconnectedTrigger, key);
         }
     }
@@ -219,10 +226,11 @@ public abstract class TcpServerMultiClientDeviceBase<TProcessor>
 
         foreach (var client in ConnectedClients)
         {
+             Logger.Verbose("[{Dev}] {key}              Heartbeat: {clienttm} curTm: {now}  ", client.Key, Config.Name,  client.Value , now);
             if (now - client.Value > timeout)
             {
                 Logger.Warning("[{Dev}] Watchdog timeout: {Id}", Config.Name, client.Key);
-                Server.DisconnectClient(client.Key);
+               // Server.DisconnectClient(client.Key);
             }
         }
     }
@@ -267,7 +275,7 @@ public abstract class TcpServerMultiClientDeviceBase<TProcessor>
         {
             // Update the health and status in the tracker based on the NEW state
             Tracker.Update(  transition.Destination, transition.Trigger, MapStateToHealth(transition.Destination), 
-                ConnectedClients.Count,$"Event: {transition.Trigger}");
+                $"Event: {transition.Trigger}");
        
             Logger.Information("[{Dev}] Transition: {Source} -> {Destination} (Trigger: {Trigger})",
                 Config.Name, transition.Source, transition.Destination, transition.Trigger);

@@ -24,7 +24,7 @@
     </ItemGroup>
 
     <ItemGroup>
-      <ProjectReference Include="..\Device.Connector.Plc\Device.Connector.Plc.csproj" />
+      <ProjectReference Include="..\Device.Plc.Suite\Device.Plc.Suite.csproj" />
       <ProjectReference Include="..\DeviceSpace.Common\DeviceSpace.Common.csproj" />
       <ProjectReference Include="..\DeviceTest.Common\DeviceTest.Common.csproj" />
     </ItemGroup>

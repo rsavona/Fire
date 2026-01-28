@@ -1,93 +1,116 @@
-﻿using System;
-using System.Collections.Concurrent;
+﻿using System.Collections.Concurrent;
+using System.Collections.Immutable;
 using System.Diagnostics;
-using System.Linq;
-using System.Runtime.InteropServices.Java;
-using System.Threading;
-using Apache.NMS.ActiveMQ.State;
 using DeviceSpace.Common.Contracts;
 using DeviceSpace.Common.Enums;
 
 namespace DeviceSpace.Common;
-
 public sealed record DeviceStatusTracker<TState, TEvent> : IDeviceStatusTracker
-        where TState : Enum
-        where TEvent : Enum
+
+    where TState : struct, Enum
+    where TEvent : struct, Enum
+
 {
-    // --- 1. RESTORED COUNTERS (For Devices) ---
-    private int _inbound; 
-    private int _outbound;
-    private int _connections;
-    private int _error;
-    
-    // Last values for "Dirty Check"
-    private int _lastInbound; 
-    private int _lastOutbound;
-    private int _lastConnection;
-    private int _lastError;
+    private readonly ConcurrentDictionary<DeviceMetric, long> _metrics = new();
+    private ImmutableDictionary<DeviceMetric, long> _lastMetricsSnapshot = ImmutableDictionary<DeviceMetric, long>.Empty;
 
-    private char  HeartBeatVisual = ' '; 
 
-    // --- 2. THREAD-SAFE TIMING (Crash Fixed) ---
+
+    // --- High-Precision Timing ---
     private readonly ConcurrentQueue<double> _times = new();
     private readonly ConcurrentDictionary<long, long> _activeTimers = new();
-    
-    // --- Public Properties ---
+    private const int MAX_ROLLING_WINDOW = 100;
+
+    // --- Public Properties (Restored for Backward Compatibility) ---
+    public int CountInbound => (int)GetMetric(DeviceMetric.Inbound);
+    public int CountOutbound => (int)GetMetric(DeviceMetric.Outbound);
+    public int CountError => (int)GetMetric(DeviceMetric.Error);
+    public int CountConnections => (int)GetMetric(DeviceMetric.Conn);
+    public int CountDisconnects => (int)GetMetric(DeviceMetric.Disc);
+    public double AvgProcessTime => _times.IsEmpty ? 0.0 : _times.Average();
+
     public DeviceHealth Health { get; set; }
     public TState State { get; private set; }
     public TEvent Event { get; private set; }
+    
     public string Comments { get; private set; }
     
-    public int CountInbound => _inbound;
-    public int CountOutbound => _outbound;
-    public int CountError => _error;
-    public int CountConnections => _connections; 
-    
-    public char GetHeartBeatVisual() => HeartBeatVisual;
-    // SAFE AVERAGE: Returns 0 if no transactions have happened yet
-    public double AvgProcessTime => !_times.IsEmpty ? _times.Average() : 0.0;
+    private char _heartBeatVisual = ' ';
 
-    public DeviceStatusTracker(TState initialState, TEvent initialEvent)
+    public DeviceStatusTracker(
+        TState initialState,
+        TEvent initialEvent)
     {
-        Comments = "Starting up ....";
-        Health = DeviceHealth.Warning;
         State = initialState;
         Event = initialEvent;
+        Comments = "Starting up ....";
+        Health = DeviceHealth.Warning;
+        
+       
+        foreach (DeviceMetric metric in Enum.GetValues<DeviceMetric>())
+        {
+            _metrics[metric] = 0;
+        }
+
+        _lastMetricsSnapshot = _metrics.ToImmutableDictionary();
     }
 
-    // --- Transaction Logic ---
-    public void StartTransaction(long id)
+    // --- Metric Logic ---
+    public void Increment(DeviceMetric metric) => _metrics.AddOrUpdate(metric, 1, (_, val) => val + 1);
+
+    private long GetMetric(DeviceMetric? key)
     {
-        _activeTimers[id] = Stopwatch.GetTimestamp();
+        if (key.HasValue && _metrics.TryGetValue(key.Value, out var val)) return val;
+        return 0;
     }
 
-    public void HeartBeat()
+    // --- Increment Wrappers ---
+    public void IncrementInbound()
     {
-        HeartBeatVisual = HeartBeatVisual == 'H' ? 'B' : 'H';
+        Increment(DeviceMetric.Inbound);
     }
-    
- 
-    public TimeSpan? StopTransaction(long id)
+
+    public void IncrementOutbound()
+    {
+       Increment(DeviceMetric.Outbound);
+    }
+
+    public void IncrementConnections()
+    {
+       Increment(DeviceMetric.Conn);
+    }
+
+    public void IncrementDisconnects()
+    {
+       Increment(DeviceMetric.Disc);
+    }
+
+    public void IncrementError(string str)
+    {
+      Increment(DeviceMetric.Error);
+    }
+
+    // --- Transaction Timing Logic ---
+    public void StartTransaction(long id) => _activeTimers[id] = Stopwatch.GetTimestamp();
+
+    public void StopTransaction(long id)
     {
         if (_activeTimers.TryRemove(id, out long startTicks))
         {
-            var duration = Stopwatch.GetElapsedTime(startTicks);
-            _times.Enqueue(duration.TotalMilliseconds);
-            
-            // Rolling Window: Keep last 100 items to prevent memory leaks
-            while (_times.Count > 100) _times.TryDequeue(out _);
-            
-            return duration;
+            double duration = Stopwatch.GetElapsedTime(startTicks).TotalMilliseconds;
+            _times.Enqueue(duration);
+            while (_times.Count > MAX_ROLLING_WINDOW) _times.TryDequeue(out _);
         }
-        return null;
     }
 
-    public bool Update(TState newStatus, TEvent newEvent , DeviceHealth health, int connected ,  string newComments = "")
+    public void HeartBeat() => _heartBeatVisual = _heartBeatVisual == 'H' ? 'B' : 'H';
+
+    public bool Update(TState newStatus, TEvent newEvent, DeviceHealth health, string newComments = "")
     {
-        // Optimization: Don't update if nothing changed
-        if (State.Equals(newStatus) && Event.Equals(newEvent) && Comments == newComments && 
-            _inbound == _lastInbound && _lastOutbound == _outbound && 
-            _lastConnection == _connections && _lastError == _error && connected == _connections)
+        var currentMetrics = _metrics.ToImmutableDictionary();
+        bool metricsChanged = !currentMetrics.SequenceEqual(_lastMetricsSnapshot);
+
+        if (State.Equals(newStatus) && Event.Equals(newEvent) && Comments == newComments && !metricsChanged)
         {
             return false;
         }
@@ -96,61 +119,49 @@ public sealed record DeviceStatusTracker<TState, TEvent> : IDeviceStatusTracker
         Event = newEvent;
         Comments = newComments;
         Health = health;
-        if (connected > -1)
-            _connections = connected;
-        
-        _lastInbound = _inbound;
-        _lastError = _error;
-        _lastOutbound = _outbound;
-        _lastConnection = _connections;
-        
-        
+        _lastMetricsSnapshot = currentMetrics;
         return true;
-    }
-
-    public DeviceStatusMessage ToStatusMessage(DeviceKey key)
-    {
-        return new DeviceStatusMessage(
-            key, 
-            State.ToString(), 
-            Health, 
-            Comments,
-            CountInbound, 
-            CountOutbound, 
-            CountConnections, 
-            CountError,
-            AvgProcessTime,
-            HeartBeatVisual
-
-        );
-    }
-    
-    
-    public override string ToString()
-    {
-        return $"[{Health}] {State} - {Event}: {Comments}";
-    }
-
-    public void SetConnectionCount(int i)
-    {
-        Interlocked.Exchange(ref _connections, i);
-    }
-    
-    // --- Counter Methods (Devices use these, Managers ignore them) ---
-    public void IncrementInbound() => Interlocked.Increment(ref _inbound);
-    public void IncrementOutbound() => Interlocked.Increment(ref _outbound);
-    public void IncrementConnections() => Interlocked.Increment(ref _connections);
-    public void IncrementError(string str)
-    {
-        Interlocked.Increment(ref _error);
-        Comments = str;
     }
 
     public void ResetCounters()
     {
-        Interlocked.Exchange(ref _inbound, 0);
-        Interlocked.Exchange(ref _outbound, 0);
-        Interlocked.Exchange(ref _connections, 0);
-        Interlocked.Exchange(ref _error, 0);
+        foreach (var key in _metrics.Keys) _metrics[key] = 0;
+    }
+
+    public DeviceStatusMessage ToStatusMessage(DeviceKey key)
+    {
+        // 1. Convert Enum-based metrics to a string-keyed dictionary for the UI
+        // This allows the Blazor dashboard to display "PulsesReceived": 500 without knowing the Enum type
+        var extraMetrics = _metrics.ToDictionary(
+            kvp => kvp.Key.ToString(),
+            kvp => kvp.Value
+        );
+
+        // 2. Return the updated message record
+        return new DeviceStatusMessage(
+            deviceId: key,
+            state: State.ToString(),
+            health: Health,
+            comment: Comments,
+            countInbound: CountInbound,
+            countOutbound: CountOutbound,
+            countConnections: CountConnections,
+            countDisconnects: CountDisconnects,
+            countError: CountError,
+            avgProcessTime: AvgProcessTime,
+            hb: _heartBeatVisual,
+            extraMetrics: extraMetrics // Pass the dynamic metrics here
+        );
+    }
+
+    public char GetHeartBeatVisual()
+    {
+        return _heartBeatVisual;
+    }
+
+    public void SetConnectionCount(int connectedClientsCount)
+    { 
+        // Explicitly set the value for the connection metric
+        _metrics[DeviceMetric.Conn] = connectedClientsCount;
     }
 }

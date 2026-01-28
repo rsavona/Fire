@@ -1,5 +1,23 @@
 ﻿namespace DeviceSpace.Common;
 
+using System;
+
+/// <summary>
+/// Marks a method as an executable command for the Diagnostic Server.
+/// </summary>
+[AttributeUsage(AttributeTargets.Method)]
+public class DiagnosticCommandAttribute : Attribute
+{
+    public string DisplayName { get; }
+    public string Description { get; }
+
+    public DiagnosticCommandAttribute(string displayName, string description = "")
+    {
+        DisplayName = displayName;
+        Description = description;
+    }
+}
+
 
 public class DiagCommand
 {
@@ -54,6 +72,12 @@ public class DeviceAnnouncement
 
 public class DiagCommandInfo
 {
+    public DiagCommandInfo(string name, string description)
+    {
+        Name = name;
+        Description = description;
+    }
+
     public string Name { get; set; }            // e.g., "SIMULATE_PAPER_OUT"
     public string Description { get; set; }     // e.g., "Toggles paper sensor"
     public List<string> ParameterNames { get; set; } = new(); // e.g., ["active"]

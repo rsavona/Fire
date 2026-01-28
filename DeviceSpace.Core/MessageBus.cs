@@ -38,7 +38,7 @@ public class MessageBus : IMessageBus
     /// <param name="topic"></param>
     /// <param name="handler"></param>
     /// <exception cref="ArgumentNullException"></exception>
-    public Task<bool> SubscribeAsync(string topic, Func<MessageEnvelope, CancellationToken, Task> handler)
+    public Task<bool> SubscribeAsync(string topic, Delegate handler)
     {
         if (handler == null) throw new ArgumentNullException(nameof(handler));
         GetHandlersForTopic(topic).Add(handler);
@@ -145,7 +145,7 @@ public class MessageBus : IMessageBus
     /// <returns></returns>
     public Task PublishAsync(string topic, MessageEnvelope messageEnvelope, CancellationToken cancellationToken = default)
     {
-        _auditLogger.LogMessage(messageEnvelope.Payload, topic);
+        _auditLogger.LogMessage( messageEnvelope.Payload, topic);
         return DispatchMessageInternal(topic, messageEnvelope, cancellationToken);
     }
 

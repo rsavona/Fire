@@ -15,7 +15,9 @@ public abstract class WorkflowBase : BackgroundService
     public enum WorkflowState { Initializing, Active, ActiveWithErrors, Faulted, Stopped }
     public enum WorkflowEvent { Started, MessageProcessed, Error, Stopped }
 
+
     protected readonly IMessageBus MessageBus;
+    
     protected readonly WorkflowConfig Config;
     
     // Identity and Tracking
@@ -35,7 +37,7 @@ public abstract class WorkflowBase : BackgroundService
         Config = config;
         
         // Enrich the logger with the specific workflow name for better filtering in Rider/Logs
-        Logger = logger.ForContext("WorkflowName", Config.Name); 
+        Logger = logger.ForContext("DeviceName", Config.Name); 
         
         WorkflowKey = new DeviceKey("SYSTEM", Config.Name);
         Tracker = new DeviceStatusTracker<WorkflowState, WorkflowEvent>(WorkflowState.Initializing, WorkflowEvent.Started);
@@ -116,8 +118,9 @@ public abstract class WorkflowBase : BackgroundService
                 {
                     _subscribedSources.Add(route.Source);
                     await MessageBus.SubscribeAsync(route.Source, HandleIncomingMessageAsync);
-                    Logger.Information("[{Workflow}] Subscribed to topic: {Source}", WorkflowKey.DeviceName, route.Source);
+                    Logger.Information("[{Workflow}] Subscribed to topic: {Source} Handler: HandleIncomingMessageAsync", WorkflowKey.DeviceName, route.Source);
                 }
+                
                 successfulRoutes++;
             }
             catch (Exception ex)
@@ -129,7 +132,8 @@ public abstract class WorkflowBase : BackgroundService
                 UpdateStatus(WorkflowState.Faulted, WorkflowEvent.Error, DeviceHealth.Critical, $"Route Setup Failed: {ex.Message}");
             }
         }
-
+        
+        
         if (successfulRoutes == Config.Routes.Count )
         {
              Logger.Information( "[{Workflow}] All routes Initialized", 
@@ -140,6 +144,7 @@ public abstract class WorkflowBase : BackgroundService
         {
              Logger.Fatal("[{Workflow}] Some routes could be initialized. Workflow is effectively dead.", WorkflowKey.DeviceName);
         }
+        
     }
 
     private async Task HandleIncomingMessageAsync(MessageEnvelope? message, CancellationToken ct)
@@ -165,7 +170,9 @@ public abstract class WorkflowBase : BackgroundService
 
              if (!matchingRoutes.Any())
              {
-                 Logger.Debug("[{Workflow}] No route found for topic: {Topic}", WorkflowKey.DeviceName, message.Destination);
+                 var logmsg = $"No route found for topic: {message.Destination}";
+                 Tracker.IncrementError(logmsg);
+                 Logger.Warning("[{Workflow}] No route found for topic: {Topic}", WorkflowKey.DeviceName, message.Destination);
                  return;
              }
 
@@ -206,7 +213,7 @@ public abstract class WorkflowBase : BackgroundService
 
     protected void UpdateStatus(WorkflowState state, WorkflowEvent evt, DeviceHealth health, string comment)
     {
-        Tracker.Update(state, evt, health, -1, comment);
+        Tracker.Update(state, evt, health, comment);
         _ = PublishStatusAsync();
     }
 

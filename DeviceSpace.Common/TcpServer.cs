@@ -26,7 +26,6 @@ namespace DeviceSpace.Common
         // ---  EVENTS ---
         public event Action<TcpListenerState>? ListenerStateChanged;
         
-        // UPDATED: Now passes TcpClient? so the Manager can call GetStream()
         public event Action<string, bool, TcpClient?>? ClientConnectionChanged;
         public event Action<string, Exception>? ServerError;
 
@@ -153,7 +152,7 @@ namespace DeviceSpace.Common
 
                 while (client.Connected && !token.IsCancellationRequested)
                 {
-                    int bytesRead = await stream.ReadAsync(buffer, token);
+                    var bytesRead = await stream.ReadAsync(buffer, token);
                     
                     if (bytesRead == 0)
                     {
