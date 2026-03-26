@@ -5,7 +5,7 @@ namespace DeviceSpace.Common.Contracts;
 public interface IMessageProcessor
 {
     
-    public event Action<MessageEnvelope>? MessageReceived;
+    public event Action<object>? MessageReceived;
     
      public event Action<string>? OnMessageError;
      Task<bool> ProcessMessageAsync(
@@ -16,5 +16,5 @@ public interface IMessageProcessor
         CancellationToken token);
 
      public event Action<string> HeartbeatReceived;
-     public string HandleResponse(string deviceName, string payload);
+     public string HandleResponse(string deviceName, object payload);
 }

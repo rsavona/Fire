@@ -9,7 +9,7 @@ public class VirtualPlcRegistrar : IDeviceRegistrar
     {
         // Register the Factory Delegate
         // This is where VirtualPlcManager will actually create the device instances.
-        services.AddTransient<Func<IDeviceConfig, Serilog.ILogger, VirtualPlcDevice>>(provider => 
+        services.AddTransient<Func<IDeviceConfig, IFireLogger, VirtualPlcDevice>>(provider => 
             (config, logger) => 
             { 
               

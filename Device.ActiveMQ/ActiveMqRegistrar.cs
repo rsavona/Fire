@@ -10,7 +10,7 @@ public class ActiveMqRegistrar : IDeviceRegistrar
         // 1. Register the device type
         services.AddTransient<ActiveMqDevice>();
        
-        services.AddTransient<Func<IDeviceConfig, Serilog.ILogger, ActiveMqDevice>>(provider =>
+        services.AddTransient<Func<IDeviceConfig, IFireLogger, ActiveMqDevice>>(provider =>
             (config, logger) =>
             {
                 // Now it only needs config and logger

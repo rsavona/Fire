@@ -8,61 +8,73 @@
         {
           "Name": "PrintAndApplyFrc",
           "Type": "PrintAndApplyFrc",
-          "Enable": true,
+          "Enable": false,
           "Routes": [
             {
-              "Mode": 1,
+              "Mode": 0,
+              "Name": "Route1-InductRequestToResponse",
               "Source": "TPNA2.DReqM.PNALINE-2",
               "Handler": "HandlePrintersToUseAsync",
               "Destination": "TPNA2.DRespM.PNALINE-2"
             },
             {
               "Mode": 0,
+               "Name": "Route2-InductRequestToQueue",
               "Source": "TPNA2.DReqM.PNALINE-2",
               "Handler": "HandleLabelRequestToMqAsync",
               "Destination": "TBROKER.LabelRequestFrcMessage.AC.PNA.LABELREQUEST"
             },
             {
               "Mode": 0,
-              "Source": "TPNA2.DReq M.Verification",
-              "Handler": "HandleLabelRequestToMqAsync",
+              "Name": "Route3-VerifyRequestToQueue",
+              "Source": "TPNA2.DReqM.Verification",
+              "Handler": "HandleLabelVerificationToMqAsync",
               "Destination": "TBROKER.LabelVerifyFrcMessage.AC.PNA.LABELVERIFY"
             },{
               "Mode": 0,
+              "Name": "Route4-QueueToMemory",
               "Source": "TBROKER.LabelDataFrcMessage.AC.PNA.LABELDATA",
               "Handler": "HandleLabelToStorageAsync",
               "Destination": "PrintAndApplyFrc.LabelToPrint.Storage"
               
             },{
               "Mode": 0,
+              "Name": "Route5-PrintRequestToPrinter1",
               "Source": "TPNA2.DReqM.PNA2 152",
-              "Destination": "P001.LabelToPrint.",
+              "Destination": "P001.LabelToPrint.None",
               "Handler": "HandleBarcodeToPrinterAsync"
             },{
               "Mode": 0,
+              "Name": "Route6-PrintRequestToPrinter2",
               "Source": "TPNA2.DReqM.PNA2 153",
-              "Destination": "P002.LabelToPrint.",
+              "Destination": "P002.LabelToPrint.None",
               "Handler": "HandleBarcodeToPrinterAsync"
             },{
               "Mode": 0,
+              "Name": "Route7-PrintRequestToPrinter3",
               "Source": "TPNA2.DReqM.I001",
               "Handler": "HandleContentToPrinterAsync",
-              "Destination": "I001.LabelToPrint."
+              "Destination": "I001.LabelToPrint.None"
             },{
-              "Mode": 0,
+              "Mode": 1,
+              "Name": "Route8-PrintRequestToPrinter4",
               "Source": "TPNA2.DReqM.I002",
               "Handler": "HandleContentToPrinterAsync",
-               "Destination": "I002.LabelToPrint."
+              "Destination": "I002.LabelToPrint.None"
             }
           ]
         }
       ],
       "DeviceList": [
+        { "Name":  "FireLog", 
+          "Manager": "FireLogDeviceManager", 
+          "Enable": true,
+           "Properties": {}
+        },
         {
           "Name": "TPNA2",
           "Manager": "PlcDeviceManager",
-          "Enable": true,
-          "ModuleID": "",
+          "Enable": false,
           "Properties": {
             "DevicePort": "6999",
             "DeviceTimeout": "15000"
@@ -71,7 +83,7 @@
         {
           "Name": "TBROKER",
           "Manager": "ActiveMQManager",
-          "Enable": true,
+          "Enable": false,
           "Properties": {
             "ConnectionString": "tcp://127.0.0.1:61616?useKeepAlive=true",
             "DoubleQueue": true
@@ -80,7 +92,7 @@
         {
           "Name": "PNA2 151",
           "Manager": "PrintClientManager",
-          "Enable": true,
+          "Enable": false,
           "Properties": {
             "IPAddress": "127.0.0.1",
             "Port": 9100,
@@ -100,7 +112,7 @@
         {
           "Name": "PNA2 152",
           "Manager": "PrintClientManager",
-          "Enable": true,
+          "Enable": false,
           "Properties": {
             "IPAddress": "127.0.0.1",
             "Port": 9101,

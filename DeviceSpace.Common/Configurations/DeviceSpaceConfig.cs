@@ -19,6 +19,7 @@ namespace DeviceSpace.Common.Configurations
 
     public class WorkflowRoute
     {
+        public string Name { get; set; } = string.Empty;
         // 0 = Disabled, 1 = Method, 2 = Script
         public int Mode { get; set; }
 

@@ -11,8 +11,7 @@ using Serilog; // Assuming Serilog based on your Log.Error syntax
 
 public abstract record DeviceMessageBase : IDeviceMessage
 {
-    [JsonPropertyOrder(-2)] // Ensures MessageType appears at the top of the JSON
-    public string MessageType { get; set; } = "Unknown";
+   
 
     private static readonly JsonSerializerOptions _jsonOptions = new()
     {

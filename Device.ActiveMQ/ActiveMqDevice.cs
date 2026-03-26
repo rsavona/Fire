@@ -24,8 +24,8 @@ namespace Device.ActiveMQ
         private readonly object _reconnectLock = new object();
         private readonly string? _conStr;
         private readonly string _heartbeatQueue;
-        
-         /// <summary>
+
+        /// <summary>
         /// Event triggered when a message is received.
         /// </summary>
         /// <remarks>
@@ -37,11 +37,11 @@ namespace Device.ActiveMQ
         /// This event can be subscribed to by external components that need to process incoming messages
         /// from a device. The event handler should be implemented to handle the sender and the message data appropriately.
         /// </example>
-        public event Action<object, object>? MessageReceived;
+        public event Func<object, object, Task> MessageReceived;
 
         // --- Constructor ---
-        public ActiveMqDevice(IDeviceConfig config, ILogger deviceLogger, LoggingLevelSwitch ls)
-            : base(config, deviceLogger, ls,true)
+        public ActiveMqDevice(IDeviceConfig config, IFireLogger deviceLogger, LoggingLevelSwitch ls)
+            : base(config, deviceLogger, ls, true)
         {
             // Load queues from config with fallbacks
             _defaultReadQueue = ConfigurationLoader.GetOptionalConfig(config.Properties, "DefaultReadQueue", "");
@@ -96,59 +96,85 @@ namespace Device.ActiveMQ
         /// <returns>
         /// A task that represents the asynchronous operation for establishing a connection.
         /// </returns>
-        protected override async Task ConnectAsync(CancellationToken token)
+        private async Task CreateConnectionAsync(CancellationToken token)
         {
-            Logger.Information("[{Dev}] Attempting to establish NMS Connection...", Config.Name);
+            // 1. Pass the token to the factory. If the factory hangs, the token breaks the wait.
+            Logger.Debug("[{Dev}] Requesting connection from factory.", Config.Name);
+            IConnection connection = await _factory.CreateConnectionAsync();
+
             try
             {
-                await CreateConnectionAsync(token);
-                Logger.Information("[{Dev}] Connection successful.", Config.Name);
-                await Machine.FireAsync(Event.ConnectSuccess);
+                // 2. Attach handlers
+                connection.ExceptionListener += Connection_ExceptionListener;
+                connection.ConnectionInterruptedListener += Connection_ConnectionInterruptedListener;
+                connection.ConnectionResumedListener += Connection_ConnectionResumedListener;
+
+                // 3. Start the connection respecting the token
+                // Note: Check if your NMS provider's StartAsync accepts a CancellationToken
+                await connection.StartAsync();
+
+                _connection = connection;
             }
-            catch (Exception ex)
+            catch
             {
-                Logger.Error(ex, "[{Dev}] Initial connection failed.", Config.Name);
-                var trigger = new StateMachine<State, Event>.TriggerWithParameters<string>(Event.ConnectionLost);
-                await Machine.FireAsync(trigger, ex.Message);
+                // 4. Cleanup: If we failed to start or setup, don't leave the connection open
+                connection.Close();
+                throw;
             }
         }
 
+        protected override async Task<bool> ConnectAsync(CancellationToken token)
+        {
+            // Use the token to handle the scenario where the backup server is 
+            // shut down while trying to reach a host that isn't there.
+            try
+            {
+                Logger.Information("[{Dev}] Attempting to establish NMS Connection...", Config.Name);
+
+                // Ensure any old connection is disposed before trying again
+                _connection?.Close();
+                _connection = null;
+
+                await CreateConnectionAsync(token);
+
+                Logger.Information("[{Dev}] NMS Connection successful.", Config.Name);
+                return true;
+            }
+            catch (OperationCanceledException)
+            {
+                Logger.Warning("[{Dev}] Connection attempt cancelled.", Config.Name);
+                return false;
+            }
+            catch (Exception ex)
+            {
+                // On the backup server, we expect this if the host is down. 
+                // Returning false allows the BaseClass State Machine to handle the retry.
+                Logger.Error("[{Dev}] Initial connection failed: {Msg}", Config.Name, ex.Message);
+                return false;
+            }
+        }
+
+  
         /// <summary>
         /// Initializes and configures the heartbeat monitoring mechanism for the device.
         /// Sets up a listener to detect heartbeat messages on the designated heartbeat queue.
         /// </summary>
-        protected override async Task InitHeartbeatAsync()
+        protected override async Task InitPeriodicEvent()
         {
             var success = await ReadNotify(NotifyHeartbeatReceived, _heartbeatQueue);
             if (!success)
                 Logger.Error("[{Dev}] Failed to initialize heartbeat listener.", Config.Name);
         }
 
+
         /// <summary>
         /// Terminates the heartbeat listener by stopping consumption of messages from the heartbeat queue.
         /// </summary>
-        protected override void EndHeartbeat()
+        protected override void EndPeriodicEvent()
         {
             ReadNotifyEnd(_heartbeatQueue);
         }
 
-        /// <summary>
-        /// Establishes a new connection to the ActiveMQ broker asynchronously.
-        /// </summary>
-        /// <param name="token"></param>
-        /// <returns>A task representing the asynchronous operation to create the connection.</returns>
-        private async Task CreateConnectionAsync(CancellationToken token)
-        {
-            Logger.Debug("[{Dev}] Requesting connection from factory.", Config.Name);
-            IConnection connection = await _factory.CreateConnectionAsync();
-
-            connection.ExceptionListener += Connection_ExceptionListener;
-            connection.ConnectionInterruptedListener += Connection_ConnectionInterruptedListener;
-            connection.ConnectionResumedListener += Connection_ConnectionResumedListener;
-
-            await connection.StartAsync();
-            _connection = connection;
-        }
 
         #region Connection Event Listeners
 
@@ -258,7 +284,7 @@ namespace Device.ActiveMQ
                 }
                 catch (Exception ex)
                 {
-                    Logger.Debug(ex, "[{Dev}] Error during NMS Close.", Config.Name);
+                    Logger.Error(ex, "[{Dev}] Error during NMS Close.", Config.Name);
                 }
                 finally
                 {
@@ -307,7 +333,7 @@ namespace Device.ActiveMQ
         }
 
         #region IAdapterPort Implementation (I/O)
-        
+
         /// <summary>
         ///  writes to a queue
         /// </summary>
@@ -417,7 +443,7 @@ namespace Device.ActiveMQ
         /// </summary>
         /// <param name="messageHandler">The callback function to execute when a message is received. Takes the message content and queue name as parameters.</param>
         /// <param name="strQueue">The name of the queue to listen to for incoming messages.</param>
-        public async Task<bool>  ReadNotify(Action<string, string> messageHandler, string strQueue)
+        public async Task<bool> ReadNotify(Func<object, object, Task> messageHandler, string strQueue)
         {
             try
             {
@@ -441,15 +467,16 @@ namespace Device.ActiveMQ
                 Logger.Error(e, "[{Dev}] Error registering listener for {Queue}", Config.Name, strQueue);
                 return false;
             }
+
             return true;
         }
-        
+
         /// <summary>
         /// Registers the MessageReceived handler
         /// </summary>
         /// <param name="strQueue"></param>
         /// <returns></returns>
-        public async Task<bool>  ReadNotifyAsync( string strQueue )
+        public async Task<bool> ReadNotifyAsync(string strQueue)
         {
             try
             {
@@ -473,6 +500,7 @@ namespace Device.ActiveMQ
                 Logger.Error(e, "[{Dev}] Error registering listener for {Queue}", Config.Name, strQueue);
                 return false;
             }
+
             return true;
         }
 
@@ -480,7 +508,8 @@ namespace Device.ActiveMQ
         /// Registers a default listener for receiving messages using the provided message handler.
         /// </summary>
         /// <param name="messageHandler">The callback function to execute when a message is received. Takes the message content and queue name as parameters.</param>
-        public async Task<bool> ReadNotify(Action<string, string> messageHandler) => await ReadNotify(messageHandler, _defaultReadQueue);
+        public async Task<bool> ReadNotify(Func<object, object, Task> messageHandler) =>
+            await ReadNotify(messageHandler, _defaultReadQueue);
 
         /// <summary>
         /// Stops and releases any resources tied to a listener associated with the specified queue.
@@ -512,7 +541,7 @@ namespace Device.ActiveMQ
         /// <param name="messageReceivedCallback">The callback action to invoke when a message is received.</param>
         /// <param name="queue">The name of the queue from which messages will be processed.</param>
         /// <returns>A function that processes the received messages and invokes the callback with the message content and queue name.</returns>
-        private Action<IMessage> CreateHandler(Action<string?, string> messageReceivedCallback, string queue)
+        private Action<IMessage> CreateHandler(Func<object, object, Task> messageReceivedCallback, string queue)
         {
             return (message) =>
             {
@@ -520,17 +549,18 @@ namespace Device.ActiveMQ
                 {
                     if (message is ITextMessage textMessage)
                     {
-                        string  payload = textMessage.Text;
+                        string payload = textMessage.Text;
                         Logger.Verbose("[{Dev}] RX << {Queue}: {Data}", Config.Name, queue, payload);
                         if (queue != _heartbeatQueue)
                         {
                             Machine.Fire(Event.MessageReceived);
                         }
+
                         messageReceivedCallback(payload, queue);
                     }
                     else
                     {
-                        Logger.Warning("Unsupported message type from queue {type}", message.GetType() );
+                        Logger.Warning("Unsupported message type from queue {type}", message.GetType());
                         Tracker.IncrementError("Unsupported message type from queue");
                     }
                 }
@@ -547,7 +577,7 @@ namespace Device.ActiveMQ
             SourceIdentifier src = new SourceIdentifier(this.Key.ToString(), queue);
             MessageReceived?.Invoke(src, msg);
         }
-        
+
         /// <summary>
         /// Processes the received data asynchronously after it has been read.
         /// This method enables handling and processing of incoming data in a controlled manner.
@@ -556,9 +586,8 @@ namespace Device.ActiveMQ
         /// <param name="bytesRead">The number of bytes read into the buffer.</param>
         /// <param name="ct">A cancellation token to observe while waiting for the task to complete.</param>
         /// <returns>An asynchronous task representing the data handling operation.</returns>
-        protected override Task<bool> HandleReceivedDataAsync(byte[] buffer, int bytesRead, CancellationToken ct) =>
-            (Task<bool>)Task.CompletedTask;
 
+    
         /// <summary>
         /// Stops the device asynchronously. Transitions the device state to 'Stop' and performs necessary cleanup operations.
         /// </summary>
@@ -581,7 +610,5 @@ namespace Device.ActiveMQ
             Disconnect();
             base.DisposeManagedResources();
         }
-
-       
     }
 }

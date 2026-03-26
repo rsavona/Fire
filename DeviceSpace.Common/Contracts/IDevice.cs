@@ -3,6 +3,7 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Newtonsoft.Json.Serialization;
+using Serilog;
 
 namespace DeviceSpace.Common.Contracts // Or your preferred core namespace
 {
@@ -25,13 +26,16 @@ namespace DeviceSpace.Common.Contracts // Or your preferred core namespace
         /// <summary>
         /// Gets the current status object for this device.
         /// </summary>
-        IDeviceStatus CreateStatusSnapshot();
+        /// <param name="comment"></param>
+        IDeviceStatus CreateStatusSnapshot( string comment = "");
 
         /// <summary>
         /// Fires whenever the device's internal 'Status' object is updated.
         /// This is the primary event for the DeviceManager to subscribe to.
         /// </summary>
         event Action<IDevice, IDeviceStatus> StatusUpdated;
+        
+        IFireLogger GetLogger();
 
         /// <summary>
         /// Exports the device's internal state to Graphviz format.'

@@ -8,7 +8,7 @@
     <ResourcePreloader/>
     <link rel="stylesheet" href="@Assets["lib/bootstrap/dist/css/bootstrap.min.css"]"/>
     <link rel="stylesheet" href="@Assets["app.css"]"/>
-    <link rel="stylesheet" href="@Assets["FireBuilder.styles.css"]"/>
+    <link rel="stylesheet" href="@Assets["Canvas.styles.css"]"/>
     <ImportMap/>
     <link rel="icon" type="image/png" href="favicon.png"/>
     <HeadOutlet @rendermode="InteractiveServer"/>
@@ -16,6 +16,24 @@
 
 <body>
 <Routes @rendermode="InteractiveServer"/>
+<script>
+    window.downloadFile = function (fileName, content) {
+        // Create a hidden "blob" of data (your JSON)
+        const blob = new Blob([content], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+        
+        // Create an invisible HTML link, click it, and delete it
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = fileName;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        
+        // Clean up the memory
+        URL.revokeObjectURL(url);
+    };
+</script>
 <ReconnectModal/>
 <script src="@Assets["_framework/blazor.web.js"]"></script>
 </body>

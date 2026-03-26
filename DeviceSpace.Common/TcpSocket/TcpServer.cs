@@ -4,6 +4,7 @@ using System.Net.Sockets;
 using System.Text;
 using DeviceSpace.Common.Contracts;
 using Serilog;
+using System.Buffers;
 
 namespace DeviceSpace.Common
 {
@@ -19,17 +20,17 @@ namespace DeviceSpace.Common
 
     public class TcpServer : IDisposable
     {
-        private const char ETX = (char)0x03;
         private const int RETRY_DELAY_SECONDS = 30;
 
         private readonly int _maxBufferSize;
         private readonly int _listenPort;
         private readonly IMessageProcessor _messageProcessor;
         private readonly ConcurrentDictionary<string, ClientConnection> _connectedClients = new();
-        private readonly ILogger _logger;
-
+        private readonly IFireLogger _logger;
+        private readonly ITerminationStrategy? _terminationStrategy;
         private TcpListener? _listener;
         private CancellationTokenSource? _serverCts;
+        private readonly int _timeoutMs;
 
         // ---  EVENTS ---
         public event Action<TcpListenerState>? ListenerStateChanged;
@@ -45,13 +46,21 @@ namespace DeviceSpace.Common
         public TcpServer(
             int listenPort,
             IMessageProcessor messageProcessor,
-            ILogger logger,
+            IFireLogger logger,
+            ITerminationStrategy? termStrat = null,
+            int timeoutMs = -1,
             int maxBufferSize = 1000)
         {
+            // Assign the default strategy if none was provided
             _listenPort = listenPort;
             _messageProcessor = messageProcessor;
             _logger = logger;
             _maxBufferSize = maxBufferSize;
+            _terminationStrategy = termStrat;
+            _timeoutMs = timeoutMs;
+
+            _logger.Information("[Server:{Port}] Initialized with Strategy: {Strategy}",
+                _listenPort, _terminationStrategy.GetType().Name);
         }
 
         private async Task StartSocketWatchdogAsync(CancellationToken token)
@@ -64,14 +73,17 @@ namespace DeviceSpace.Common
                 {
                     await Task.Delay(TimeSpan.FromSeconds(10), token);
                     var now = DateTime.Now; // Swapped to Local Time
-                    var timeout = TimeSpan.FromSeconds(60);
 
-                    foreach (var kvp in _connectedClients)
+                    if (_timeoutMs > 0)
                     {
-                        if (now - kvp.Value.LastSeen > timeout)
+                        var timeout = TimeSpan.FromMilliseconds(_timeoutMs);
+                        foreach (var kvp in _connectedClients)
                         {
-                            _logger.Warning("[{ClientKey}] Watchdog: No heartbeat detected. Terminating.", kvp.Key);
-                            _ = CleanupClient(kvp.Key);
+                            if (now - kvp.Value.LastSeen > timeout)
+                            {
+                                _logger.Warning("[{ClientKey}] Watchdog: No heartbeat detected. Terminating.", kvp.Key);
+                                _ = CleanupClient(kvp.Key);
+                            }
                         }
                     }
                 }
@@ -85,19 +97,25 @@ namespace DeviceSpace.Common
                 }
             }
         }
+        public List<string> GetConnectedClients() => _connectedClients.Keys.ToList();
 
         private async Task ListenForClientDataAsync(TcpClient client, string clientKey, CancellationToken token)
         {
             _logger.Debug("[{ClientKey}] Read loop started.", clientKey);
+
+            // 1. Rent buffers from the shared pool
+            byte[] readBuffer = ArrayPool<byte>.Shared.Rent(_maxBufferSize);
+            byte[] messageBuffer = ArrayPool<byte>.Shared.Rent(_maxBufferSize);
+            int messageLength = 0;
+
             try
             {
                 await using NetworkStream stream = client.GetStream();
-                var buffer = new byte[_maxBufferSize];
-                var receiveBuffer = new List<byte>();
 
                 while (client.Connected && !token.IsCancellationRequested)
                 {
-                    var bytesRead = await stream.ReadAsync(buffer, token);
+                    // Read into the rented buffer
+                    var bytesRead = await stream.ReadAsync(readBuffer, 0, readBuffer.Length, token);
 
                     if (bytesRead == 0)
                     {
@@ -106,32 +124,36 @@ namespace DeviceSpace.Common
                         break;
                     }
 
-                    // Update LastSeen using Local Time
                     if (_connectedClients.TryGetValue(clientKey, out var conn))
                     {
-                        _connectedClients[clientKey] = conn with { LastSeen = DateTime.Now };
+                        _connectedClients[clientKey] = conn with { LastSeen = DateTime.UtcNow }; // Switched to UtcNow
                     }
 
-                    // Process byte-by-byte to handle fragmented or merged packets
+                    // Process byte-by-byte
                     for (int i = 0; i < bytesRead; i++)
                     {
-                        byte b = buffer[i];
-                        receiveBuffer.Add(b);
+                        byte b = readBuffer[i];
+                        messageBuffer[messageLength++] = b;
 
-                        if (b == (byte)ETX)
+                        // 2. Create a lightweight span of the current message state
+                        var currentSpan = new ReadOnlySpan<byte>(messageBuffer, 0, messageLength);
+
+                        if (_terminationStrategy.IsMessageComplete(currentSpan, b))
                         {
-                            string payload = Encoding.ASCII.GetString(receiveBuffer.ToArray());
-
                             _logger.Debug("[{ClientKey}] ETX detected. Processing {Size} bytes.", clientKey,
-                                receiveBuffer.Count);
+                                messageLength);
 
-
-                            var success = await _messageProcessor.ProcessMessageAsync(stream, receiveBuffer.ToArray(),
-                                receiveBuffer.Count, clientKey, token);
+                            // 3. Pass the rented array directly. No more .ToArray()!
+                            var success = await _messageProcessor.ProcessMessageAsync(
+                                stream,
+                                messageBuffer,
+                                messageLength,
+                                clientKey,
+                                token);
 
                             if (success)
                             {
-                                receiveBuffer.Clear();
+                                messageLength = 0; // Reset index for the next message
                             }
                             else
                             {
@@ -139,10 +161,11 @@ namespace DeviceSpace.Common
                             }
                         }
 
-                        if (receiveBuffer.Count > _maxBufferSize)
+                        if (messageLength >= _maxBufferSize)
                         {
-                            _logger.Error("[{ClientKey}] Buffer overflow. Clearing.", clientKey);
-                            receiveBuffer.Clear();
+                            string utf8String = Encoding.UTF8.GetString(messageBuffer, 0, messageLength);
+                            _logger.Error("[{ClientKey}] Buffer overflow. Clearing. {str}", clientKey, utf8String);
+                            messageLength = 0;
                             DisconnectClient(clientKey);
                             break;
                         }
@@ -153,7 +176,13 @@ namespace DeviceSpace.Common
                                                      se.SocketErrorCode == SocketError.ConnectionReset)
             {
                 _logger.Warning("[{ClientKey}] Connection reset by peer.", clientKey);
-                 DisconnectClient(clientKey);
+                DisconnectClient(clientKey);
+            }
+            catch (OperationCanceledException)
+            {
+                // This is normal. It means the Watchdog timed out or the server is shutting down.
+                _logger.Debug("[{ClientKey}] Read loop canceled gracefully.", clientKey);
+                
             }
             catch (Exception ex)
             {
@@ -161,15 +190,20 @@ namespace DeviceSpace.Common
                 NotifyError($"Error on connection {clientKey}", ex);
                 DisconnectClient(clientKey);
             }
+            finally
+            {
+                // 4. Critically important: Return the arrays to the pool when the connection ends
+                ArrayPool<byte>.Shared.Return(readBuffer);
+                ArrayPool<byte>.Shared.Return(messageBuffer);
+            }
         }
 
-        public async Task<bool> SendResponseAsync(string deviceName, string clientKey, string? payload,
+        public async Task<bool> SendResponseAsync(string deviceName, string clientKey, object payload,
             CancellationToken token = default)
         {
-            if (string.IsNullOrEmpty(payload)) return false;
-
-            var message = _messageProcessor.HandleResponse(deviceName, payload);
-
+            if (payload is not string msg )
+            {
+                _logger.Error("Bad Payload"); return false;}
             if (!_connectedClients.TryGetValue(clientKey, out var connection))
             {
                 _logger.Warning("[{ClientKey}] Send failed: Client not found.", clientKey);
@@ -178,11 +212,11 @@ namespace DeviceSpace.Common
 
             try
             {
-                byte[] bytesToSend = Encoding.ASCII.GetBytes(message);
+                byte[] bytesToSend = Encoding.ASCII.GetBytes(msg);
                 await connection.Client.GetStream().WriteAsync(bytesToSend, token);
 
                 // Logging and Event in Local Time
-                _logger.Information("[{ClientKey}] Sent: {msg}", clientKey, message);
+                _logger.Information("[{ClientKey}] Sent: {msg}", clientKey, msg);
                 return true;
             }
             catch (Exception ex)
@@ -223,7 +257,7 @@ namespace DeviceSpace.Common
             _serverCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             _logger.Information("[Server:{Port}] Starting TCP Server...", _listenPort);
             SetListenerState(TcpListenerState.Starting);
-            Task watchdogTask = StartSocketWatchdogAsync(_serverCts.Token);
+
             try
             {
                 while (!_serverCts.Token.IsCancellationRequested)
@@ -234,7 +268,6 @@ namespace DeviceSpace.Common
             finally
             {
                 SetListenerState(TcpListenerState.Stopped);
-                await watchdogTask;
             }
         }
 
@@ -307,7 +340,7 @@ namespace DeviceSpace.Common
             _logger.Information("[{ClientKey}] Manual disconnect requested (Watchdog/Timeout).", key);
             _ = CleanupClient(key);
         }
-        
+
         public void Dispose()
         {
             _serverCts?.Cancel();

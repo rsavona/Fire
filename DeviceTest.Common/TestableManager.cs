@@ -15,10 +15,10 @@ public class TestableManager<TDevice> : DeviceManagerBase<TDevice>
     public IEnumerable<TDevice> GetDevices() => DeviceInstances;
 
     // Standard overrides required by the abstract base
-    protected override Task RegisterDeviceSourceRoutes(IDevice device)
+    protected override Task InitRegisterDeviceSourceRoutes(IDevice device)
     {  return Task.CompletedTask; }
     
-    protected override void OnDeviceMessageReceivedAsync(object? sender, object messageEnv) { }
+    protected override void OnDeviceMessageToMessageBusAsync(object? sender, object messageEnv) { }
     protected override Task HandleBusMessageAsync(IDevice device, string routeSource,  string dest, MessageEnvelope envelope, CancellationToken ct) 
         => Task.CompletedTask;
 }

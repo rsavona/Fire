@@ -1,41 +1,42 @@
-﻿
-using DeviceSpaceConsole;
+﻿using DeviceSpaceConsole;
 using DeviceSpace.Core;
 using Microsoft.Extensions.DependencyInjection; // Your namespace
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
 try
-{ 
-   
+{
     //   Build and configure the host adding the Device CoreServices
     HostApplicationBuilder builder = Host.CreateApplicationBuilder(args);
     if (Environment.UserInteractive && !args.Contains("--service"))
         builder.Services.AddSingleton<ConsoleStatusMonitor>();
-    //else 
-    //  .UseWindowsService(options =>
-     //   {
-     //       options.ServiceName = "PandABridge"; // Set your service name
-     ///   })
-    builder = builder.AddCoreServices(args); 
+    else
+    {
+        builder.Services.AddWindowsService(options =>
+        {
+            options.ServiceName = "PandABridge"; // Set your service name
+        });
+    }
+
+    builder = builder.AddCoreServices(args);
     builder.Logging.ClearProviders();
     IHost host = builder.Build();
 
-    
+
     // Check if we should run the interactive console
     if (Environment.UserInteractive && !args.Contains("--service"))
     {
-        int result = new Random().Next(1, 3); 
+        int result = new Random().Next(1, 3);
         if (result == 1)
             SplashScreenFusion.Print();
-        else 
+        else
             SplashScreenFire.Print();
         // Run the host in the background
-        
+
         var appLifetime = host.Services.GetRequiredService<IHostApplicationLifetime>();
-        var consoleDisplay =  host.Services.GetRequiredService<ConsoleStatusMonitor>();
-        consoleDisplay.Start( appLifetime.ApplicationStopping, SplashScreenFire.Length() );
-     
+        var consoleDisplay = host.Services.GetRequiredService<ConsoleStatusMonitor>();
+        consoleDisplay.Start(appLifetime.ApplicationStopping, SplashScreenFire.Length());
+
         var hostTask = host.RunAsync();
         // Run the interactive console loop on the main thread
         RunInteractiveConsole();
@@ -48,7 +49,7 @@ try
         // Run as a normal service (non-interactive)
         host.Run();
     }
-} 
+}
 catch (Exception ex)
 {
     // This block will now catch the hidden exception.
@@ -56,12 +57,11 @@ catch (Exception ex)
     Console.WriteLine($"Host failed to start: {ex.Message}");
     Console.ResetColor();
     Console.WriteLine(ex.ToString()); // Print the full details
-    await Task.Delay(30000); 
+    await Task.Delay(30000);
 }
 
 static void RunInteractiveConsole()
 {
-
     var pluginDir = Path.Combine(AppContext.BaseDirectory, "plugins");
 
     while (true)
@@ -93,5 +93,3 @@ static void RunInteractiveConsole()
         return;
     }
 }
-
-

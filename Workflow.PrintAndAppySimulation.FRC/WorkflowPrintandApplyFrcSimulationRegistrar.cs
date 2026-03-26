@@ -19,7 +19,7 @@ public class PrintAndApplyFrcSimulationRegistrar : IDeviceRegistrar // Or IWorkf
         // 2. Register the Factory Delegate
         // This is what the WorkflowManager will invoke when it needs to spin up a new instance.
         // ActivatorUtilities handles the "IMessageBus" injection from the container automatically.
-        services.AddTransient<Func<WorkflowConfig, Serilog.ILogger, PrintAndApplyFrcSimulation>>(provider => 
+        services.AddTransient<Func<WorkflowConfig, IFireLogger, PrintAndApplyFrcSimulation>>(provider => 
             (config, logger) => 
             {
                 return ActivatorUtilities.CreateInstance<PrintAndApplyFrcSimulation>(provider, config, logger);

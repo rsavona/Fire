@@ -1,9 +1,11 @@
-﻿using DeviceSpace.Common;
+﻿using System.Text;
+using DeviceSpace.Common;
 using DeviceSpace.Common.BaseClasses;
 using DeviceSpace.Common.Configurations;
 using DeviceSpace.Common.Contracts;
 using DeviceSpace.Common.Enums;
 using DeviceSpace.Common.Logging;
+using DeviceSpace.Common.TCP_Classes;
 using Serilog;
 using Serilog.Core;
 
@@ -11,7 +13,7 @@ namespace Device.Plc.Suite.Connector;
 
 public class PlcServerDevice : TcpServerDeviceBase<PlcMessageProcessor>, IMessageProvider
 {
-    public event Action<object, object>? MessageReceived;
+    public event Func<object, object, Task> MessageReceived;
     public event Action<object, object>? OnMessageError;
 
     /// <summary>
@@ -30,13 +32,14 @@ public class PlcServerDevice : TcpServerDeviceBase<PlcMessageProcessor>, IMessag
     /// <param name="deviceLogger">
     /// An instance of ILogger used for logging messages and diagnostic information for the device.
     /// </param>
-    public PlcServerDevice(IDeviceConfig config, ILogger deviceLogger, LoggingLevelSwitch ls)
+    public PlcServerDevice(IDeviceConfig config, IFireLogger deviceLogger, LoggingLevelSwitch ls)
         : base(
             config,
             deviceLogger,
-            new PlcMessageProcessor(new PlcMessageParser(), config.Name),ls,
-            ConfigurationLoader.GetRequiredConfig<int>(config.Properties, "DevicePort"), 99
-        )
+            new PlcMessageProcessor(new PlcMessageParser(), config.Name, deviceLogger), ls,
+            ConfigurationLoader.GetRequiredConfig<int>(config.Properties, "DevicePort"),
+            terminalStr: new DelimiterSetStrategy(  new byte[] { 0x03 })
+            , 99)
     {
         Processor.HeartbeatReceived += OnProcessorHBReceived;
         Processor.MessageReceived += OnProcessorMessageReceived;
@@ -71,12 +74,17 @@ public class PlcServerDevice : TcpServerDeviceBase<PlcMessageProcessor>, IMessag
     /// <returns>
     /// A task that represents the asynchronous message sending operation.
     /// </returns>
-    public async Task SendResponseAsync(string jsonPayload, string clientKey)
+    public async Task<bool>  SendResponseAsync(object  jsonPayload, string clientKey)
     {
-        if (string.IsNullOrEmpty(clientKey) || !ConnectedClients.ContainsKey(clientKey)) return;
+        if (!ConnectedClients.ContainsKey(clientKey)) { Logger.Error( "Counldn't find client connection"); return false;}
+        var ret = await Server.SendResponseAsync(Key.DeviceName, clientKey, jsonPayload);
+        if (ret)
+        {
+            await Machine.FireAsync(Event.MessageSent);
+            
+        }
 
-        await Server.SendResponseAsync(Key.DeviceName, clientKey, jsonPayload);
-        await Machine.FireAsync(Event.MessageSent);
+        return ret;
     }
 
     /// <summary>
@@ -88,16 +96,15 @@ public class PlcServerDevice : TcpServerDeviceBase<PlcMessageProcessor>, IMessag
     /// An instance of <see cref="MessageEnvelope"/> containing details about the received
     /// message, including client information, payload, and destination.
     /// </param>
-    private void OnProcessorMessageReceived(MessageEnvelope message)
+    private void OnProcessorMessageReceived(object message)
     { 
+        if (message is not MessageEnvelope msg) return;
+        
         Machine.Fire(Event.MessageReceived);
-        Logger.Verbose("The Plc Message Processor received a message and sent it here the PlcServerDevice");
-        if (!string.IsNullOrEmpty(message.Client))
-            ConnectedClients.AddOrUpdate(message.Client, DateTime.UtcNow, (k, v) => DateTime.UtcNow);
-        Logger.Verbose(
-            "Here the Event is fired for Message received and it makes sure that the client is in the msintained client list. ");
-        Logger.Verbose(" Next the MessageReceived is invoked to send the  message to the PLCDeviceManager");
-        MessageReceived?.Invoke(this, message);
+        Logger.LogInfoData("Message IN :{msg}", new object[] { msg.Payload } , msg.Gin.ToString());
+        if (!string.IsNullOrEmpty(msg.Client))
+            ConnectedClients.AddOrUpdate(msg.Client, DateTime.UtcNow, (k, v) => DateTime.UtcNow);
+        MessageReceived?.Invoke(this, msg);
     }
 
     private void OnProcessorHBReceived(string client)

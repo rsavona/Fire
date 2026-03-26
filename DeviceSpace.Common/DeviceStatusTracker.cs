@@ -5,15 +5,16 @@ using DeviceSpace.Common.Contracts;
 using DeviceSpace.Common.Enums;
 
 namespace DeviceSpace.Common;
-public sealed record DeviceStatusTracker<TState, TEvent> : IDeviceStatusTracker
 
+public sealed record DeviceStatusTracker<TState, TEvent> : IDeviceStatusTracker
     where TState : struct, Enum
     where TEvent : struct, Enum
 
 {
     private readonly ConcurrentDictionary<DeviceMetric, long> _metrics = new();
-    private ImmutableDictionary<DeviceMetric, long> _lastMetricsSnapshot = ImmutableDictionary<DeviceMetric, long>.Empty;
 
+    private ImmutableDictionary<DeviceMetric, long>
+        _lastMetricsSnapshot = ImmutableDictionary<DeviceMetric, long>.Empty;
 
 
     // --- High-Precision Timing ---
@@ -32,9 +33,9 @@ public sealed record DeviceStatusTracker<TState, TEvent> : IDeviceStatusTracker
     public DeviceHealth Health { get; set; }
     public TState State { get; private set; }
     public TEvent Event { get; private set; }
-    
+
     public string Comments { get; private set; }
-    
+
     private char _heartBeatVisual = ' ';
 
     public DeviceStatusTracker(
@@ -45,8 +46,8 @@ public sealed record DeviceStatusTracker<TState, TEvent> : IDeviceStatusTracker
         Event = initialEvent;
         Comments = "Starting up ....";
         Health = DeviceHealth.Warning;
-        
-       
+
+
         foreach (DeviceMetric metric in Enum.GetValues<DeviceMetric>())
         {
             _metrics[metric] = 0;
@@ -72,22 +73,22 @@ public sealed record DeviceStatusTracker<TState, TEvent> : IDeviceStatusTracker
 
     public void IncrementOutbound()
     {
-       Increment(DeviceMetric.Outbound);
+        Increment(DeviceMetric.Outbound);
     }
 
     public void IncrementConnections()
     {
-       Increment(DeviceMetric.Conn);
+        Increment(DeviceMetric.Conn);
     }
 
     public void IncrementDisconnects()
     {
-       Increment(DeviceMetric.Disc);
+        Increment(DeviceMetric.Disc);
     }
 
     public void IncrementError(string str)
     {
-      Increment(DeviceMetric.Error);
+        Increment(DeviceMetric.Error);
     }
 
     // --- Transaction Timing Logic ---
@@ -107,19 +108,37 @@ public sealed record DeviceStatusTracker<TState, TEvent> : IDeviceStatusTracker
 
     public bool Update(TState newStatus, TEvent newEvent, DeviceHealth health, string newComments = "")
     {
-        var currentMetrics = _metrics.ToImmutableDictionary();
-        bool metricsChanged = !currentMetrics.SequenceEqual(_lastMetricsSnapshot);
-
-        if (State.Equals(newStatus) && Event.Equals(newEvent) && Comments == newComments && !metricsChanged)
+  
+        if (State.Equals(newStatus) && Event.Equals(newEvent) && Comments == newComments && Health == health)
         {
             return false;
         }
 
         State = newStatus;
         Event = newEvent;
-        Comments = newComments;
+        if(!newComments.IsWhiteSpace() || newComments != "")
+            Comments = newComments;
         Health = health;
-        _lastMetricsSnapshot = currentMetrics;
+       
+        return true;
+    }
+
+    public bool Update(TState newStatus, TEvent newEvent, string newComments = "")
+    {
+       
+        var calculatedHealth = CountError == 0 ? DeviceHealth.Normal : DeviceHealth.Warning;
+
+        if (State.Equals(newStatus) && Event.Equals(newEvent) && Comments == newComments && Health == calculatedHealth)
+        {
+            return false;
+        }
+        // 3. Apply updates
+        State = newStatus;
+        Event = newEvent;
+        if(!newComments.IsWhiteSpace() || newComments != "")
+            Comments = newComments;
+        Health = calculatedHealth; // Assign the calculated health
+
         return true;
     }
 
@@ -128,7 +147,7 @@ public sealed record DeviceStatusTracker<TState, TEvent> : IDeviceStatusTracker
         foreach (var key in _metrics.Keys) _metrics[key] = 0;
     }
 
-    public DeviceStatusMessage ToStatusMessage(DeviceKey key)
+    public DeviceStatusMessage ToStatusMessage(DeviceKey key, string comment = "")
     {
         // 1. Convert Enum-based metrics to a string-keyed dictionary for the UI
         // This allows the Blazor dashboard to display "PulsesReceived": 500 without knowing the Enum type
@@ -136,6 +155,8 @@ public sealed record DeviceStatusTracker<TState, TEvent> : IDeviceStatusTracker
             kvp => kvp.Key.ToString(),
             kvp => kvp.Value
         );
+        if (comment != "")
+            Comments = comment;
 
         // 2. Return the updated message record
         return new DeviceStatusMessage(
@@ -160,7 +181,7 @@ public sealed record DeviceStatusTracker<TState, TEvent> : IDeviceStatusTracker
     }
 
     public void SetConnectionCount(int connectedClientsCount)
-    { 
+    {
         // Explicitly set the value for the connection metric
         _metrics[DeviceMetric.Conn] = connectedClientsCount;
     }

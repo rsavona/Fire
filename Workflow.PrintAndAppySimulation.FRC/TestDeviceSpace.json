@@ -6,7 +6,7 @@
         {
           "Name": "TBROKER",
           "Manager": "ActiveMQManager",
-          "Enable": false,
+          "Enable": true,
           "Properties": {
             "ConnectionString": "tcp://127.0.0.1:61616?useKeepAlive=true",
             "DoubleQueue": true
@@ -19,14 +19,15 @@
           "Properties": {
             "IPAddress": "127.0.0.1",
             "Port": 6999,
-            "DecisionPoints": "PNALINE-2, 10000", //" PNA2 151, 5000, PNA2 152, 2000,PNA2 Verify, 2000",
-            "TotalTotes" : 1
+            "DecisionPoints":  "PNALINE-2:0",
+            "TotalTotes": 10,
+            "InductionFreq": 10000
           }
         },
         {
           "Name": "PNA2 151",
           "Manager": "VirtualPrinterManager",
-          "Enable": false,
+          "Enable": true,
           "Properties": {
             "Port": 9100
           }
@@ -34,7 +35,7 @@
         {
           "Name": "PNA2 152",
           "Manager": "VirtualPrinterManager",
-          "Enable": false,
+          "Enable": true,
           "Properties": {
             "Port": "9101"
           }
@@ -61,9 +62,13 @@
           "Name": "Wf.TestPAndA.FRC",
           "Type": "PrintAndApplyFrcSimulation",
           "Enable": true,
+          "IsSimulation": true,
+          "TotalTotes": 100,
+          "InductionIntervalMs": 1000,
           "Routes": [
             {
               "Mode": 1,
+              "Name": "Route1-LabelRequest",
               "Source": "TBROKER.LabelRequestFrcMessage.AC.PNA.LABELREQUEST",
               "Destination": "TBROKER.LabelDataFrcMessage.AC.PNA.LABELDATA",
               "Handler": "HandleLabelRequest"

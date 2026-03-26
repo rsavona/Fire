@@ -11,8 +11,13 @@ namespace DeviceSpace.Common
         public string ExceptionMessage { get; set; } = string.Empty;
         public string? StackTrace { get; set; }
         public DateTime Timestamp { get; set; } = DateTime.UtcNow;
-        
+
         // We use 'object' here so the serializer can handle whatever the original payload was.
         public object? OriginalPayload { get; set; }
+
+        public override string ToString()
+        {
+            return $"[{Timestamp:HH:mm:ss.fff}] Topic: '{OriginalTopic}' | Error: {ExceptionMessage}";
+        }
     }
 }

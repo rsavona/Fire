@@ -10,15 +10,14 @@ namespace Device.Printer.Suite;
 /// </summary>
 public class PrintClientManager : DeviceManagerBase<ITcpPrintClientBase>
 {
-
     /// <summary>
     /// Constructor must be public for Dependency Injection to access it.
     /// </summary>
     public PrintClientManager(
-        IMessageBus bus, 
-        List<IDeviceConfig> configs, 
-        ILogger<PrintClientManager> logger, // Updated to match this specific manager class
-        Func<IDeviceConfig, Serilog.ILogger, ITcpPrintClientBase> deviceFactory) 
+        IMessageBus bus,
+        List<IDeviceConfig> configs,
+        IFireLogger<PrintClientManager> logger, // Updated to match this specific manager class
+        Func<IDeviceConfig, IFireLogger, ITcpPrintClientBase> deviceFactory)
         : base(bus, configs, logger, deviceFactory)
     {
         DeviceFactory = deviceFactory;
@@ -30,11 +29,9 @@ public class PrintClientManager : DeviceManagerBase<ITcpPrintClientBase>
     protected override Task<ITcpPrintClientBase> CreateDeviceAsync(IDeviceConfig config)
     {
         // Create a specific logger for this device instance
-        var logContext = Serilog.Log.ForContext("DeviceName", config.Name);
+        var deviceLogger = Logger.WithContext("DeviceName", config.Name);
 
-        // USE THE FACTORY: This solves the DI error and handles Brand logic via the Registrar
-        var printer = DeviceFactory(config, logContext);
-
+        var printer = DeviceFactory(config, deviceLogger);
         return Task.FromResult(printer);
     }
 
@@ -44,14 +41,17 @@ public class PrintClientManager : DeviceManagerBase<ITcpPrintClientBase>
         return Task.CompletedTask;
     }
 
-    protected override void OnDeviceMessageReceivedAsync(object? sender, object messageEnv)
+    protected override Task OnDeviceMessageToMessageBusAsync(object? sender, object messageEnv)
     {
         /* No inbound from printer */
+        return Task.CompletedTask;
     }
 
-    protected override async Task HandleBusMessageAsync(IDevice device, string routeSource, string dest,
+    protected override async Task HandleBusMessageAsync(
         MessageEnvelope envelope, CancellationToken ct)
     {
+        var topic = envelope.Destination;
+        DeviceInstances.TryGetValue(topic.DeviceName, out var device);
         try
         {
             if (envelope.Payload is LabelToPrintMessage message && device is ITcpPrintClientBase dev)

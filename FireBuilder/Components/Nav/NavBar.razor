@@ -1,0 +1,14 @@
+﻿<nav class="navbar navbar-dark navbar-fire px-3 flex-shrink-0">
+    <a class="navbar-brand fw-bold d-flex align-items-center gap-2" href="#">
+        <i class="bi bi-fire text-warning"></i>
+        <span>Fire Builder</span>
+    </a>
+    <button class="btn btn-sm btn-outline-light" @onclick="OnExportClicked">
+        <i class="bi bi-download"></i> Export JSON
+    </button>
+</nav>
+
+@code {
+    [Parameter]
+    public EventCallback OnExportClicked { get; set; }
+}

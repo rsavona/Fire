@@ -1,171 +1,31 @@
-﻿@page "/"
+@page "/"
 
-@using System.Text.Json
-@using DeviceSpace.Common.Contracts 
-@using DeviceSpace.Common 
-@using DeviceSpace.Common.Configurations
-// Assumes DeviceConfig and WorkflowConfig are here
+<PageTitle>Fire Builder Configurator</PageTitle>
 
-<h3>DeviceSpace Configurator</h3>
+@inject IJSRuntime JSRuntime
 
-<div class="container-fluid">
-    <div class="row">
-        <!-- TOOLBOX (Left) -->
-        <div class="col-md-3 border-end">
-            <h4>Toolbox</h4>
-            <div class="d-grid gap-2">
-                <div class="card p-2 mb-2 bg-light draggable" draggable="true" @ondragstart="@(() => OnDragStart("Device"))">
-                    <i class="bi bi-hdd-rack"></i> Standard Device
-                </div>
-                <div class="card p-2 mb-2 bg-light draggable" draggable="true" @ondragstart="@(() => OnDragStart("Scanner"))">
-                    <i class="bi bi-upc-scan"></i> Scanner
-                </div>
-                <div class="card p-2 mb-2 bg-light draggable" draggable="true" @ondragstart="@(() => OnDragStart("Workflow"))">
-                    <i class="bi bi-diagram-3"></i> Workflow
-                </div>
-            </div>
-        </div>
+<div class="container-fluid d-flex flex-column p-0" style="height: 100vh; overflow: hidden;">
+    
+    <NavBar OnExportClicked="DownloadJson" />
 
-        <!-- CANVAS (Center) -->
-        <div class="col-md-6">
-            <h4>Canvas</h4>
-            <div class="border p-4" style="min-height: 500px; background-color: #f8f9fa;" 
-                 @ondragover:preventDefault @ondrop="OnDrop">
-                
-                @if (_deviceSpace.DeviceList.Count == 0 && _deviceSpace.WorkflowList.Count == 0)
-                {
-                    <p class="text-muted text-center">Drag items here to add them</p>
-                }
+    <Canvas @ref="_fireBuilderComponent" />
 
-                <!-- Render Devices -->
-                @foreach (var device in _deviceSpace.DeviceList)
-                {
-                    <div class="card mb-2 border-primary">
-                        <div class="card-header bg-primary text-white d-flex justify-content-between">
-                            <span>Device: @device.Name</span>
-                            <button class="btn btn-sm btn-danger" @onclick="() => RemoveDevice(device)">X</button>
-                        </div>
-                        <div class="card-body">
-                            <label>Name:</label>
-                            <input class="form-control mb-1" @bind="device.Name" @bind:event="oninput" />
-                            
-                            <label>Manager Type:</label>
-                            <select class="form-control mb-1" @bind="device.Manager">
-                                <option value="PlcManager">PLC Manager</option>
-                                <option value="ScannerManager">Scanner Manager</option>
-                                <option value="PrinterManager">Printer Manager</option>
-                            </select>
-
-                            <div class="form-check">
-                                <input class="form-check-input" type="checkbox" @bind="device.Enable" />
-                                <label class="form-check-label">Enabled</label>
-                            </div>
-                        </div>
-                    </div>
-                }
-
-                <!-- Render Workflows -->
-                @foreach (var wf in _deviceSpace.WorkflowList)
-                {
-                    <div class="card mb-2 border-success">
-                        <div class="card-header bg-success text-white d-flex justify-content-between">
-                            <span>Workflow: @wf.Name</span>
-                            <button class="btn btn-sm btn-danger" @onclick="() => RemoveWorkflow(wf)">X</button>
-                        </div>
-                        <div class="card-body">
-                            <label>Name:</label>
-                            <input class="form-control mb-1" @bind="wf.Name" @bind:event="oninput" />
-                            
-                            <label>Handler Class:</label>
-                            <input class="form-control mb-1" @bind="wf.Type" placeholder="e.g. WorkflowPrintAndApply" />
-
-                            <div class="form-check">
-                                <input class="form-check-input" type="checkbox" @bind="wf.Enable" />
-                                <label class="form-check-label">Enabled</label>
-                            </div>
-                            
-                            <!-- Nested Adapters List (Simplified) -->
-                            <h6 class="mt-2">Adapters: (@wf.Routes.Count)</h6>
-                            <button class="btn btn-sm btn-outline-secondary" @onclick="() => AddAdapter(wf)">+ Add Adapter</button>
-                        </div>
-                    </div>
-                }
-            </div>
-        </div>
-
-        <!-- JSON PREVIEW (Right) -->
-        <div class="col-md-3 border-start">
-            <h4>Live JSON</h4>
-            <button class="btn btn-primary w-100 mb-2" @onclick="DownloadJson">Download DeviceSpace.json</button>
-            <pre class="bg-dark text-light p-2 rounded" style="font-size: 0.8rem; height: 500px; overflow: auto;">
-                @GetJson()
-            </pre>
-        </div>
-    </div>
 </div>
 
 @code {
-    // Data Model matching your ConfigurationLoader
-    private DeviceSpace _deviceSpace = new DeviceSpace();
-    private string _draggedType;
+    // This creates a reference hook to your child component
+    private Canvas _fireBuilderComponent;
 
-    // Drag Handlers
-    private void OnDragStart(string type)
-    {
-        _draggedType = type;
-    }
-
-    private void OnDrop()
-    {
-        if (_draggedType == "Device" || _draggedType == "Scanner")
-        {
-            _deviceSpace.DeviceList.Add(new DeviceConfig 
-            { 
-                Name = $"New{_draggedType}_{_deviceSpace.DeviceList.Count + 1}",
-                Manager = _draggedType == "Scanner" ? "ScannerManager" : "PlcManager",
-                Enable = true
-            });
-        }
-        else if (_draggedType == "Workflow")
-        {
-            _deviceSpace.WorkflowList.Add(new WorkflowConfig 
-            { 
-                Name = $"NewWorkflow_{_deviceSpace.WorkflowList.Count + 1}",
-                Type = "DefaultWorkflow",
-                Enable = true
-            });
-        }
-    }
-
-    // CRUD Helpers
-    private void RemoveDevice(IDeviceConfig dev) => _deviceSpace.DeviceList.Remove((DeviceConfig)dev);
-    private void RemoveWorkflow(WorkflowConfig wf) => _deviceSpace.WorkflowList.Remove(wf);
-
-    private void AddAdapter(WorkflowConfig wf)
-    {
-        wf.Routes.Add(new WorkflowRoute() 
-        { 
-            Mode = 0,
-            Source = "Source.Topic", 
-            Destination = "Dest.Topic",
-            Handler = "Method OrFile"
-        });
-    }
-
-    // Export Logic
-    private string GetJson()
-    {
-        var options = new JsonSerializerOptions { WriteIndented = true };
-        // Wrap it in the "AppSettings" root structure your loader expects
-        var root = new { AppSettings = new { DeviceSpace = _deviceSpace } };
-        return JsonSerializer.Serialize(root, options);
-    }
-
+    // This method fires when the NavBar button is clicked
     private async Task DownloadJson()
     {
-        var json = GetJson();
-        // In a real app, you'd inject IJSRuntime to trigger a file download
-        // For now, we'll just log it to console to prove it works.
-        Console.WriteLine("JSON Generated!"); 
+        if (_fireBuilderComponent != null)
+        {
+            // Reaches into Canvas.razor to get the JSON string
+            var jsonText = _fireBuilderComponent.GetJson();
+            
+            // Triggers the browser download
+            await JSRuntime.InvokeVoidAsync("downloadFile", "DeviceSpace.json", jsonText);
+        }
     }
 }

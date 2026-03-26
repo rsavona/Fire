@@ -16,7 +16,7 @@ public abstract class TcpClientDeviceBase : ClientDeviceBase
     private readonly int _port;
     private NetworkStream? TransportStream { get; set; }
 
-    public TcpClientDeviceBase(IDeviceConfig config, ILogger logger, LoggingLevelSwitch ls, bool needsHb = false)
+    public TcpClientDeviceBase(IDeviceConfig config, IFireLogger logger, LoggingLevelSwitch ls, bool needsHb = false)
         : base(config, logger, ls, needsHb)
     {
         _host = ConfigurationLoader.GetRequiredConfig<string>(config.Properties, "IPAddress");
@@ -32,11 +32,11 @@ public abstract class TcpClientDeviceBase : ClientDeviceBase
         }
         catch (Exception ex)
         {
-            Logger.Debug(ex, "[{Dev}] Exception during fault-triggered close.", Config.Name);
+            Logger.Error(ex, "[{Dev}] Exception during fault-triggered close.", Config.Name);
         }
     }
 
-    protected override async Task ConnectAsync(CancellationToken ct = default)
+    protected override async Task<bool> ConnectAsync(CancellationToken ct = default)
     {
         try
         {
@@ -47,18 +47,20 @@ public abstract class TcpClientDeviceBase : ClientDeviceBase
             await _tcpClient.ConnectAsync(_host, _port, cts.Token);
 
             TransportStream = _tcpClient.GetStream();
-            await Machine.FireAsync(Event.ConnectSuccess); // Triggers success logic
 
             _ = Task.Run(() => ReadLoopAsync(CancellationToken.None));
+            return true;
         }
         catch (Exception ex)
         {
-            Logger.Debug("[{Dev}] ConnectAsync Exception: {Msg}", Config.Name, ex.Message); // Extensive logging
-            await Machine.FireAsync(Event.ConnectFailed); // Triggers the 5s wait in Reconnecting
+            Logger.Warning("[{Dev}] ConnectAsync Exception: {Msg}", Config.Name, ex.Message); // Extensive logging
+            _tcpClient?.Close();
+            _tcpClient = null;
+            return false;
         }
     }
 
-     protected override void OnStateChange(StateMachine<State, Event>.Transition transition)
+    protected override void OnStateChange(StateMachine<State, Event>.Transition transition)
     {
         // 1. Log the transition for local debugging
         Logger.Debug("[{Device}] Transition: {Source} -> {Dest} (Trigger: {Trigger})",
@@ -67,20 +69,19 @@ public abstract class TcpClientDeviceBase : ClientDeviceBase
         // 2. Build a dynamic comment based on the connection context
         string contextComment;
 
-        
+
         if (transition.Destination == State.Connected)
         {
             // When connected, show WHO connected and WHERE (IP and Port)
             contextComment = $"Connected: {_host} port {_port}";
-            
         }
         else if (transition.Destination == State.Connecting || transition.Destination == State.ServerOffline)
         {
-            contextComment = $" {_host} port {_port}";
+            contextComment = $"{transition.Destination.ToString()}: {_host} port {_port}";
         }
         else
         {
-            contextComment = $"Event: {transition.Trigger}";
+            contextComment = $"{transition.Trigger.ToString()}: {_host} port {_port}";
         }
 
         Tracker.Update(
@@ -92,8 +93,7 @@ public abstract class TcpClientDeviceBase : ClientDeviceBase
         UpdateAndNotify();
     }
 
-     
-    
+
     /// <summary>
     /// Close the TCP connection and dispose of the underlying resources.
     /// </summary>
@@ -148,7 +148,7 @@ public abstract class TcpClientDeviceBase : ClientDeviceBase
     {
         get
         {
-            bool stateIsActive = Machine.State is State.Connected or State.Processing;
+            bool stateIsActive = Machine.State is State.Connected;
             bool socketIsActive = CheckTcpConnection(this._tcpClient);
 
             return stateIsActive && socketIsActive;
@@ -164,7 +164,7 @@ public abstract class TcpClientDeviceBase : ClientDeviceBase
 
 
     /// <summary>
-    /// Override this method to detect heartbeat messages.
+    /// Override this method if your device needs sa heasrtbeat or staus check
     /// </summary>
     /// <param name="incomingData"></param>
     /// <returns></returns>
@@ -172,7 +172,7 @@ public abstract class TcpClientDeviceBase : ClientDeviceBase
     {
         return false;
     }
-    
+
     /// <summary>
     /// Read loop for the TCP connection.
     /// </summary>
@@ -194,17 +194,25 @@ public abstract class TcpClientDeviceBase : ClientDeviceBase
                     Logger.Warning("[{Dev}] Read zero bytes. Peer has disconnected.", Config.Name);
                     break;
                 }
+
                 Logger.Verbose("[{Dev}] RX RAW >> {Bytes} bytes", Config.Name, bytesRead);
                 string incomingData = Encoding.ASCII.GetString(buffer, 0, bytesRead);
-               // Immediate Check: If it's a heartbeat, return true/exit immediately
-               if (IsHeartbeat(incomingData))
-               {
-                   NotifyHeartbeatReceived("", "");
-                    continue; 
-               }
-                await HandleReceivedDataAsync(incomingData);
+                // Immediate Check: If it's a heartbeat, return true/exit immediately
+                if (IsHeartbeat(incomingData))
+                {
+                    NotifyHeartbeatReceived("", "");
+                    continue;
+                }
+
                 await Machine.FireAsync(Event.MessageReceived);
+                await HandleReceivedDataAsync(incomingData);
             }
+        }
+        catch (IOException ioEx) when (ioEx.InnerException is SocketException se &&
+                                       se.SocketErrorCode == SocketError.OperationAborted)
+        {
+            // This is normal. The socket was closed/disposed while a read was pending.
+            Logger.Debug("[{Dev}] Socket operation aborted (Connection gracefully closed).", Config.Name);
         }
         catch (Exception ex)
         {
@@ -213,7 +221,8 @@ public abstract class TcpClientDeviceBase : ClientDeviceBase
         finally
         {
             Logger.Warning("[{Dev}] Read loop exited. Triggering ConnectionLost.", Config.Name);
-            await Machine.FireAsync(Event.ConnectionLost);
+            if (Machine.CanFire(Event.ConnectionLost))
+                await Machine.FireAsync(Event.ConnectionLost);
             await CloseConnectionAsync();
         }
     }
@@ -224,7 +233,7 @@ public abstract class TcpClientDeviceBase : ClientDeviceBase
     /// <param name="message"></param>
     /// <param name="token"></param>
     /// <param name="fireEvent"></param>
-     public override async Task SendAsync(string message, CancellationToken token, bool fireEvent = true)
+    public override async Task SendAsync(string message, CancellationToken token, bool fireEvent = true)
     {
         if (!IsConnected || TransportStream == null)
         {
@@ -241,8 +250,10 @@ public abstract class TcpClientDeviceBase : ClientDeviceBase
             await TransportStream.FlushAsync();
 
             Logger.Verbose("[{Dev}] TX RAW << {Data}", Config.Name, message.Trim());
-            if(fireEvent)
-                 _ = Machine.FireAsync(Event.MessageSent);
+            if (fireEvent)
+            {
+                _ = Machine.FireAsync(Event.MessageSent);
+            }
         }
         catch (Exception ex)
         {
@@ -263,16 +274,16 @@ public abstract class TcpClientDeviceBase : ClientDeviceBase
     /// </summary>
     /// <returns></returns>
     protected abstract string GetHeartbeatMessage();
-    
+
     /// <summary>
     /// Override this method to send the heartbeat message.
     /// </summary>
     /// <param name="token"></param>
     /// <returns></returns>
-    public override Task SendHeartbeatAsync( CancellationToken token = default)
+    public override Task SendHeartbeatAsync(CancellationToken token = default)
     {
-            _ = SendAsync(GetHeartbeatMessage(), token, false);
-            Logger.Verbose("[{Dev}] Heartbeat sent.*********", Config.Name);
-            return Task.CompletedTask; 
+        _ = SendAsync(GetHeartbeatMessage(), token, false);
+        Logger.Verbose("[{Dev}] Heartbeat sent.*********", Config.Name);
+        return Task.CompletedTask;
     }
 }

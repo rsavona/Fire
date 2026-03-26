@@ -3,6 +3,7 @@ using System.Net.Sockets;
 using System.Text;
 using DeviceSpace.Common;
 using DeviceSpace.Common.Contracts;
+using DeviceSpace.Common.Logging;
 using Serilog; // Added for structured logging
 
 namespace Device.Plc.Suite
@@ -11,21 +12,22 @@ namespace Device.Plc.Suite
     {
         private readonly PlcMessageParser _parser;
         private readonly string _deviceName;
-        private readonly ILogger _logger;
+        private readonly IFireLogger _logger;
 
         private const char STX = '\u0002';
         private const char ETX = '\u0003';
 
         public event Action<string>? HeartbeatReceived;
-        public event Action<MessageEnvelope>? MessageReceived;
+        public event Action<object>? MessageReceived;
         public event Action<string>? OnMessageError;
 
-        public PlcMessageProcessor(PlcMessageParser parser, string deviceName)
+        public PlcMessageProcessor(PlcMessageParser parser, string deviceName, IFireLogger logger)
         {
             _parser = parser;
             _deviceName = deviceName;
-            // Create a context-aware logger
-            _logger = Log.ForContext("DeviceName", _deviceName);
+            _logger = logger;
+            // Create a context-awre logger
+
         }
 
         public async Task<bool> ProcessMessageAsync(NetworkStream stream, byte[] rawMessage, int len, string clientKey,
@@ -37,10 +39,10 @@ namespace Device.Plc.Suite
             return await ProcessMessageAsync(stream, strMessage, clientKey, token);
         }
 
-        public string HandleResponse(string deviceName, string payload)
+        public string HandleResponse(string deviceName, object payload)
         {
             _logger.Debug("[{Dev}] Framing response payload: {Payload}", deviceName, payload);
-            return _parser.FrameResponse(payload, deviceName  );
+            return _parser.FrameResponse( payload, deviceName  );
         }
 
         public async Task<bool> ProcessMessageAsync(NetworkStream stream, string rawMessage, string clientKey, CancellationToken token)
@@ -109,13 +111,13 @@ namespace Device.Plc.Suite
                 {
                     decisionPoint = req.DecisionPoint;
                     gin = req.Gin;
-                    _logger.Information("[{Client}] Decision Request: GIN={Gin} at DP={DP}", clientKey, gin, decisionPoint);
+                    _logger.Debug("Decision Request: DP={DP}  Message= {msg}", clientKey, gin, decisionPoint, req);
                 }
                 else if (plcMessage.Payload is DecisionUpdatePayload update)
                 {
                     decisionPoint = update.DecisionPoint;
                     gin = update.Gin;
-                    _logger.Information("[{Client}] Decision Update: GIN={Gin} at DP={DP}", clientKey, gin, decisionPoint);
+                    _logger.Debug("Decision Update : GIN={Gin} at DP={DP}  Message= {msg}", clientKey, gin, decisionPoint, update);
                 }
                 else
                 {

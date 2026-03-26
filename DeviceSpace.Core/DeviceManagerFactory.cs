@@ -81,8 +81,8 @@ public class DeviceManagerFactory : IDeviceManagerFactory
         }
         catch (Exception ex)
         {
-            Log.Logger.FireLogDebug(  ex.Message, ex.StackTrace); 
-            Log.Logger.FireLogError("DeviceManagerFactory", "exception", managerType, deviceType.Name, ex.Message);
+            Log.Logger.Debug(  ex.Message, ex.StackTrace); 
+            Log.Logger.Error("DeviceManagerFactory", "exception", managerType, deviceType.Name, ex.Message);
         }
 
         return null;

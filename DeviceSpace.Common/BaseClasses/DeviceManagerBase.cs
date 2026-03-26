@@ -1,4 +1,5 @@
-﻿using DeviceSpace.Common.Configurations;
+﻿using System.Collections.Concurrent;
+using DeviceSpace.Common.Configurations;
 using DeviceSpace.Common.Contracts;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -15,34 +16,37 @@ public abstract class DeviceManagerBase<TDevice> : BackgroundService, IDeviceMan
 {
     protected readonly IMessageBus MessageBus;
     protected readonly List<IDeviceConfig> DeviceConfigList;
-    protected readonly ILogger<DeviceManagerBase<TDevice>> Logger;
-    protected readonly List<TDevice> DeviceInstances = new();
+    protected readonly IFireLogger<DeviceManagerBase<TDevice>> Logger;
+    protected readonly ConcurrentDictionary<string, TDevice> DeviceInstances = new();
 
-    protected Func<IDeviceConfig, Serilog.ILogger, TDevice> DeviceFactory;
+    protected Func<IDeviceConfig, IFireLogger, TDevice> DeviceFactory;
 
     /// abstract methods
-    protected virtual void RegisterDeviceDesteRoutes(IDevice device)
+    protected virtual void RegisterDeviceDestRoutes(IDevice device)
     {
-
+   
         var routes = ConfigurationLoader.GetAllWorkflowConfig()
             .SelectMany(w => w.Routes)
             .Where(r => r.Destination.StartsWith(device.Config.Name));
 
-        Logger.LogDebug("[{Dev}]  Manager initializing Routes: {Routes}", device.Config.Name, routes.Count());
+       
         foreach (var route in routes)
         {
+            device.GetLogger().Information("{method} [{Dev}]  Manager initializing Route: {route}","RegisterDeviceDestRoutes", device.Config.Name, route.Name);
             MessageBus.SubscribeAsync(route.Destination, HandleBusMessageAsync);
-
         }
     }
 
-    protected virtual void OnDeviceMessageReceivedAsync(object? sender, object messageEnv) { }
+    protected virtual void OnDeviceCreated(IDevice device)
+    {
+    }
+
+    protected virtual Task OnDeviceMessageToMessageBusAsync(object? sender, object messageEnv) {  return Task.CompletedTask; }
 
     protected virtual Task RegisterDeviceSourceRoutes(IDevice device){ return Task.CompletedTask;}
     
     
-    protected virtual Task HandleBusMessageAsync(IDevice device, string routeSource, string routeDest,
-        MessageEnvelope envelope, CancellationToken ct){ return Task.CompletedTask;}
+    protected virtual Task HandleBusMessageAsync(MessageEnvelope envelope, CancellationToken ct){ return Task.CompletedTask;}
 
     /// <summary>
     /// Constructor.
@@ -52,8 +56,8 @@ public abstract class DeviceManagerBase<TDevice> : BackgroundService, IDeviceMan
     /// <param name="logger"></param>
     /// <param name="deviceFactory"></param>
     protected DeviceManagerBase(IMessageBus bus, List<IDeviceConfig> configs,
-        ILogger<DeviceManagerBase<TDevice>> logger,
-        Func<IDeviceConfig, Serilog.ILogger, TDevice> deviceFactory)
+        IFireLogger<DeviceManagerBase<TDevice>> logger,
+        Func<IDeviceConfig, IFireLogger, TDevice> deviceFactory)
     {
         MessageBus = bus;
         Logger = logger;
@@ -67,36 +71,37 @@ public abstract class DeviceManagerBase<TDevice> : BackgroundService, IDeviceMan
     /// <param name="stoppingToken"></param>
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        Logger.LogInformation("Starting Manager for {DeviceType}", typeof(TDevice).Name);
+        Logger.Information("Starting Manager for {DeviceType}", typeof(TDevice).Name);
 
         // for each device in the config that this mmanager is responsible for
         foreach (var config in DeviceConfigList.Where(c => c.Enable))
         {
-            Logger.LogTrace("Instantiating a device using DeviceFactory");
-            var device = DeviceFactory(config, Log.Logger);
-            Logger.LogTrace($"Device Created {device.Key.DeviceName}");
-            DeviceInstances.Add(device);
+            var device = DeviceFactory(config, Logger);
+            Logger.Verbose($"Device Created {device.Key.DeviceName}");
+            DeviceInstances[device.Key.DeviceName] = device;
 
             try
             {
-                Logger.LogTrace(
-                    "Adding the Device Managers 'OnDeviceMessageReceivedAsync' so that all messages are funneled through the manager. ");
+                Logger.Verbose(
+                    "Adding the Device Managers 'OnDeviceMessageToMessageBusAsync' so that all messages are funneled through the manager. ");
                 if (device is IMessageProvider provider)
                 {
-                    provider.MessageReceived += OnDeviceMessageReceivedAsync;
+                    provider.MessageReceived += OnDeviceMessageToMessageBusAsync;
                     Logger.LogDebug("[{Dev}] Messaging interface auto-wired.", config.Name);
                 }
-
                 // staus update handler
                 device.StatusUpdated += OnDeviceStatusUpdated;
-
+                
+                PrepareForRouteDestinations(device);
+                RegisterDeviceDestRoutes(device);
+               
                 // announce presence to the Diag Server
                 if (device is IDiagnosticProvider diagProvider)
                     await AnnouncePresenceAsync((IDevice)diagProvider);
-                await device.StartAsync(stoppingToken);
-
-                PrepareForRouteDestinations(device);
-              //  RegisterDeviceDestRoutes(device);
+               
+                _ = Task.Run(() => device.StartAsync(stoppingToken), stoppingToken);
+                 await RegisterDeviceSourceRoutes(device);
+            
             }
             catch (Exception ex)
             {
@@ -113,10 +118,10 @@ public abstract class DeviceManagerBase<TDevice> : BackgroundService, IDeviceMan
     /// </summary>
     private void OnDeviceStatusUpdated(IDevice? sender, IDeviceStatus status)
     {
-        if (sender is not IDevice device) return;
+        if (sender is not { } device) return;
 
 
-        Logger.LogInformation("[{Dev}] Status Change: {State} (Health: {Health})",
+        Logger.Information("[{Dev}] Status Change: {State} (Health: {Health})",
             device.Config.Name, status.State, status.Health);
 
         _ = MessageBus.PublishAsync(MessageBusTopic.DeviceStatus.ToString(),
@@ -143,7 +148,7 @@ public abstract class DeviceManagerBase<TDevice> : BackgroundService, IDeviceMan
         await MessageBus.PublishAsync(MessageBusTopic.Discovery.ToString(),
             new MessageEnvelope(MessageBusTopic.Discovery, announcement));
 
-        Logger.LogInformation("[{Dev}] Presence announced to Diag Server.", device.Key.DeviceName);
+        device.GetLogger().Information("[{Dev}] Presence announced to Diag Server.", device.Key.DeviceName);
     }
 
     /// <summary>
@@ -153,14 +158,14 @@ public abstract class DeviceManagerBase<TDevice> : BackgroundService, IDeviceMan
     /// <returns></returns>
     protected virtual Task<TDevice> CreateDeviceAsync(IDeviceConfig config)
     {
-        var deviceLogger = Log.ForContext("DeviceName", config.Name);
+        var deviceLogger = Logger.WithContext("DeviceName", config.Name);
         var device = DeviceFactory(config, deviceLogger);
         return Task.FromResult(device);
     }
 
     private IDevice? GetDeviceByName(string deviceName)
     {
-        foreach (var device in DeviceInstances)
+        foreach (var device in DeviceInstances.Values.ToList())
         {
             if(device.Key.DeviceName ==  deviceName)
                 return device;    
@@ -195,7 +200,7 @@ public abstract class DeviceManagerBase<TDevice> : BackgroundService, IDeviceMan
         // which re-establishes TCP listeners/connections
         await device.StartAsync(CancellationToken.None);
 
-        Logger.LogInformation("[{Dev}] Device has been reinitialized.", deviceName);
+        Logger.Information("[{Dev}] Device has been reinitialized.", deviceName);
     }
 
     /// <summary>
@@ -209,7 +214,7 @@ public abstract class DeviceManagerBase<TDevice> : BackgroundService, IDeviceMan
 
     public override async Task StopAsync(CancellationToken cancellationToken)
     {
-        foreach (var device in DeviceInstances)
+        foreach (var device in DeviceInstances.Values.ToList())
         {
             await device.StopAsync(cancellationToken);
         }

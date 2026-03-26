@@ -1,0 +1,41 @@
+<div class="col-2 bg-dark text-white p-3 border-end border-secondary h-100 overflow-auto">
+    <h6 class="text-uppercase text-muted mb-3 small" style="color: #ffccbc !important;">Toolkit</h6>
+    <div class="nav flex-column nav-pills gap-2">
+        <div class="nav-link text-white toolbox-item d-flex align-items-center gap-2 rounded p-2" draggable="true" @ondragstart="@(() => HandleDragStart("ActiveMqDevice"))">
+            <i class="bi bi-envelope-paper text-info"></i> <span class="small">ActiveMQ</span>
+        </div>
+        <div class="nav-link text-white toolbox-item d-flex align-items-center gap-2 rounded p-2" draggable="true" @ondragstart="@(() => HandleDragStart("PlcDevice"))">
+            <i class="bi bi-hdd-rack text-danger"></i> <span class="small">PLC</span>
+        </div>
+        <div class="nav-link text-white toolbox-item d-flex align-items-center gap-2 rounded p-2" draggable="true" @ondragstart="@(() => HandleDragStart("PrinterDevice"))">
+            <i class="bi bi-printer text-warning"></i> <span class="small">Printer</span>
+        </div>
+        
+        <hr class="border-secondary my-2" />
+        <div class="nav-link text-white toolbox-item d-flex align-items-center gap-2 rounded p-2" draggable="true" @ondragstart="@(() => HandleDragStart("VirtualPlcDevice"))">
+            <i class="bi bi-cpu text-white-50"></i> <span class="small">Virtual PLC</span>
+        </div>
+        <div class="nav-link text-white toolbox-item d-flex align-items-center gap-2 rounded p-2" draggable="true" @ondragstart="@(() => HandleDragStart("VirtualPrinterDevice"))">
+            <i class="bi bi-file-earmark-code text-white-50"></i> <span class="small">Virtual Printer</span>
+        </div>
+
+        <hr class="border-secondary" />
+        <div class="nav-link text-white toolbox-item d-flex align-items-center gap-2 rounded p-2" draggable="true" @ondragstart="@(() => HandleDragStart("Workflow"))">
+            <i class="bi bi-diagram-3 text-warning"></i> <span class="small">Workflow</span>
+        </div>
+    </div>
+</div>
+
+@code {
+    /// <summary>
+    /// Event triggered when a user starts dragging a toolkit item.
+    /// Passes the string identifier of the device type.
+    /// </summary>
+    [Parameter]
+    public EventCallback<string> OnItemDragStart { get; set; }
+
+    private async Task HandleDragStart(string deviceType)
+    {
+        await OnItemDragStart.InvokeAsync(deviceType);
+    }
+}

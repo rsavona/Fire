@@ -1,0 +1,6 @@
+﻿public class FireeLogConfig
+{
+    public string FolderPath { get; set; } = "logs";
+    public int RetainedFileCount { get; set; } = 7;
+    public string DefaultLevel { get; set; } = "Information";
+}

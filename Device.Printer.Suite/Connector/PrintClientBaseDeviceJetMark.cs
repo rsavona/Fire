@@ -8,12 +8,29 @@ namespace Device.Printer.Suite.Connector
 {
     public class PrintClientBaseDeviceJetMark :  TcpClientDeviceBase,  IMessageProvider, ITcpPrintClientBase
     {
-        public PrintClientBaseDeviceJetMark(IDeviceConfig config, ILogger zebraLogger, LoggingLevelSwitch ls) : base(
+        /// <summary>
+        /// Constructor
+        /// </summary>
+        /// <param name="config"></param>
+        /// <param name="zebraLogger"></param>
+        /// <param name="ls"></param>
+        public PrintClientBaseDeviceJetMark(IDeviceConfig config, IFireLogger zebraLogger, LoggingLevelSwitch ls) : base(
             config, zebraLogger, ls)
         {
         }
+        
+        /// <summary>
+        /// JetMark does not need to start.
+        /// </summary>
+        /// <param name="ct"></param>
+        /// <returns></returns>
+         protected override  Task OnStartAsync(CancellationToken ct)
+         {
+             if (Task.CompletedTask != null) return null;
+             return null;
+         }
 
-        protected Task<(bool IsHealthy, string StatusMessage)> PerformProtocolCheckAsync(NetworkStream stream)
+         protected Task<(bool IsHealthy, string StatusMessage)> PerformProtocolCheckAsync(NetworkStream stream)
         {
             // JetMark might not have a polling command.
             // Since we are here, the TCP socket is connected.
@@ -22,10 +39,10 @@ namespace Device.Printer.Suite.Connector
         }
 
         protected override Task HandleReceivedDataAsync(string incomingData)
-        {
-            throw new NotImplementedException();
-        }
-
+    {
+         Logger.Debug("[{Dev}] Received from printer: {Data}", Config.Name, incomingData);
+        return Task.CompletedTask;
+    }
       
 
         protected override string GetHeartbeatMessage()
@@ -37,12 +54,7 @@ namespace Device.Printer.Suite.Connector
         {
             throw new NotImplementedException();
         }
-
-        protected override Task HandleReceivedDataAsync(byte[] buffer, int bytesRead, CancellationToken ct)
-        {
-            throw new NotImplementedException();
-        }
-
+        
         public string Brand { get; init; }
         public PrintDestination DestinationType { get; init; }
         public bool PrintError { get; init; }
@@ -52,6 +64,6 @@ namespace Device.Printer.Suite.Connector
             throw new NotImplementedException();
         }
 
-        public event Action<object, object>? MessageReceived;
+        public event Func<object, object, Task> MessageReceived;
     }
 }

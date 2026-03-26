@@ -3,6 +3,7 @@ using DeviceSpace.Common.BaseClasses;
 using DeviceSpace.Common.Configurations;
 using DeviceSpace.Common.Contracts;
 using Serilog;
+using Workflow.PrintAndApplyFrc;
 
 namespace Workflow.PrintAndAppySimulation.FRC;
 
@@ -19,17 +20,15 @@ public class PrintAndApplyFrcSimulation : WorkflowBase
     /// </summary>
     private async Task<object?>? HandleLabelRequest(MessageEnvelope messageEnvelope, CancellationToken ct)
     {
-      
+            var t = messageEnvelope.Payload?.GetType().Name;
             Logger.Debug("[{Workflow}] Received message from Message Bus {msg}", WorkflowKey.DeviceName,
                 messageEnvelope.Payload);
-
-            var ld = TestDataGenerator.GenerateMockResponse(messageEnvelope);
+          
+            var ld = TestDataGenerator.GenerateMockResponse(messageEnvelope.Payload);
 
             Logger.Debug("[{Workflow}] Generated response {msg}", WorkflowKey.DeviceName, ld);
+            
 
-    //        return ld;
-     //   });
-
-        return ld; // MessageEnvelope(new MessageBusTopic(route.Destination), response);
+            return ld; // MessageEnvelope(new MessageBusTopic(route.Destination), response);
     }
 }

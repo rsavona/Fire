@@ -23,7 +23,7 @@ public class PrinterStatus : object
     public readonly int PreferredGroup;
 
     // Flag indicating if the printer was used for the last print job.
-    public bool LastPrinted { get; set; }
+    public DateTime LastPrinted { get; set; }
     
     // Flag indicating if the printer is currently online and functional.
     public bool IsAvailable { get; set; }
@@ -36,7 +36,7 @@ public class PrinterStatus : object
         Name = name ?? throw new ArgumentNullException(nameof(name));
         PreferredGroup = preferredG;
         Induct = induct ?? throw new ArgumentNullException(nameof(induct));
-        LastPrinted = false;
+        LastPrinted = DateTime.UtcNow;
         Type = type;
         IsAvailable = isAvailable;
     }

@@ -8,18 +8,23 @@ namespace Device.Printer.Suite.Virtual;
 
 public class VirtualPrinterManager : DeviceManagerBase<VirtualPrintDevice>
 {
-    public VirtualPrinterManager(IMessageBus bus, List<IDeviceConfig> configs, ILogger<DeviceManagerBase<VirtualPrintDevice>> logger, 
-            Func<IDeviceConfig, Serilog.ILogger, VirtualPrintDevice> deviceFactory)
+    public VirtualPrinterManager(IMessageBus bus, List<IDeviceConfig> configs, IFireLogger<DeviceManagerBase<VirtualPrintDevice>> logger, 
+            Func<IDeviceConfig, IFireLogger, VirtualPrintDevice> deviceFactory)
         : base(bus, configs, logger,deviceFactory) { }
+    
+    protected override Task OnDeviceMessageToMessageBusAsync(object? sender, object messageEnv) { return Task.CompletedTask;}
 
 
-
-    protected override void OnDeviceMessageReceivedAsync(object? sender, object messageEnv) { }
-
-
-    protected override Task HandleBusMessageAsync(IDevice clientDevice, string routeSource,  string dest, MessageEnvelope envelope, CancellationToken ct)
+    protected override Task HandleBusMessageAsync( MessageEnvelope envelope, CancellationToken ct)
     {
-        Logger.LogInformation("[{Dev}] VIRTUAL-PRINT >> Simulating job from {Source}", clientDevice.Config.Name, routeSource);
+          var topic = envelope.Destination; 
+        DeviceInstances.TryGetValue(topic.DeviceName, out var device);
+        if (device is null)
+        {
+            Logger.Error(" Not proper device in HandleBusMessageAsync VirtualPrinterManager");
+             return Task.CompletedTask;
+        }
+        Logger.Information("[{Dev}] VIRTUAL-PRINT >> Simulating job {msg}", device.Config.Name, envelope.Payload);
         return Task.CompletedTask;
     }
 }

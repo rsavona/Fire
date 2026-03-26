@@ -21,8 +21,7 @@ public record DeviceStatusMessage : DeviceMessageBase, IDeviceStatus
     public double AvgProcessTime { get; set; } // Changed to init and double
     public char HbVisual { get; init; }
 
-    // --- NEW: Dynamic Metrics Dictionary ---
-    // This allows the UI to display any new enum-based metrics automatically
+    //  TODO Dynamic Metrics Dictionary ---
     public IReadOnlyDictionary<string, long> Metrics { get; init; }
 
     /// <summary>

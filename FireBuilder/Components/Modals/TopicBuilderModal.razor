@@ -1,0 +1,46 @@
+<div class="modal-backdrop-custom">
+    <div class="modal-content-fire">
+        <div class="modal-header-fire">
+            <h6>Topic Builder</h6>
+            <button class="btn-close btn-close-white" @onclick="OnClose"></button>
+        </div>
+        <div class="modal-body p-3">
+            <select class="form-select mb-2" @bind="SelectedDevice">
+                @foreach(var d in Devices) { <option value="@d">@d</option> }
+            </select>
+            <select class="form-select mb-2" @bind="SelectedType">
+                <option value="Status">Status</option>
+                <option value="Command">Command</option>
+                <option value="Data">Data</option>
+            </select>
+            <input class="form-control mb-2" @bind="Discriminator" placeholder="Discriminator" />
+            <div class="alert alert-secondary text-center small">
+                <strong>@($"{SelectedDevice}.{SelectedType}.{Discriminator}")</strong>
+            </div>
+        </div>
+        <div class="modal-footer p-2">
+            <button class="btn btn-sm btn-warning w-100" @onclick="Apply">Apply</button>
+        </div>
+    </div>
+</div>
+
+@code {
+    [Parameter] public IEnumerable<string> Devices { get; set; } = Array.Empty<string>();
+    [Parameter] public string InitialDevice { get; set; }
+    [Parameter] public EventCallback<string> OnApply { get; set; }
+    [Parameter] public EventCallback OnClose { get; set; }
+
+    private string SelectedDevice { get; set; }
+    private string SelectedType { get; set; } = "Status";
+    private string Discriminator { get; set; } = "";
+
+    protected override void OnInitialized()
+    {
+        SelectedDevice = InitialDevice ?? Devices.FirstOrDefault();
+    }
+
+    private async Task Apply()
+    {
+        await OnApply.InvokeAsync($"{SelectedDevice}.{SelectedType}.{Discriminator}");
+    }
+}

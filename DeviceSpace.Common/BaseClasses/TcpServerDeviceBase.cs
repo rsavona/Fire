@@ -35,8 +35,7 @@ public abstract class TcpServerDeviceBase<TProcessor>
         MessageSent,
         ClientConnected,
         ClientDisconnected,
-        RecoverableError,
-        FatalError
+        ServerError
     }
 
     protected readonly TcpServer Server;
@@ -49,8 +48,22 @@ public abstract class TcpServerDeviceBase<TProcessor>
 
     private StateMachine<State, Event>.TriggerWithParameters<string>? _clientDisconnectedTrigger;
 
-    protected TcpServerDeviceBase(IDeviceConfig config, ILogger logger, TProcessor processor, LoggingLevelSwitch swtch,  int port,
-        int maxClients = 1)
+    
+    protected virtual void OnSingleClientConnected()
+    {
+    }
+
+    protected virtual void OnMultiClientConnected()
+    {
+    }
+
+    protected virtual void OnClientDisconnected(string client, int remaining )
+    {
+        
+    }
+
+    protected TcpServerDeviceBase(IDeviceConfig config, IFireLogger logger, TProcessor processor,
+        LoggingLevelSwitch swtch, int port, ITerminationStrategy terminalStr, int maxClients = 1)
         : base(config, logger, swtch, State.Offline, Event.Start)
     {
         Processor = processor;
@@ -63,8 +76,7 @@ public abstract class TcpServerDeviceBase<TProcessor>
         Watchdog = new System.Timers.Timer(1000) { AutoReset = true };
         Watchdog.Elapsed += OnWatchdogScan;
 
-        var serverLogger = Log.ForContext("DeviceName", Key.DeviceName);
-        Server = new TcpServer(Port, Processor, serverLogger);
+        Server = new TcpServer(Port, Processor, logger,  terminalStr, 2000);
 
         Server.ListenerStateChanged += OnServerListenerStateChanged;
         Server.ClientConnectionChanged += OnInternalConnectionChanged;
@@ -87,20 +99,21 @@ public abstract class TcpServerDeviceBase<TProcessor>
             .OnEntryAsync(OnEnterStartingAsync)
             .Permit(Event.ServerStarted, State.Listening)
             .Permit(Event.ServerFailed, State.Faulted)
-            .Permit(Event.FatalError, State.Faulted);
+            .Permit(Event.ServerError, State.Faulted);
 
         // --- LISTENING ---
         Machine.Configure(State.Listening)
             .OnEntry(() => Watchdog.Start())
             .Permit(Event.ClientConnected, State.Connected)
             .Permit(Event.Stop, State.Stopping) // Handle Stop while waiting for clients
-            .Permit(Event.FatalError, State.Faulted);
+            .Permit(Event.ServerError, State.Faulted);
 
         if (MaxClients > 1)
         {
             // --- CONNECTED ---
             Machine.Configure(State.Connected)
                 .SubstateOf(State.Listening)
+                .OnEntry(OnMultiClientConnected)
                 .InternalTransition(Event.MessageReceived, () =>
                 {
                     Tracker.IncrementInbound();
@@ -111,14 +124,15 @@ public abstract class TcpServerDeviceBase<TProcessor>
                     Tracker.IncrementOutbound();
                     UpdateAndNotify();
                 })
-                .PermitDynamic(_clientDisconnectedTrigger, OnClientDisconnected)
+                .PermitDynamic(_clientDisconnectedTrigger, ClientDisconnected)
                 // Allow a Stop event to jump straight to Stopping from Connected
                 .Permit(Event.Stop, State.Stopping)
-                .Permit(Event.FatalError, State.Faulted);
+                .Permit(Event.ServerError, State.Faulted);
         }
         else
         {
              Machine.Configure(State.Connected)
+                 .OnEntry(OnSingleClientConnected)
                 .InternalTransition(Event.MessageReceived, () =>
                 {
                     Tracker.IncrementInbound();
@@ -129,17 +143,17 @@ public abstract class TcpServerDeviceBase<TProcessor>
                     Tracker.IncrementOutbound();
                     UpdateAndNotify();
                 })
-                .PermitDynamic(_clientDisconnectedTrigger, OnClientDisconnected)
+                .PermitDynamic(_clientDisconnectedTrigger, ClientDisconnected)
                 // Allow a Stop event to jump straight to Stopping from Connected
                 .Permit(Event.Stop, State.Stopping)
-                .Permit(Event.FatalError, State.Faulted);
+                .Permit(Event.ServerError, State.Faulted);
         }
 
         // --- STOPPING ---
         Machine.Configure(State.Stopping)
             .OnEntryAsync(OnEnterStoppingAsync)
             .Permit(Event.Stop, State.Offline) // Transition to final state once server cleanup is done
-            .Permit(Event.FatalError, State.Faulted);
+            .Permit(Event.ServerError, State.Faulted);
 
         // --- FAULTED ---
         Machine.Configure(State.Faulted)
@@ -147,7 +161,7 @@ public abstract class TcpServerDeviceBase<TProcessor>
             .Permit(Event.Start, State.Starting)
             .Permit(Event.Stop, State.Stopping);
 
-        ConfigureGlobalErrorHandling(Event.FatalError);
+        ConfigureGlobalErrorHandling(Event.ServerError);
     }
     
     /// <summary>
@@ -157,8 +171,47 @@ public abstract class TcpServerDeviceBase<TProcessor>
     {
         // Trigger the state machine to move from Offline -> Starting
         await Machine.FireAsync(Event.Start);
+        OnStartAsync(token);
+        await Task.Delay(-1, token);
     }
 
+     protected override void OnStateChange(StateMachine<State, Event>.Transition transition)
+    {
+        // 1. Log the transition for local debugging
+        Logger.Debug("[{Device}] Transition: {Source} -> {Dest} (Trigger: {Trigger})",
+            Config.Name, transition.Source, transition.Destination, transition.Trigger);
+
+        // 2. Build a dynamic comment based on the connection context
+        string contextComment = "";
+
+
+        if (transition.Destination == State.Connected)
+        {
+            // When connected, show WHO connected and WHERE (IP and Port)
+            var clients = Server.GetConnectedClients();
+            if  (clients.Count > 1)
+                contextComment = $"Connected: {clients.Count}" ;
+            else if (clients.Count > 0)
+                contextComment = $"Connected: {clients[0]}" ;
+        }
+        else if (transition.Destination == State.Listening )
+        {
+            contextComment = $"{transition.Destination.ToString()}: {Port}";
+        }
+        else
+        {
+            contextComment = $"{transition.Trigger.ToString()}:  port {Port}";
+        }
+
+        Tracker.Update(
+            transition.Destination,
+            transition.Trigger,
+            MapStateToHealth(transition.Destination),
+            contextComment);
+
+        UpdateAndNotify();
+    }
+     
     /// <summary>
     /// Orchestrates the device shutdown sequence.
     /// </summary>
@@ -249,9 +302,10 @@ public abstract class TcpServerDeviceBase<TProcessor>
         if (s == TcpListenerState.Listening) Machine.Fire(Event.ServerStarted);
     }
 
-    private State OnClientDisconnected(string clientId)
+    private State ClientDisconnected(string clientId)
     {
         ConnectedClients.TryRemove(clientId, out _);
+        OnClientDisconnected(clientId, ConnectedClients.Count());
         return ConnectedClients.IsEmpty ? State.Listening : State.Connected;
     }
 
@@ -260,7 +314,7 @@ public abstract class TcpServerDeviceBase<TProcessor>
         /* Scan and Server.DisconnectClient if now - value > timeout */
     }
 
-    private void OnProcessorHeartbeatReceived(string id) => UpdateClientTimestamp(id);
+    protected virtual void OnProcessorHeartbeatReceived(string id) => UpdateClientTimestamp(id);
 
     protected override DeviceHealth MapStateToHealth(State state) => state switch
     {

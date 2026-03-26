@@ -21,9 +21,9 @@
         //void ReadAsync(string newQueue);
         //void ReadAsync(Func<string> function);
 
-        public Task<bool> ReadNotify(Action<string,string> onMessage);
+        public Task<bool> ReadNotify(Func<object, object, Task> onMessage);
 
-        public Task<bool> ReadNotify(Action<string,string> onMessage, string strQueue);
+        public Task<bool> ReadNotify(Func<object, object, Task> onMessage, string strQueue);
 
         public void ReadNotifyEnd();
 

@@ -12,22 +12,37 @@ namespace DeviceSpace.Common.BaseClasses;
 public abstract class WorkflowBase : BackgroundService
 {
     // --- Enums for Tracker ---
-    public enum WorkflowState { Initializing, Active, ActiveWithErrors, Faulted, Stopped }
-    public enum WorkflowEvent { Started, MessageProcessed, Error, Stopped }
-    
+    public enum WorkflowState
+    {
+        Initializing,
+        Active,
+        ActiveWithErrors,
+        Faulted,
+        Stopped
+    }
+
+    public enum WorkflowEvent
+    {
+        Started,
+        MessageProcessed,
+        Error,
+        Stopped
+    }
+
     protected readonly IMessageBus MessageBus;
     protected readonly WorkflowConfig Config;
-    
+
     // Identity and Tracking
     protected readonly DeviceKey WorkflowKey;
     protected readonly DeviceStatusTracker<WorkflowState, WorkflowEvent> Tracker;
-    
+
     // Serilog Logger
     protected readonly ILogger Logger;
-  
+
     // Logic Cache
-    private readonly Dictionary<RouteKey, Func<MessageEnvelope, CancellationToken, Task<object?>>> _routeExecutors = new();
-    private readonly List<string> _subscribedSources = new ();
+    private readonly Dictionary<RouteKey, Func<MessageEnvelope, CancellationToken, Task<object?>>> _routeExecutors =
+        new();
+
 
     /// <summary>
     /// Serves as the base class for workflows, providing common functionality and abstractions
@@ -44,9 +59,10 @@ public abstract class WorkflowBase : BackgroundService
         Config = config;
 
         // Enrich the logger with the specific workflow name for better filtering in Rider/Logs
-        Logger = logger.ForContext("DeviceName", Config.Name); 
+        Logger = logger.ForContext("DeviceName", Config.Name);
         WorkflowKey = new DeviceKey("SYSTEM", Config.Name);
-        Tracker = new DeviceStatusTracker<WorkflowState, WorkflowEvent>(WorkflowState.Initializing, WorkflowEvent.Started);
+        Tracker = new DeviceStatusTracker<WorkflowState, WorkflowEvent>(WorkflowState.Initializing,
+            WorkflowEvent.Started);
 
         Logger.Information("[{Workflow}] Workflow instance created.", WorkflowKey.DeviceName);
     }
@@ -63,16 +79,18 @@ public abstract class WorkflowBase : BackgroundService
         Logger.Information("[{Workflow}] ExecuteAsync started.", "Base-ExecuteAsync");
         UpdateStatus(WorkflowState.Initializing, WorkflowEvent.Started, DeviceHealth.Warning, "Workflow starting...");
 
-        try 
+        try
         {
-            await InitializeRoutesAsync(); 
+            await InitializeRoutesAsync();
 
             if (Tracker.State == WorkflowState.Faulted)
             {
-                Logger.Fatal("[{Workflow}] Workflow entered Faulted state during initialization. Halting.", "Base-ExecuteAsync");
+                UpdateStatus(WorkflowState.Faulted, WorkflowEvent.Error, DeviceHealth.Critical);
+                Logger.Fatal("[{Workflow}] Workflow entered Faulted state during initialization. Halting.",
+                    "Base-ExecuteAsync");
                 return;
             }
-            
+
             UpdateStatus(WorkflowState.Active, WorkflowEvent.Started, DeviceHealth.Normal, "Workflow Active.");
             Logger.Information("[{Workflow}] Workflow is now Running and Active.", "Base-ExecuteAsync");
 
@@ -86,7 +104,8 @@ public abstract class WorkflowBase : BackgroundService
         catch (Exception ex)
         {
             Logger.Error(ex, "[{Workflow}] Fatal startup error: {Message}", "Base-ExecuteAsync", ex.Message);
-            UpdateStatus(WorkflowState.Faulted, WorkflowEvent.Error, DeviceHealth.Critical, $"Startup Failed: {ex.Message}");
+            UpdateStatus(WorkflowState.Faulted, WorkflowEvent.Error, DeviceHealth.Critical,
+                $"Startup Failed: {ex.Message}");
         }
         finally
         {
@@ -94,24 +113,25 @@ public abstract class WorkflowBase : BackgroundService
             Logger.Information("[{Workflow}] Workflow background service has exited.", "Base-ExecuteAsync");
         }
     }
-    
+
     /// <summary>
     /// Initializes all configured routes.
     /// </summary>
     /// <exception cref="InvalidOperationException"></exception>
     public async Task InitializeRoutesAsync()
     {
-        Logger.Debug("[{Workflow}] Initializing {Count} defined routes.", "Base-InitializeRoutesAsync", Config.Routes.Count);
+        Logger.Debug("[{Workflow}] Initializing {Count} defined routes.", "Base-InitializeRoutesAsync",
+            Config.Routes.Count);
         int successfulRoutes = 0;
         int disabledRoutes = 0;
-        
+
         foreach (var route in Config.Routes)
         {
             try
             {
                 Func<MessageEnvelope, CancellationToken, Task<object?>> executor;
 
-                Logger.Debug("[{Workflow}] Configuring route: {Source} -> {Destination} (Mode: {Mode})", 
+                Logger.Debug("[{Workflow}] Configuring route: {Source} -> {Destination} (Mode: {Mode})",
                     "Base-InitializeRoutesAsync", route.Source, route.Destination, route.Mode);
 
                 switch (route.Mode)
@@ -123,48 +143,47 @@ public abstract class WorkflowBase : BackgroundService
                         executor = await CreateScriptDelegateAsync(route.Handler);
                         break;
                     case 0: // Disabled
-                        Logger.Warning("[{Workflow}] Route {Source} is DISABLED. Skipping.", "Base-InitializeRoutesAsync", route.Source);
+                        Logger.Warning("[{Workflow}] Route {Source} is DISABLED. Skipping.",
+                            "Base-InitializeRoutesAsync", route.Source);
                         disabledRoutes++;
-                        continue; 
+                        continue;
                     default:
                         throw new InvalidOperationException($"Unknown route mode: {route.Mode}");
                 }
-                
+
                 var key = new RouteKey(route.Source, route.Destination);
                 _routeExecutors[key] = executor;
 
-                if (!_subscribedSources.Contains(route.Source))
-                {
-                    _subscribedSources.Add(route.Source);
-                    var topic = route.Source.ToUpper();
-                        await MessageBus.SubscribeAsync(route.Source, HandleIncomingMessageAsync);
-                    Logger.Information("[{Workflow}] Subscribed to topic: {Source} Handler: HandleIncomingMessageAsync", "Base-InitializeRoutesAsync", route.Source);
-                }
-                
+                var topic = route.Source.ToUpper();
+                await MessageBus.SubscribeAsync(route.Source, HandleIncomingMessageAsync);
+                Logger.Information("[{Workflow}] {Route} Subscribed to topic: {Source} Handler: HandleIncomingMessageAsync",
+                    "Base-InitializeRoutesAsync", route.Name, route.Source);
+
                 successfulRoutes++;
             }
             catch (Exception ex)
             {
-                Logger.Error(ex, "[{Workflow}] Failed to initialize route '{Source}' with handler '{Handler}'", 
-                    "Base-InitializeRoutesAsync", route.Source, route.Handler);
-                
+                Logger.Error(ex, "[{Workflow}] Failed to initialize {route} route '{Source}' with handler '{Handler}'",
+                    "Base-InitializeRoutesAsync", route.Name, route.Source, route.Handler);
+
                 Tracker.IncrementError(ex.Message);
-                UpdateStatus(WorkflowState.Faulted, WorkflowEvent.Error, DeviceHealth.Critical, $"Route Setup Failed: {ex.Message}");
+                UpdateStatus(WorkflowState.Faulted, WorkflowEvent.Error, DeviceHealth.Critical,
+                    $"Route Setup Failed: {ex.Message}");
             }
         }
-        
-        
-        if (successfulRoutes + disabledRoutes == Config.Routes.Count )
+
+
+        if (successfulRoutes + disabledRoutes == Config.Routes.Count)
         {
-             Logger.Information( "[{Workflow}] {successfulRoutes} initialized routes; {disabledRoutes} disabled.", 
-                    "Base-InitializeRoutesAsync",successfulRoutes,disabledRoutes);
-             UpdateStatus(WorkflowState.Active, WorkflowEvent.Started, DeviceHealth.Normal, $"Route Setup Complete");
+            Logger.Information("[{Workflow}] {successfulRoutes} initialized routes; {disabledRoutes} disabled.",
+                "Base-InitializeRoutesAsync", successfulRoutes, disabledRoutes);
+            UpdateStatus(WorkflowState.Active, WorkflowEvent.Started, DeviceHealth.Normal, $"Route Setup Complete");
         }
         else
         {
-             Logger.Fatal("[{Workflow}] Not all routes initialized. Successful: {successfulRoutes} Check configuration ", "Base-InitializeRoutesAsync", successfulRoutes);
+            Logger.Fatal("[{Workflow}] Not all routes initialized. Successful: {successfulRoutes} Check configuration ",
+                "Base-InitializeRoutesAsync", successfulRoutes);
         }
-        
     }
 
     /// <summary>
@@ -177,81 +196,80 @@ public abstract class WorkflowBase : BackgroundService
         if (message == null)
         {
             Logger.Warning("[{Workflow}] Received null message from bus.", "Base-HandleIncomingMessageAsync");
+            Tracker.IncrementError("Received null message");
             return;
         }
 
         Tracker.IncrementInbound();
         // Trace for high-volume message monitoring
-        Logger.Verbose("[{Workflow}] Inbound: Source={Source}, Dest={Topic}", 
-            "Base-HandleIncomingMessageAsync", message.Client, message.Destination); 
+        Logger.Information("[{Workflow}] Message IN : {msg}",
+            "Base-HandleIncomingMessageAsync", message);
 
         try
         {
             var matchingRoutes = _routeExecutors
-                 .Where(kvp => string.Equals(
-                     kvp.Key.Source, 
-                     message.Destination.ToString(), 
-                     StringComparison.OrdinalIgnoreCase))
-                 .ToList();
+                .Where(kvp => string.Equals(
+                    kvp.Key.Source,
+                    message.Destination.ToString(),
+                    StringComparison.OrdinalIgnoreCase))
+                .ToList();
 
-             if (!matchingRoutes.Any())
-             {
-                 var logmsg = $"No route found for topic: {message.Destination}";
-                 Tracker.IncrementError(logmsg);
-                 Logger.Warning("[{Workflow}] No route found for topic: {Topic}", "Base-HandleIncomingMessageAsync", message.Destination);
-                 return;
-             }
+            if (!matchingRoutes.Any())
+            {
+                var logmsg = $"No route found for topic: {message.Destination}";
+                Tracker.IncrementError(logmsg);
+                Logger.Warning("[{Workflow}] No route found for topic: {Topic}", "Base-HandleIncomingMessageAsync",
+                    message.Destination);
+                return;
+            }
 
-             foreach (var rte in matchingRoutes)
-             {
-                 try
-                 {
-                     Logger.Verbose("[{Workflow}] Executing handler for {Src} -> {Dest}",
-                         "Base-HandleIncomingMessageAsync", rte.Key.Source, rte.Key.Destination);
+            foreach (var rte in matchingRoutes)
+            {
+                try
+                {
+                    Logger.Information("[{Workflow}] Executing {handler} for {Src} -> {Dest}",
+                        "Base-HandleIncomingMessageAsync", rte.Value.ToString(), rte.Key.Source, rte.Key.Destination);
 
-                     var executor = rte.Value;
-                     var result = await executor(message, ct);
+                    var executor = rte.Value;
+                    var result = await executor(message, ct);
 
-                     if (result is MessageEnvelope resultPayload && !string.IsNullOrEmpty(rte.Key.Destination))
-                     {
-                         Tracker.IncrementOutbound();
-                         _ = MessageBus.PublishAsync(rte.Key.Destination, resultPayload, ct);
-                         Logger.Debug("[{Workflow}] Result published to {Destination}",
-                             "Base-HandleIncomingMessageAsync", rte.Key.Destination);
-                 
-                     }
-                     else if (result is IDeviceMessage deviceMessage)
-                     {
-                          var env = deviceMessage.WrapMessage(new MessageBusTopic(rte.Key.Destination));
-                          Tracker.IncrementOutbound();
-                           _ = MessageBus.PublishAsync(rte.Key.Destination, env, ct);
-                         Logger.Debug("[{Workflow}] Result published to {Destination}",
-                             "Base-HandleIncomingMessageAsync", rte.Key.Destination);
-                        
-                     }
-                     else if (result is string payload && !string.IsNullOrEmpty(rte.Key.Destination))
-                     {
-                         var env = new MessageEnvelope (new MessageBusTopic(rte.Key.Destination), payload);
-                         Tracker.IncrementOutbound();
-                         _ = MessageBus.PublishAsync(rte.Key.Destination, env, ct);
-                         Logger.Debug("[{Workflow}] Result published to {Destination}",
-                             "Base-HandleIncomingMessageAsync", rte.Key.Destination);
-                     }
-                     else
-                     {
-                         Logger.Warning("[{Workflow}] Received unknown result for {Src} -> {Dest}",
-                             "Base-HandleIncomingMessageAsync", rte.Key.Source, rte.Key.Destination);
-                         Tracker.IncrementError("Received unknown result");
-                     }
-                
-                 }
-                 catch (OperationCanceledException)
-                 {
-                     Logger.Warning(" {Workflow} Operation Canceled ","Base-HandleIncomingMessageAsync" );
-                 }
+                    if (result is MessageEnvelope resultPayload && !string.IsNullOrEmpty(rte.Key.Destination))
+                    {
+                        Tracker.IncrementOutbound();
+                        _ = MessageBus.PublishAsync(rte.Key.Destination, resultPayload, ct);
+                        Logger.Information("[{Workflow}] Message Out: {msg}  published to {Destination}",
+                            "Base-HandleIncomingMessageAsync", resultPayload, rte.Key.Destination);
+                    }
+                    else if (result is IDeviceMessage deviceMessage)
+                    {
+                        var env = deviceMessage.WrapMessage(new MessageBusTopic(rte.Key.Destination));
+                        Tracker.IncrementOutbound();
+                        _ = MessageBus.PublishAsync(rte.Key.Destination, env, ct);
+                        Logger.Information("[{Workflow}] Message Out: {msg}  published to {Destination}",
+                            "Base-HandleIncomingMessageAsync", deviceMessage, rte.Key.Destination);
+                    }
+                    else if (result is string payload && !string.IsNullOrEmpty(rte.Key.Destination))
+                    {
+                        var env = new MessageEnvelope(new MessageBusTopic(rte.Key.Destination), payload);
+                        Tracker.IncrementOutbound();
+                        _ = MessageBus.PublishAsync(rte.Key.Destination, env, ct);
+                        Logger.Information("[{Workflow}] Message Out: {msg}  published to {Destination}",
+                            "Base-HandleIncomingMessageAsync", payload, rte.Key.Destination);
+                    }
+                    else
+                    {
+                        Logger.Warning("[{Workflow}] Received unknown result for {Src} -> {Dest}",
+                            "Base-HandleIncomingMessageAsync", rte.Key.Source, rte.Key.Destination);
+                        Tracker.IncrementError("Received unknown result");
+                    }
+                }
+                catch (OperationCanceledException)
+                {
+                    Logger.Warning(" {Workflow} Operation Canceled ", "Base-HandleIncomingMessageAsync");
+                }
                 catch (Exception ex)
                 {
-                    Logger.Error(ex, "[{Workflow}] Execution failed: {Src} -> {Dest}", 
+                    Logger.Error(ex, "[{Workflow}] Execution failed: {Src} -> {Dest}",
                         "Base-HandleIncomingMessageAsync", rte.Key.Source, rte.Key.Destination);
                     Tracker.IncrementError(ex.Message);
                 }
@@ -262,6 +280,7 @@ public abstract class WorkflowBase : BackgroundService
             Logger.Error(ex, "[{Workflow}] Handler failure for {Device}", "Base-HandleIncomingMessageAsync");
             Tracker.IncrementError(ex.Message);
         }
+
         _ = PublishStatusAsync();
         return;
     }
@@ -273,7 +292,7 @@ public abstract class WorkflowBase : BackgroundService
     /// <param name="evt">The event associated with the workflow update.</param>
     /// <param name="health">The health status of the device.</param>
     /// <param name="comment">Optional comment providing additional context for the status update.</param>
-    protected void UpdateStatus(WorkflowState state, WorkflowEvent evt, DeviceHealth health, string comment)
+    protected void UpdateStatus(WorkflowState state, WorkflowEvent evt, DeviceHealth health, string comment = "")
     {
         Tracker.Update(state, evt, health, comment);
         _ = PublishStatusAsync();
@@ -284,16 +303,16 @@ public abstract class WorkflowBase : BackgroundService
     /// </summary>
     /// <returns>A task representing the asynchronous operation.</returns>
     /// <exception cref="Exception">Thrown when the status cannot be published.</exception>
-    private async Task PublishStatusAsync()
+    protected async Task PublishStatusAsync()
     {
         try
         {
             var snapshot = Tracker.ToStatusMessage(WorkflowKey);
-            await MessageBus.PublishStatusAsync(  snapshot, CancellationToken.None);
+            await MessageBus.PublishStatusAsync(snapshot, CancellationToken.None);
         }
-        catch(Exception ex)
+        catch (Exception ex)
         {
-             Logger.Warning("[{Workflow}] Failed to publish status: {Msg}", "Base-UpdateStatus", ex.Message);
+            Logger.Warning("[{Workflow}] Failed to publish status: {Msg}", "Base-UpdateStatus", ex.Message);
         }
     }
 
@@ -301,9 +320,14 @@ public abstract class WorkflowBase : BackgroundService
     /// Creates a delegate that points to a specified method within the current class.
     /// </summary>
     /// <param name="methodName">The name of the method to create the delegate for.
-    /// The method should have a signature matching <see cref="Func{MessageEnvelope, CancellationToken, Task{object?}}"/>.</param>
+    /// The method should have a signature matching <see>
+    ///     <cref>Func{MessageEnvelope, CancellationToken, Task{object?}}</cref>
+    /// </see>
+    /// .</param>
     /// <returns>
-    /// A delegate of type <see cref="Func{MessageEnvelope, CancellationToken, Task{object?}}"/>
+    /// A delegate of type <see>
+    ///     <cref>Func{MessageEnvelope, CancellationToken, Task{object?}}</cref>
+    /// </see>
     /// that can be used to invoke the specified method.
     /// </returns>
     /// <exception cref="MissingMethodException">
@@ -313,7 +337,7 @@ public abstract class WorkflowBase : BackgroundService
     protected Func<MessageEnvelope, CancellationToken, Task<object?>> CreateMethodDelegate(string methodName)
     {
         var methodInfo = this.GetType().GetMethod(
-            methodName, 
+            methodName,
             BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
             null,
             new[] { typeof(MessageEnvelope), typeof(CancellationToken) },
@@ -345,15 +369,16 @@ public abstract class WorkflowBase : BackgroundService
         var options = ScriptOptions.Default
             .AddReferences(typeof(Console).Assembly)
             .AddReferences(typeof(IMessageBus).Assembly)
-            .WithImports("System", "System.Linq"); 
+            .WithImports("System", "System.Linq");
 
         var script = CSharpScript.Create<object>(code, options, globalsType: typeof(ScriptGlobals));
         var runner = script.CreateDelegate();
 
         return async (envelope, ct) =>
         {
-            var globals = new ScriptGlobals(envelope.Payload, envelope.Client, MessageBus, (s) => Logger.Information(s));
-            return await runner(globals, ct); 
+            var globals = new ScriptGlobals(envelope.Payload, envelope.Client, MessageBus,
+                (s) => Logger.Information(s));
+            return await runner(globals, ct);
         };
     }
 }

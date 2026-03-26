@@ -3,6 +3,7 @@ using DeviceSpace.Common;
 using DeviceSpace.Common.BaseClasses;
 using DeviceSpace.Common.Configurations;
 using DeviceSpace.Common.Contracts;
+using DeviceSpace.Common.Logging;
 using Microsoft.Extensions.Logging;
 using CancellationToken = System.Threading.CancellationToken;
 using Task = System.Threading.Tasks.Task;
@@ -21,95 +22,129 @@ public class ActiveMqManager : DeviceManagerBase<ActiveMqDevice>
     /// <param name="config"></param>
     /// <param name="logger"></param>
     /// <param name="deviceFactory"></param>
-    public ActiveMqManager(IMessageBus bus, List<IDeviceConfig> config, ILogger<DeviceManagerBase<ActiveMqDevice>> logger,
-        Func<IDeviceConfig, Serilog.ILogger, ActiveMqDevice> deviceFactory) : base(bus, config, logger, deviceFactory)
+    public ActiveMqManager(
+        IMessageBus bus,
+        List<IDeviceConfig> config,
+        IFireLogger<ActiveMqManager> logger, // Change to the specific manager type
+        Func<IDeviceConfig, IFireLogger, ActiveMqDevice> deviceFactory)
+        : base(bus, config, logger, deviceFactory)
     {
     }
 
+    protected override void RegisterDeviceDestRoutes(IDevice device)
+    {
+        if(device is ActiveMqDevice mqdev) 
+        {
+            var routes = ConfigurationLoader.GetAllWorkflowConfig()
+                .SelectMany(w => w.Routes)
+                .Where(r => r.Destination.StartsWith(device.Config.Name));
+
+            foreach (var route in routes)
+            {
+                mqdev.GetLogger().Information($"[{device.Config.Name}] Manager initializing Route: {route.Name}");
+                MessageBus.SubscribeAsync(route.Destination, HandleBusMessageAsync);
+            }
+        }
+    }
     /// <summary>
     /// Finds routes whose source starts with the device name and registers them with the ActiveMQ device.
     /// </summary>
     /// <param name="device"></param>
-    protected override async Task  RegisterDeviceSourceRoutes(IDevice device)
+    protected override async Task RegisterDeviceSourceRoutes(IDevice device)
     {
-        // Get ALl the routes where the Source starts with the device name.  For every route found 
-        // we call Read Notify for the queue on the external brkoer
+        
+        
         var routes = ConfigurationLoader.GetAllWorkflowConfig()
             .SelectMany(w => w.Routes)
-            .Where(r => r.Source.StartsWith(device.Config.Name));
-        
-        Logger.LogDebug("[{Dev}]  Manager initializing Routes: {Routes}", device.Config.Name, routes.Count());
+            .Where(r => r.Source.StartsWith(device.Config.Name) && r.Mode > 0)
+            .ToList();
+
+       
+
         foreach (var route in routes)
         {
+            device.GetLogger().Information($"[{device.Config.Name}] Manager initializing Routes: {route.Name}");
             var queueName = new MessageBusTopic(route.Source).Discriminator;
             if (device is ActiveMqDevice dev)
             {
-                var result = await dev.ReadNotifyAsync( queueName );
+                var result = await dev.ReadNotifyAsync(queueName);
                 if (result)
                 {
-                    Logger.LogDebug("[{Dev}] ActiveMQ Manager initialized Route: {Route}", device.Config.Name, route);
-                    bool exists = _queueToBusMap.ContainsKey(queueName);
-                    if (exists)
+                    Logger.LogDebug($"[{device.Config.Name}] ActiveMQ Manager initialized Route: {route}");
+
+                    if (_queueToBusMap.TryGetValue(queueName, out var list))
                     {
-                        var list = _queueToBusMap[queueName];
                         list.Add(route.Source);
                     }
                     else
                     {
-                        var list = new List<string> { route.Source };
-                        _queueToBusMap[queueName] = list;
+                        _queueToBusMap[queueName] = new List<string> { route.Source };
                     }
                 }
                 else
                 {
                     var errorMsg = $"[{device.Config.Name}] Could not read route: {route}";
-                    Logger.LogError(errorMsg);
+                    Logger.LogError(null, errorMsg);
                     device.OnError(errorMsg);
                 }
             }
         }
     }
-    
+
     /// <summary>
     /// Handle incoming messages from the external MQ. The ActiveMQ device and managers job is to get these
     /// messages and forward them to the internal message bus topic
     /// </summary>
     /// <param name="sender"></param>
     /// <param name="message"></param>
-    protected override void OnDeviceMessageReceivedAsync(object? sender, object message)
+    protected override Task OnDeviceMessageToMessageBusAsync(object  message, object sender)
     {
-        if (sender is SourceIdentifier devQue && message is string msg)
+        if (sender is string devQue && message is string msg)
         {
-            var sourceList = _queueToBusMap[devQue.SourcePath];
-            foreach(var path in sourceList)
+            var topicNameList = _queueToBusMap[devQue];
+            foreach (var path in topicNameList)
             {
-                 var topic = new MessageBusTopic(path);
-              
-                 
-                 Logger.LogDebug("[{Dev}] ActiveMQ Manager forwarding message to {topic}: {Msg}", devQue.DeviceKey, topic, msg);
+                var topic = new MessageBusTopic(path);
+                
+                Logger.LogDebug("[{Dev}] ActiveMQ Manager forwarding message to {topic}: {Msg}", devQue,
+                    topic, msg);
                 MessageBus.PublishAsync(topic.ToString(), new MessageEnvelope(topic, msg));
             }
         }
+
+        return Task.CompletedTask;
     }
 
     /// <summary>
     ///  Handle incoming messages from the internal message bus that get forwarded to the ActiveMQ.
     /// </summary>
-    /// <param name="device"></param>
-    /// <param name="src"></param>
-    /// <param name="env"></param>
-    /// <param name="ct"></param>
-    protected override async Task HandleBusMessageAsync(IDevice device, string src, string dest, MessageEnvelope env,
-        CancellationToken ct)
+    protected override async Task HandleBusMessageAsync(MessageEnvelope env, CancellationToken ct)
     {
-        
-        var topic = new MessageBusTopic(dest);
-        Logger.LogDebug("[{Dev}] ActiveMQ Manager received message from {Src}: {Msg}", device.Config.Name, src, env.Payload);
-        if (device is ActiveMqDevice dev)
+        // Using Task.Run is fine, but ensure we don't block the caller
+        _ = Task.Run(async () =>
         {
-            await dev.WriteAsync(env.Payload.ToString(), topic.Discriminator);
-        }
+            try
+            {
+                var deviceName = env.Destination.DeviceName;
+                var queue = env.Destination.Discriminator;
+                var device = DeviceInstances[deviceName];
+
+                if (device != null)
+                {
+                    Logger.LogDebug($"[{device.Config.Name}] ActiveMQ Manager received {env.Payload}");
+                    await device.WriteAsync(env.Payload.ToJson() , queue);
+                }
+                else
+                {
+                    Logger.LogWarning($"No matching ActiveMQ device found for target: {deviceName}");
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError(ex, "Background task failed in ActiveMqManager");
+            }
+        }, ct);
+
+        await Task.CompletedTask;
     }
-    
 }
-    

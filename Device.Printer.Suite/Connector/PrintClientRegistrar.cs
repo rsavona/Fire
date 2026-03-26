@@ -9,11 +9,11 @@ public class PrintClientRegistrar : IDeviceRegistrar
 {
     public void RegisterServices(IServiceCollection services)
     {
-        services.AddTransient<PrintClientBaseDeviceZebra>();
+        services.AddTransient<PrintClientDeviceZebra>();
         services.AddTransient<PrintClientBaseDeviceJetMark>();
 
         // Register the factory for ITcpPrinter
-        services.AddTransient<Func<IDeviceConfig, Serilog.ILogger, ITcpPrintClientBase>>(provider => 
+        services.AddTransient<Func<IDeviceConfig, IFireLogger, ITcpPrintClientBase>>(provider => 
             (config, logger) => 
             {
                 // The Brand logic lives here now, keeping the Manager clean
@@ -22,7 +22,7 @@ public class PrintClientRegistrar : IDeviceRegistrar
                 return brand switch
                 {
                     "JetMark" => ActivatorUtilities.CreateInstance<PrintClientBaseDeviceJetMark>(provider, config, logger),
-                    _ => ActivatorUtilities.CreateInstance<PrintClientBaseDeviceZebra>(provider, config, logger)
+                    _ => ActivatorUtilities.CreateInstance<PrintClientDeviceZebra>(provider, config, logger)
                 };
             });
     }

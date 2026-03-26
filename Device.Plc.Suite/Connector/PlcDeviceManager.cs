@@ -10,48 +10,7 @@ using Microsoft.Extensions.Logging;
 
 namespace Device.Plc.Suite.Connector;
 
-public class 
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    PlcDeviceManager : DeviceManagerBase<PlcServerDevice>
+public class  PlcDeviceManager : DeviceManagerBase<PlcServerDevice>
 {
     public record struct ResponseKey(string DecisionPoint, int Gin);
 
@@ -61,8 +20,8 @@ public class
     private readonly HashSet<string> _expectResponseTopics = new();
 
     public PlcDeviceManager(IMessageBus bus, List<IDeviceConfig> configs,
-        ILogger<DeviceManagerBase<PlcServerDevice>> logger,
-        Func<IDeviceConfig, Serilog.ILogger, PlcServerDevice> deviceFactory)
+        IFireLogger<DeviceManagerBase<PlcServerDevice>> logger,
+        Func<IDeviceConfig, IFireLogger, PlcServerDevice> deviceFactory)
         : base(bus, configs, logger, deviceFactory)
     {
     }
@@ -72,20 +31,20 @@ public class
     /// </summary>
     /// <param name="dev"></param>
     /// <param name="messEnv"></param>
-    protected override void OnDeviceMessageReceivedAsync(object? dev, object messEnv)
+    protected override async Task OnDeviceMessageToMessageBusAsync(object? dev, object messEnv)
     {
         if (dev is not PlcServerDevice device || messEnv is not MessageEnvelope env) return;
-        Logger.LogTrace("The message from the PLC Processor should have bubbled up to here.{messEnv}", messEnv);
+        var targetLogger = Logger.WithContext("DeviceName", device.Key.DeviceName);
         if (env.Payload is DecisionRequestPayload req)
         {
+            _pendingResponses[new ResponseKey(req.DecisionPoint, req.Gin)] = new PendingRequest(device, env.Client, req);
             MessageBusTopic messageBusTopic = new MessageBusTopic(device.Config.Name, "DReqM", req.DecisionPoint);
-            Logger.LogInformation("[{Dev}] PLC-REQ >> GIN: {Gin} at {DP}", device.Config.Name, req.Gin,
-                req.DecisionPoint);
+            targetLogger.LogInfoData("Request to {topic} : {msg}", [messageBusTopic , messEnv],  req.Gin.ToString());
 
             List<string> subList = MessageBus.GetSubscriptionList(messageBusTopic);
             var logMessage = $"[{device.Config.Name}]";
             if (subList.Count > 0) logMessage += $" Subscribed to {subList.Count} topics.";
-            Logger.LogTrace(logMessage);
+            targetLogger.Verbose(logMessage);
             if (_expectResponseTopics.Contains(messageBusTopic.ToString()))
             {
                 _pendingResponses.TryAdd(new ResponseKey(req.DecisionPoint, req.Gin),
@@ -100,7 +59,7 @@ public class
         else if (env.Payload is DecisionUpdatePayload upd)
         {
             MessageBusTopic messageBusTopic = new MessageBusTopic(device.Config.Name, "DUM", upd.DecisionPoint);
-            Logger.LogInformation("[{Dev}] PLC-UPD >> GIN: {Gin} at {DP}", device.Config.Name, upd.Gin,
+            targetLogger.Information("[{Dev}] PLC-UPD >> GIN: {Gin} at {DP}", device.Config.Name, upd.Gin,
                 upd.DecisionPoint);
             _ = MessageBus.PublishAsync(messageBusTopic.ToString(), new MessageEnvelope(messageBusTopic, env.Payload));
         }
@@ -114,32 +73,44 @@ public class
     /// <param name="routeSource"></param>
     /// <param name="envelope"></param>
     /// <param name="ct"></param>
-    protected override async Task HandleBusMessageAsync(IDevice multiClientDevice, string routeSource,
-        string dest, MessageEnvelope envelope, CancellationToken ct)
+    protected override async Task HandleBusMessageAsync( MessageEnvelope envelope, CancellationToken ct)
     {
+        var topic = envelope.Destination; 
+        DeviceInstances.TryGetValue(topic.DeviceName, out var device);
         try
         {
+            // 1. Check for cancellation before starting work
+            ct.ThrowIfCancellationRequested();
+           
             var node = JsonNode.Parse(envelope.Payload?.ToString() ?? "{}");
             var dp = node?["DecisionPoint"]?.GetValue<string>();
             var gin = node?["GIN"]?.GetValue<int>();
 
-            if (dp == null || gin == null) return;
+            if (device == null || dp == null || gin == null) return;
             var key = new ResponseKey(dp, gin.Value);
 
+            // 2. Locate the original PLC requester
             if (_pendingResponses.TryRemove(key, out var request))
             {
-                Logger.LogInformation("[{Dev}] BUS-RESP >> Sending Response to plc {Client} (GIN: {Gin})",
-                    multiClientDevice.Config.Name, request.Client, gin);
-
                 var responseMsg = new DecisionResponsePayload(dp, gin.Value,
                     node!["Actions"]?.AsArray().Select(a => a?.ToString() ?? "").ToList() ?? new());
-                await request.MultiClientDevice.SendResponseAsync(JsonSerializer.Serialize(responseMsg),
-                    request.Client);
-            }
+                
+                device.GetLogger().LogInfoData("Response from {topic} to {Client} : {msg} ",
+                    [envelope.Destination, request.Client, responseMsg], gin.ToString());
+                    
+                var success = await request.MultiClientDevice.SendResponseAsync(responseMsg, request.Client); 
+                
+                
+            }else
+            { device.GetLogger().LogWarning("UNEXPECTED Message from the Message bus");}
+        }
+        catch (OperationCanceledException)
+        {
+            device?.GetLogger().Information("[{Dev}] PLC Response dispatch was cancelled.", device.Config.Name);
         }
         catch (Exception ex)
         {
-            Logger.LogError(ex, "[{Dev}] Error processing Bus Response", multiClientDevice.Config.Name);
+            device?.GetLogger().Error(ex, "[{Dev}] Error processing Bus Response for GIN {Gin}", device.Config.Name, envelope.Gin);
         }
     }
 }

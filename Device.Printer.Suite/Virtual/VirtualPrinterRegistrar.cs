@@ -10,7 +10,7 @@ public class VirtualPrinterRegistrar : IDeviceRegistrar
     {
         services.AddTransient<VirtualPrintDevice>();
 
-        services.AddTransient<Func<IDeviceConfig, Serilog.ILogger, VirtualPrintDevice>>(provider => 
+        services.AddTransient<Func<IDeviceConfig, IFireLogger, VirtualPrintDevice>>(provider => 
             (config, logger) => 
             {
                 return ActivatorUtilities.CreateInstance<VirtualPrintDevice>(provider, config, logger);

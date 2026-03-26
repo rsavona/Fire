@@ -1,6 +1,12 @@
 ﻿using System.Collections.Concurrent;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Text.RegularExpressions;
+using System.Threading;
+using System.Threading.Tasks;
 using DeviceSpace.Common;
 using DeviceSpace.Common.BaseClasses;
 using DeviceSpace.Common.Configurations;
@@ -23,6 +29,7 @@ public class PrintAndApplyFrc : WorkflowBase
     private readonly ConcurrentDictionary<string, LabelWithTracking> _labelStore = new();
     private List<string> _printTypes = [];
     private readonly Lock _lock = new Lock();
+    private ConcurrentDictionary<int, string> _expectedBarcodes = new();
 
     /// <summary>
     /// Represents the PrintAndApplyFrc workflow class, responsible for managing
@@ -48,7 +55,11 @@ public class PrintAndApplyFrc : WorkflowBase
         }
     }
 
-
+    private static readonly JsonSerializerOptions _jsonOptions = new JsonSerializerOptions
+    {
+        Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+        PropertyNamingPolicy = null // Keeps your casing exactly as defined
+    };
     /// <summary>
     /// Initializes the printer status store by gathering printer configurations
     /// and creating a collection of unique printer types based on device settings.
@@ -67,11 +78,15 @@ public class PrintAndApplyFrc : WorkflowBase
                 var pType = ConfigurationLoader.GetOptionalConfig<string>(dev.Properties, "aSPrintType", "SHIPTOP");
                 var pInduct = ConfigurationLoader.GetRequiredConfig<string>(dev.Properties, "Induct");
                 var preferredGroup = ConfigurationLoader.GetOptionalConfig<int>(dev.Properties, "PreferredGroup", 1);
-                var tempStatus = new PrinterStatus(dev.Name, pType, pInduct, preferredGroup);
 
-                using (_lock.EnterScope())
+                if (pInduct != null)
                 {
-                    _printerStatusStore[dev.Name] = tempStatus;
+                    var tempStatus = new PrinterStatus(dev.Name, pType, pInduct, preferredGroup);
+
+                    using (_lock.EnterScope())
+                    {
+                        _printerStatusStore[dev.Name] = tempStatus;
+                    }
                 }
             }
         }
@@ -97,54 +112,72 @@ public class PrintAndApplyFrc : WorkflowBase
     /// a new MessageEnvelope with updated printer selection data or null if the envelope data is invalid.</returns>
     public async Task<object?> HandlePrintersToUseAsync(MessageEnvelope envelope, CancellationToken ct)
     {
-        Logger.Verbose("[{Workflow}] Handling Printer Selection for envelope: {Dest}",
-            "HandlePrintersToUseAsync", envelope.Destination);
+        PublishStatusAsync();
+        string payloadStr = envelope?.Payload?.ToString() ?? string.Empty;
+        string gin = GetGinFromPayload(payloadStr);
         
-        // 1. Parsing - Make the payload safe to use as a JSON object
-        var node = JsonNode.Parse(envelope.Payload.ToString() ?? "{}");
-        if (node == null) return null;
+        if (envelope?.Payload == null)
+        {
+            Logger.Error( "No payload received");
+            return null;
+        }
+        
+        var node = JsonNode.Parse(payloadStr);
+        if (node == null)
+        {
+            Logger.Error( "ERROR payload not in JSON");
+            return null;
+        }
+        
         var jsonObj = node.AsObject();
+        var descPoint = jsonObj["DecisionPoint"]?.GetValue<string>();
+        var parsedGin = jsonObj["GIN"]?.GetValue<int>();
+        var bcNode = jsonObj["Barcodes"]?.AsArray();
 
-        var descPoint =         jsonObj["DecisionPoint"]?.GetValue<string>();
-        var gin =               jsonObj["GIN"]?.GetValue<int>();
-        var bcNode=    jsonObj["Barcodes"]?.AsArray();
-
-        if (descPoint == null || gin == null) return null;
+        if (descPoint == null || parsedGin == null)
+        {
+            Logger.Error("No Decision Point or GIN found in payload");
+            return null;
+        }
 
         string? firstBarcode = (bcNode != null && bcNode.Count > 0)
             ? bcNode[0]?.GetValue<string>()
             : null;
 
-        Logger.Debug("[{Workflow}] Handling Printer Selection for Decision Point: {DecisionPoint} and GIN: {GIN}",
-            null);
-        // 2. Await the logic that fetches printer status (WCS Logic)
+        Logger.Debug($"Handling Printer Selection for Decision Point: {descPoint}", gin);
+
         var printers = await GetNextAvailablePrintersAsync(descPoint, ct);
 
         if (firstBarcode == null)
         {
-              Logger.Warning("[{Workflow}] No Barcode found in DReqM : {DecisionPoint}.",
-                "HandlePrintersToUseAsync", descPoint);
-              Tracker.IncrementError("No Barcode found in DReqM");
-              return null;
-        }
-        if (printers.Count == 0)
-        {
-            Logger.Warning("[{Workflow}] No printers available for Decision Point: {DecisionPoint}.",
-                "HandlePrintersToUseAsync", descPoint);
-            Tracker.IncrementError("No printers available for Decision Point");
+            Logger.Warning($"Error No Barcode found in DReqM : {descPoint}.", gin);
+            Tracker.IncrementError("No Barcode found in DReqM");
             return null;
         }
-        
-        //  Sending these to the MQ, this is a running list of what is expected to comeback  
+
+        if (printers.Count == 0)
+        {
+            Logger.Warning($"No printers available for Decision Point: {descPoint}.", gin);
+            Tracker.IncrementError("Error No printers available for Decision Point");
+            return null;
+        }
+
         await UpdateLabelStoreAsync(firstBarcode, printers, ct);
-        
-        Logger.Debug("[{Workflow}] GIN {Gin} assigned to printers: {Printers}",
-                "HandlePrintersToUseAsync", gin, printers);
-        
-        var payload = new { DecisionPoint = descPoint, GIN = gin, Actions = printers , Type = "MRespM"};
-        // 4. Wrap return in a Task (already handled by the method signature)
-        return JsonSerializer.Serialize(payload);
-    }
+
+        Logger.Debug($"Assigned to printers: {string.Join(", ", printers)}", gin);
+
+        // 2. Change 'Type' to 'MessageType' to match your WCS schema
+        var payload = new { 
+            MessageType = "DRespM", // Explicitly named for the PLC
+            DecisionPoint = descPoint, 
+            GIN = parsedGin, 
+            Actions = printers 
+        };
+
+        var serializedPayload = JsonSerializer.Serialize(payload, _jsonOptions);
+
+        return serializedPayload;
+   }
 
     /// <summary>
     /// Handles the asynchronous processing of label data contained in the provided message envelope
@@ -155,44 +188,92 @@ public class PrintAndApplyFrc : WorkflowBase
     /// <returns>A task representing the asynchronous operation, returning null when complete.</returns>
     private async Task<object?> HandleLabelToStorageAsync(MessageEnvelope? envelope, CancellationToken ct)
     {
-        // Use the CancellationToken to check if the service is shutting down
-        if (envelope?.Payload == null || ct.IsCancellationRequested) return null;
+        if (envelope == null) return null;
+        string payloadStr = envelope.Payload.ToString() ?? string.Empty;
+        if (payloadStr.Length == 0) return null;
+        payloadStr = payloadStr.Replace("LabelDataFrcMessage", "");
+        if (string.IsNullOrEmpty(payloadStr) || ct.IsCancellationRequested)
+        {
+            Logger.Warning("HandleLabelToStorageAsync: Received empty payload or cancellation requested.");
+            return null;
+        }
 
         try
         {
-            await Task.Run(() =>
+            string json = payloadStr.ToJson();
+            string bc = MessageParser.GetBarcodes(json).FirstOrDefault() ?? "999";
+            string gin = MessageParser.GetGin(json).ToString();
+            var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+            LabelDataFrcMessage? labelMsg = JsonSerializer.Deserialize<LabelDataFrcMessage>(json, options);
+
+            if (labelMsg != null)
             {
-                var payloadString = envelope.Payload?.ToString() ?? "{}";
-                var data = JsonSerializer.Deserialize<LabelDataFrcMessage>(payloadString);
+                _labelStore.AddOrUpdate(
+                    bc,
+                    // Add: Create new tracking entry if it doesn't exist
+                    new LabelWithTracking(labelMsg, new List<string>()),
+                    // Update: Keep the existing PendingPrinters, but refresh the label data
+                    (k, existingEntry) => new LabelWithTracking(labelMsg, existingEntry.PendingPrinters));
 
-                if (data?.Barcodes is { Count: > 0 })
-                {
-                    var key = data.Barcodes[0];
+                Logger.Debug("Label data stored for Barcode: {Barcode}", bc, gin);
 
-                    // Perform the thread-safe update
-                    _labelStore.AddOrUpdate(key,
-                        new LabelWithTracking(data, new List<string>()),
-                        (k, existingEntry) => new LabelWithTracking(data, existingEntry.PendingPrinters));
-
-                    Logger.Information("[{Workflow}] Label data stored for Barcode: {BC}",
-                        "HandleLabelToStorageAsync", key);
-
-                    // Update the health/status
-                    UpdateStatus(WorkflowState.Active, WorkflowEvent.MessageProcessed, DeviceHealth.Normal,
-                        $"Stored label data for Barcode {key}");
-                }
-            }, ct);
+                UpdateStatus(WorkflowState.Active, WorkflowEvent.MessageProcessed, DeviceHealth.Normal,
+                    $"Stored label data for Barcode {bc}");
+            }
         }
-        catch (OperationCanceledException)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            Logger.Warning("[{Workflow}] Storage operation was cancelled.", "HandleLabelToStorageAsync");
+            Logger.Error(ex, "Failed to store label data for payload: {Payload}", payloadStr);
+            UpdateStatus(WorkflowState.ActiveWithErrors, WorkflowEvent.Error, DeviceHealth.Warning, ex.Message);
+            Tracker.IncrementError(ex.Message);
+        }
+
+        // We return null because this is a "Sink" handler (it stores data but doesn't reply)
+        return null;
+    }
+
+    private async Task<object?> HandleLabelVerificationToMqAsync(MessageEnvelope? envelope, CancellationToken ct)
+    {
+        // 1. Get the agnostic JSON payload
+        string payloadStr = envelope?.Payload?.ToJson() ?? string.Empty;
+
+        if (string.IsNullOrEmpty(payloadStr) || ct.IsCancellationRequested) return null;
+
+        try
+        {
+            // 2. Extract current message data
+            int gin = MessageParser.GetGin(payloadStr);
+            List<string> barcodes = MessageParser.GetBarcodes(payloadStr);
+            string scannedBarcode = barcodes.FirstOrDefault() ?? string.Empty;
+
+            // 3. Perform Lookup in your tracking dictionary
+            if (_expectedBarcodes.TryGetValue(gin, out string? expected))
+            {
+                if (scannedBarcode.Equals(expected, StringComparison.OrdinalIgnoreCase))
+                {
+                    Logger.Information("[Verification SUCCESS] GIN {GIN} matches expected barcode {Barcode}", gin, scannedBarcode);
+                
+                    // Optional: Trigger success logic or MQ message here
+                    UpdateStatus(WorkflowState.Active, WorkflowEvent.MessageProcessed, DeviceHealth.Normal, $"Verified GIN {gin}");
+                }
+                else
+                {
+                    Logger.Warning("[Verification MISMATCH] GIN {GIN} expected {Expected} but scanned {Actual}", 
+                        gin, expected, scannedBarcode);
+                
+                    Tracker.IncrementError("Barcode Mismatch");
+                    // Here you might want to return a "Reject" object to send to the PLC
+                }
+            }
+            else
+            {
+                Logger.Warning("[Verification FAILED] No expected barcode found in memory for GIN {GIN}", gin);
+                Tracker.IncrementError("Missing Expectation Data");
+            }
         }
         catch (Exception ex)
         {
-            Logger.Error(ex, "[{Workflow}] Failed to store label data.", "HandleLabelToStorageAsync");
-            // Ensure error status updates are also handled safely
-            UpdateStatus(WorkflowState.ActiveWithErrors, WorkflowEvent.Error, DeviceHealth.Warning,
-                $"Failed to store label data: {ex.Message}");
+            Logger.Error(ex, "Error during Label Verification for GIN extraction.");
         }
 
         return null;
@@ -211,41 +292,52 @@ public class PrintAndApplyFrc : WorkflowBase
     /// otherwise, returns null.</returns>
     private async Task<object?> HandleLabelRequestToMqAsync(MessageEnvelope? envelope, CancellationToken ct)
     {
-        if (envelope?.Payload == null) return null;
-
-        // 1. Offload CPU-bound Parsing and Mapping
-        // This allows the MessageBus listener to go back to the queue immediately.
-        return await Task.Run(() =>
+        if (envelope?.Payload == null)
         {
-            Logger.Debug("[{Workflow}] Generating Broker Request for MQ...", "HandleLabelRequestToMqAsync");
+            Logger.Error("No payload received for MQ Request");
+            return null;
+        }
 
-            // 2. Safely parse the JSON
-            var payloadString = envelope.Payload.ToString() ?? "{}";
-            var node = JsonNode.Parse(payloadString);
-            if (node == null) return null;
+        // 1. Get the payload as a string safely
+        // If it's already a JsonElement or a raw JSON string, this works.
+        string payloadStr = envelope.Payload is string s ? s : envelope.Payload.ToString();
 
-            var jsonObj = node.AsObject();
+        try 
+        {
+            var node = JsonNode.Parse(payloadStr);
+            var jsonObj = node?.AsObject();
+            if (jsonObj == null) return null;
+
             var plc = envelope.Destination.DeviceName;
-            var descPoint = jsonObj["DecisionPoint"]?.GetValue<string>();
+        
+            // Note: Check if your source uses "DecisionPoint" or "DecisionPoint" (case sensitive)
+            var descPoint = jsonObj["DecisionPoint"]?.GetValue<string>() ?? "Unknown";
 
-            // 3. Extract Barcodes safely using LINQ
+            // IMPORTANT: In your previous code, you called this "Actions". 
+            // Ensure the incoming JSON matches "Barcodes"
             var barcodes = jsonObj["Barcodes"]?.AsArray()
                 .Select(x => x?.GetValue<string>() ?? string.Empty)
                 .Where(s => !string.IsNullOrEmpty(s))
                 .ToList() ?? new List<string>();
 
-            // 4. Construct the outgoing message
+            // 2. Construct the record
             var labelRequest = new LabelRequestFrcMessage(
-                Guid.NewGuid(), // Tracking ID
+                Guid.NewGuid(),
                 plc,
-                descPoint ?? "Unknown",
+                descPoint,
                 barcodes,
                 new Characteristics("0", "0", "0", "0")
             );
 
-            // Return the wrapped envelope
-            return new MessageEnvelope(envelope.Destination, labelRequest);
-        }, ct);
+            Logger.Debug("Generated LabelRequestFrcMessage for {PLC}, GIN: {GIN}", plc, envelope.Gin);
+
+            return labelRequest;
+        }
+        catch (Exception ex)
+        {
+            Logger.Error(ex, "Failed to parse payload for MQ request");
+            return null;
+        }
     }
 
     /// <summary>
@@ -260,42 +352,41 @@ public class PrintAndApplyFrc : WorkflowBase
     /// <returns>A new message envelope for the printer with label data if successful; otherwise, null.</returns>
     private async Task<object?> HandleBarcodeToPrinterAsync(MessageEnvelope? envelope, CancellationToken ct)
     {
-        if (envelope?.Payload == null) return null;
+        string payload = envelope?.Payload?.ToString() ?? string.Empty;
+        var data = ExtractRoutingData(payload);
+        var gin = data.Gin.ToString();
+        var barcode = data.FirstBarcode;
+        var printer = data.DecisionPoint;
 
-        return await Task.Run(() =>
+        
+        Logger.Verbose($"parameter: {envelope}", gin);
+
+        if (envelope?.Payload == null)
         {
-            var node = JsonNode.Parse(envelope.Payload.ToString() ?? "{}");
-            var barcodeArray = node?["Barcodes"]?.AsArray();
-            var printerName = envelope.Destination.DeviceName;
+            Logger.Error("Paylod = null");
+            Tracker.IncrementError("No payload received");
+            return null;
+        }
 
-            var firstBarcode = (barcodeArray != null && barcodeArray.Count > 0)
-                ? barcodeArray[0]?.GetValue<string>()
-                : null;
 
-            if (firstBarcode == null) return null;
-
-            var labelData = RetrieveAndDecrement(firstBarcode, printerName);
-
-            if (labelData != null)
+        var result = await Task.Run(() =>
+        {
+            var labelData = RetrieveAndDecrement(barcode, printer);
+            if (labelData == null)
             {
-                var printerPayload = new
-                {
-                    Format = "ZPL",
-                    Data = labelData.Labels,
-                    Meta = new { Barcode = firstBarcode, Type = "Barcode" }
-                };
-
-                Logger.Debug("[{Workflow}] Label retrieved for {BC} -> Sending to {Printer}",
-                    "HandleBarcodeToPrinterAsync", firstBarcode, printerName);
-
-                return new MessageEnvelope(envelope.Destination, JsonSerializer.Serialize(printerPayload));
+                Tracker.IncrementError("No payload received");
+                return null;
             }
 
-            UpdateStatus(WorkflowState.ActiveWithErrors, WorkflowEvent.Error, DeviceHealth.Warning,
-                $"Data for Barcode {firstBarcode} not found or printer {printerName} not authorized.");
-
-            return null;
+            Logger.Debug($"Sending Label to printer : {barcode} at Printer: {printer}", gin);
+            return new MessageEnvelope(envelope.Destination, labelData);
         }, ct);
+
+        if (result?.Payload is LabelDataFrcMessage labelDataObj)
+            _expectedBarcodes[data.Gin] = labelDataObj.GetExpectedScan();
+
+
+        return result;
     }
 
     /// <summary>
@@ -307,63 +398,71 @@ public class PrintAndApplyFrc : WorkflowBase
     /// </summary>
     /// <param name="envelope">The message envelope containing the payload to process and the printer destination information.</param>
     /// <param name="ct">The cancellation token used to propagate notifications that the operation should be canceled.</param>
-    /// <returns>A task representing the asynchronous operation. The task result contains a message envelope with the printer payload if successfully processed; otherwise, null.</returns>
-    private async Task<object?> HandleContentToPrinterAsync(MessageEnvelope? envelope, CancellationToken ct)
+    public (string DecisionPoint, int Gin, string FirstBarcode) ExtractRoutingData(string jsonPayload)
     {
-        if (envelope?.Payload == null) return null;
+        if (string.IsNullOrWhiteSpace(jsonPayload))
+            return (string.Empty, 0, string.Empty);
 
-        // 1. Offload to the ThreadPool. 
-        // This is vital for PDF content which can be several megabytes.
-        return await Task.Run(() =>
+        try
         {
-            // 2. Parse the payload. 
-            // In .NET 8, JsonNode is efficient, but parsing large strings is still CPU-bound.
-            var node = JsonNode.Parse(envelope.Payload.ToString() ?? "{}");
-            var barcodeArray = node?["Barcodes"]?.AsArray();
-            var printerName = envelope.Destination.DeviceName;
+            var node = JsonNode.Parse(jsonPayload);
+            if (node == null) return (string.Empty, 0, string.Empty);
 
-            var firstBarcode = (barcodeArray != null && barcodeArray.Count > 0)
-                ? barcodeArray[0]?.GetValue<string>()
-                : null;
+            string decisionPoint = node["DecisionPoint"]?.ToString() ?? string.Empty;
+            int gin = node["GIN"]?.GetValue<int>() ?? 0;
 
-            if (firstBarcode == null) return null;
+            var barcodesArray = node["Barcodes"]?.AsArray();
+            string firstBarcode = (barcodesArray != null && barcodesArray.Count > 0)
+                ? barcodesArray[0]?.ToString() ?? string.Empty
+                : string.Empty;
 
-            // 3. Thread-safe retrieval
-            // This likely hits your _labelStore (ConcurrentDictionary).
-            var labelData = RetrieveAndDecrement(firstBarcode, printerName);
-
-            if (labelData != null)
-            {
-                var printerPayload = new
-                {
-                    Format = "PDF",
-                    Data = labelData.Labels, // This could be a large Base64 string
-                    Meta = new { Barcode = firstBarcode, Type = "Content" }
-                };
-
-                Logger.Debug("[{Workflow}] Content label retrieved for {BC} -> Sending to {Printer}",
-                    "HandleContentToPrinterAsync", firstBarcode, printerName);
-
-                // 4. Wrap in Envelope and return
-                return new MessageEnvelope(envelope.Destination, JsonSerializer.Serialize(printerPayload));
-            }
-
-            Logger.Warning("[{Workflow}] Content not found for Barcode: {BC} at Printer: {Printer}",
-                "HandleContentToPrinterAsync", firstBarcode, printerName);
-
-            return null;
-        }, ct);
+            return (decisionPoint, gin, firstBarcode);
+        }
+        catch (Exception)
+        {
+            return (string.Empty, 0, string.Empty);
+        }
     }
 
-    /// <summary>
-    /// Retrieves the label data associated with the specified barcode key and decrements the list of pending printers.
-    /// If the specified printer is authorized for the barcode and is the last one in the pending list, the barcode data is removed from the store.
-    /// </summary>
-    /// <param name="key">The unique identifier for the barcode associated with the label data.</param>
-    /// <param name="printerName">The name of the printer attempting to process the barcode.</param>
-    /// <returns>The label data associated with the barcode if the printer is authorized and processing is successful; otherwise, null.</returns>
+    private async Task<object?> HandleContentToPrinterAsync(MessageEnvelope? envelope, CancellationToken ct)
+    {
+        string payload = envelope?.Payload?.ToString() ?? string.Empty;
+        var data = ExtractRoutingData(payload);
+        var gin = data.Gin.ToString();
+        var barcode = data.FirstBarcode;
+        var printer = data.DecisionPoint;
+
+        Logger.Verbose($"parameter: {envelope}", gin);
+
+        if (envelope?.Payload == null)
+        {
+            Tracker.IncrementError("No payload received");
+            Logger.Error("No Payload");
+            return null;
+        }
+
+        var result = await Task.Run(() =>
+        {
+            var labelData = RetrieveAndDecrement(barcode, printer);
+            if (labelData == null)
+            {
+                Tracker.IncrementError("No payload received");
+                return null;
+            }
+
+            Logger.Debug($"Sending Label to printer : {barcode} at Printer: {printer}", gin);
+            return new MessageEnvelope(envelope.Destination, labelData);
+        }, ct);
+
+
+        return result;
+    }
+
     private LabelDataFrcMessage? RetrieveAndDecrement(string key, string printerName)
     {
+     
+        Logger.Verbose($"key: {key}, printerName: {printerName}");
+
         if (_labelStore.TryGetValue(key, out var tracker))
         {
             lock (tracker)
@@ -372,160 +471,140 @@ public class PrintAndApplyFrc : WorkflowBase
                 {
                     tracker.PendingPrinters.Remove(printerName);
 
-                    Logger.Debug("[{Workflow}] Printer {Printer} cleared for barcode {BC}. Pending: {Count}",
-                        "RetrieveAndDecrement", printerName, key, tracker.PendingPrinters.Count);
+                    Logger.Debug(
+                        $"Printer {printerName} cleared for barcode {key}. Pending: {tracker.PendingPrinters.Count}");
 
                     if (tracker.PendingPrinters.Count == 0)
                     {
                         _labelStore.TryRemove(key, out _);
-                        Logger.Verbose("[{Workflow}] Barcode {BC} fully processed and removed from store.",
-                            "RetrieveAndDecrement", key);
+                        Logger.Verbose($"Barcode {key} fully processed and removed from store.");
                     }
 
+               
                     return tracker.Data;
                 }
             }
         }
 
-        Logger.Warning("[{Workflow}] Barcode {BC} not found or printer {Printer} not authorized.",
-            "RetrieveAndDecrement", key, printerName);
+        Logger.Warning($"Barcode {key} not found or printer {printerName} not authorized.");
+
+
         return null;
     }
 
-    /// <summary>
-    /// Updates the label store with new printer assignments for a given barcode.
-    /// If the barcode already exists in the store, its associated printers are updated.
-    /// </summary>
-    /// <param name="barcode">The unique barcode identifying the label to update.</param>
-    /// <param name="printers">A list of printer names to associate with the given barcode.</param>
-    /// <param name="ct">A CancellationToken to handle task cancellation requests.</param>
-    /// <returns>A task representing the asynchronous operation.</returns>
     private async Task UpdateLabelStoreAsync(string barcode, List<string> printers, CancellationToken ct)
     {
+ 
+        Logger.Verbose($"barcode: {barcode}, printerCount: {printers?.Count ?? 0}");
+
         _labelStore.AddOrUpdate(barcode,
             new LabelWithTracking(LabelDataFrcMessage.Empty, printers),
             (k, existing) => new LabelWithTracking(existing.Data, printers)
         );
         await Task.CompletedTask;
+        
     }
 
-    /// <summary>
-    /// Retrieves the list of next available printers based on the specified decision point.
-    /// This method checks printer availability and health asynchronously and ensures the data is up-to-date.
-    /// </summary>
-    /// <param name="dPoint"></param>
-    /// <param name="ct">A CancellationToken to handle cancellation requests for the operation.</param>
-    /// <returns>A task that represents the asynchronous operation. The task result contains a list of printer identifiers that are available for use.</returns>
     private async Task<List<string>> GetNextAvailablePrintersAsync(string dPoint, CancellationToken ct = default)
     {
-        List<string> selectedPrinters = new();
+        Logger.Verbose($"decisionPoint: {dPoint}");
 
-        Logger.Verbose("Entering GetNextAvailablePrintersAsync with Decision Point: {DecisionPoint}.  This should return a list of printers that should print a label to the container.",dPoint);
-
-        // This prevents the Workflow thread from blocking during the LINQ execution
-        return await Task.Run(() =>
+        var result = await Task.Run(() =>
         {
+            List<string> selectedPrinters = new();
+
             using (_lock.EnterScope())
             {
-                Logger.FireLogDebug("_printerStatusStore",_printerStatusStore);
+                Logger.Debug($"Evaluating printers. Current status store size: {_printerStatusStore.Count}");
+
                 var distinctTypes = _printerStatusStore.Values
                     .Select(p => p.Type)
                     .Distinct()
                     .ToList();
 
-                foreach (var bestForType in distinctTypes.TakeWhile(type => !ct.IsCancellationRequested).Select(type =>
-                             _printerStatusStore.Values
-                                 .Where(p => p.Type == type && p.Induct == dPoint)
-                                 .OrderByDescending(p => p.IsAvailable) // Priority 1: Must be online
-                                 .ThenBy(p => p.LastPrinted) // Priority 2: Use the one that didn't go last
-                                 .ThenBy(p => p.Name) // Priority 3: Tie-breaker
-                                 .FirstOrDefault()).OfType<PrinterStatus>())
+                foreach (var type in distinctTypes.TakeWhile(_ => !ct.IsCancellationRequested))
                 {
-                    selectedPrinters.Add(bestForType.Name);
+                    var bestForType = _printerStatusStore.Values
+                        .Where(p => p.Type == type && p.Induct == dPoint)
+                        .OrderByDescending(p => p.IsAvailable)
+                        .ThenBy(p => p.LastPrinted)
+                        .ThenBy(p => p.Name)
+                        .FirstOrDefault();
 
-                    bestForType.LastPrinted = !bestForType.LastPrinted;
+                    if (bestForType != null)
+                    {
+                        selectedPrinters.Add(bestForType.Name);
+                        bestForType.LastPrinted = DateTime.UtcNow;
+                    }
                 }
             }
 
             return selectedPrinters;
         }, ct);
+        
+        return result;
     }
 
-    /// <summary>
-    /// Handles an incoming status message, parses its payload, and updates
-    /// the associated printer's status in the printer status store.
-    /// Deserializes the payload to extract relevant information and ensures
-    /// the printer's status is logged and updated only if a meaningful state change occurs.
-    /// </summary>
-    /// <param name="envelope">The message envelope containing the topic, payload, and metadata.</param>
-    /// <param name="ct">The cancellation token to propagate notification that this operation should be canceled.</param>
-    /// <returns>A task representing the asynchronous operation, with an optional result of type object.</returns>
     private async Task HandleStatusMessageAsync(MessageEnvelope? envelope, CancellationToken ct)
     {
-        if (envelope?.Destination.DeviceName == null) return;
+        string payloadStr = envelope?.Payload?.ToString() ?? string.Empty;
+   
+
+        if (envelope?.Destination.DeviceName == null)
+        {
+            Logger.Error("improper message received: no destination device name");
+            return;
+        }
 
         var printerName = envelope.Destination.DeviceName;
 
         try
         {
-            // 1. Offload the parsing to the ThreadPool. 
-            // This keeps your Message Bus "Inbound" thread free to keep receiving.
             DeviceStatusMessage? statusMsg = await Task.Run(() =>
             {
                 if (envelope.Payload is DeviceStatusMessage msg) return msg;
 
-                var json = envelope.Payload?.ToString();
-                return string.IsNullOrEmpty(json)
+                return string.IsNullOrEmpty(payloadStr)
                     ? null
-                    : JsonSerializer.Deserialize<DeviceStatusMessage>(json);
+                    : JsonSerializer.Deserialize<DeviceStatusMessage>(payloadStr);
             }, ct);
 
-            if (statusMsg == null) return;
+            if (statusMsg == null)
+            {
+                Logger.Error("Invalid status message received");
+                return;
+            }
 
-            // 2. Logic processing
             if (_printerStatusStore.TryGetValue(printerName, out var status))
             {
                 var isNowAvailable = statusMsg.Health == DeviceHealth.Normal;
 
-                // Only log and update if there's an actual state change 
-                // This prevents "Log Bloat" in your app logs.
                 if (status.IsAvailable != isNowAvailable)
                 {
                     status.IsAvailable = isNowAvailable;
-                    Logger.Information("[{Workflow}] Printer {Printer} availability changed to: {Available}",
-                        "HandleStatusMessageAsync", printerName, isNowAvailable);
-
-                    // 3. Trigger an async update notification if needed
-                    // await NotifyAvailabilityChangedAsync(printerName, isNowAvailable);
-                }
+                    Logger.Debug($"Printer availability changed to: {isNowAvailable}");
+                } 
             }
         }
         catch (Exception ex)
         {
-            Logger.Warning(ex, "[{Workflow}] Failed to parse status message for {Printer}",
-                "HandleStatusMessageAsync", printerName);
+            Logger.Error(ex, $"Failed to parse status message ");
         }
 
-        // No need for Task.CompletedTask if you actually awaited something above!
+ 
     }
 
-    /// <summary>
-    /// Converts a generic JSON string into a strongly-typed `LabelRequestFrcMessage` object for the specified Programmable Logic Controller (PLC).
-    /// The method extracts necessary metadata such as barcodes, physical characteristics, and the decision point.
-    /// It also handles errors gracefully and accounts for possible task cancellation.
-    /// </summary>
-    /// <param name="plcName">The name of the Programmable Logic Controller (PLC) that the label request is associated with.</param>
-    /// <param name="jsonString">The JSON string containing the label request data that needs to be converted.</param>
-    /// <param name="ct">An optional cancellation token to cancel the operation if needed.</param>
-    /// <returns>A `LabelRequestFrcMessage` object if the conversion is successful; otherwise, null.</returns>
     public async Task<LabelRequestFrcMessage?> ConvertGenericJsonToLabelRequestAsync(string plcName, string jsonString,
         CancellationToken ct = default)
     {
-        return await Task.Run(() =>
+        string gin = GetGinFromPayload(jsonString);
+      
+        Logger.Verbose($"plcName: {plcName}");
+
+        var result = await Task.Run(() =>
         {
             try
             {
-                // Check for cancellation before starting heavy parsing
                 ct.ThrowIfCancellationRequested();
 
                 var node = JsonNode.Parse(jsonString);
@@ -533,12 +612,10 @@ public class PrintAndApplyFrc : WorkflowBase
 
                 var jsonObj = node.AsObject();
 
-                // .NET 8 LINQ Optimization: Extract Barcodes
                 var barcodes = jsonObj["Barcodes"]?.AsArray()
                     .Select(b => b?.GetValue<string>() ?? string.Empty)
                     .ToList() ?? new List<string>();
 
-                // Map characteristics safely
                 var characteristics = new Characteristics(
                     Height: jsonObj["Height"]?.GetValue<string>() ?? "0",
                     Length: jsonObj["Length"]?.GetValue<string>() ?? "0",
@@ -546,10 +623,8 @@ public class PrintAndApplyFrc : WorkflowBase
                     Weight: jsonObj["Weight"]?.GetValue<string>() ?? "0"
                 );
 
-                Logger.Debug("[{Workflow}] JSON successfully mapped to LabelRequest for PLC: {PLC}",
-                    "ConvertGenericJsonToLabelRequestAsync", plcName);
+              
 
-                // Create the FRC request
                 return new LabelRequestFrcMessage(
                     SessionId: Guid.NewGuid(),
                     ControllerId: plcName,
@@ -560,14 +635,36 @@ public class PrintAndApplyFrc : WorkflowBase
             }
             catch (OperationCanceledException)
             {
-                return null; // Graceful exit on shutdown
+                return null;
             }
             catch (Exception ex)
             {
-                Logger.Error(ex, "[{Workflow}] Failed to convert generic JSON for {PLC}",
-                    "ConvertGenericJsonToLabelRequestAsync", plcName);
+                Logger.Error(ex, $"Failed to convert generic JSON for {plcName}", gin);
                 return null;
             }
         }, ct);
+
+       
+        return result;
+    }
+
+    private string GetGinFromPayload(string? payload)
+    {
+        if (string.IsNullOrWhiteSpace(payload)) return "---";
+
+        try
+        {
+            if (payload.TrimStart().StartsWith("{"))
+            {
+                var node = JsonNode.Parse(payload);
+                return node?["GIN"]?.ToString() ?? "---";
+            }
+        }
+        catch
+        {
+            // Ignore parsing errors
+        }
+
+        return "---";
     }
 }

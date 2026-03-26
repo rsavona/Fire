@@ -14,7 +14,7 @@ public class PlcDeviceRegistrar : IDeviceRegistrar
 
         // 2. Register the Factory Delegate the Manager is asking for
         // This solves the "Unable to resolve service for type Func<...>" error
-        services.AddTransient<Func<IDeviceConfig, Serilog.ILogger, PlcServerDevice>>(provider => 
+        services.AddTransient<Func<IDeviceConfig, IFireLogger, PlcServerDevice>>(provider => 
             (config, logger) => 
             {
                 return ActivatorUtilities.CreateInstance<PlcServerDevice>(provider, config, logger);
