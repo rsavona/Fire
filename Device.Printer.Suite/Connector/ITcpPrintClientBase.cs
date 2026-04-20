@@ -25,7 +25,7 @@ public interface ITcpPrintClientBase : IDevice
     /// </summary>
     /// <param name="labelData">The label data to print.</param>
     /// <returns>A task representing the asynchronous print operation.</returns>
-    Task PrintAsync(LabelToPrintMessage labelData);
+    Task PrintAsync(string labelData);
 
    
   

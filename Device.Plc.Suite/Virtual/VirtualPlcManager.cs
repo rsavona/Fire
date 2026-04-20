@@ -9,7 +9,7 @@ namespace Device.Plc.Suite.Virtual;
 /// Manages virtual PLC instances for simulation and testing.
 /// Standardized for the FIIRE AM product suite.
 /// </summary>
-public class VirtualPlcManager : DeviceManagerBase<VirtualPlcDevice>, IDiagnosticProvider
+public class VirtualPlcManager : DeviceManagerBase<VirtualPlcDevice>
 {
     public VirtualPlcManager(
         IMessageBus bus,

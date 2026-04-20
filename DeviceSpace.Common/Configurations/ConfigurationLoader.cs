@@ -1,7 +1,7 @@
-﻿using System.Text.Json;
+﻿
 using DeviceSpace.Common.Contracts;
 using Microsoft.Extensions.Configuration;
-    using System.Text.Json; // Add this at the top
+
 namespace DeviceSpace.Common.Configurations;
 
 public static class ConfigurationLoader

@@ -12,22 +12,22 @@ public record JBusMessage
 {
     public MessageBusTopic Destination { get; init; }
     public MessageBusTopic Source   { get; init;}
-    public DateTime Created { get; init; } = DateTime.UtcNow;
-    public Guid CorrelationId { get; init; } = Guid.NewGuid();
-    public string CustomStrId { get; init; }
-    public int CustomIntId { get; init; }
-    public bool IsHighPriority { get; init; }
+    public Guid CorrelationId { get; init; } 
     public string PayloadType { get; init; }
     public JsonObject Payload { get; init; }
- 
+
+    public string CustomStrId { get; init; }
+    public int? CustomIntId { get; init; }
+    public bool IsHighPriority { get; init; }
+    public DateTime     Created { get; init; } = DateTime.UtcNow;
 
     public JBusMessage(
         MessageBusTopic source,
         MessageBusTopic destination, 
-        string strId,
-        int intId,
         string messageType,
         JsonObject payload,
+        int? intId = null,
+        string strId = "",
         bool highPriority = true)
     {
         Source = source;

@@ -6,6 +6,7 @@ using DeviceSpace.Common.Contracts;
 using Serilog;
 using Serilog.Core;
 using System.Text.Json.Serialization;
+using Device.Plc.Suite.Messages;
 
 namespace Device.Plc.Suite.Virtual;
 
@@ -23,19 +24,21 @@ public class VirtualPlcDevice : TcpClientDeviceBase, IMessageProvider
     private readonly List<List<DecisionStep>> _myChain;
     private readonly int _totalTotes;
     private readonly int _heartbeatMs;
+    private readonly List<string>? _barcodes;
+    private int _barcodeIndex = -1;
 
     private PlcMessageParser _parser = new();
 
     private readonly ConcurrentDictionary<int, List<string>?> _ginRouting;
+    private readonly ConcurrentDictionary<int, string?> _ginBarcode;
     public event Func<object, object, Task>? MessageReceived;
 
     public VirtualPlcDevice(
         IDeviceConfig config,
         IFireLogger logger,
-        LoggingLevelSwitch levelSwitch )
+        LoggingLevelSwitch levelSwitch)
         : base(config, logger, levelSwitch, true)
     {
-        
         string? rawChainString = ConfigurationLoader.GetRequiredConfig<string>(Config.Properties, "DecisionPoints");
 
         if (rawChainString != null) _myChain = ParseChainFromString(rawChainString);
@@ -43,6 +46,21 @@ public class VirtualPlcDevice : TcpClientDeviceBase, IMessageProvider
         _inductionFeq = ConfigurationLoader.GetRequiredConfig<int>(Config.Properties, "InductionFreq");
         _totalTotes = ConfigurationLoader.GetRequiredConfig<int>(Config.Properties, "TotalTotes");
 
+        // Load optional barcode list
+        if (Config.Properties.TryGetValue("BarcodeList", out var bcObj))
+        {
+            if (bcObj is string bcString)
+            {
+                _barcodes = bcString.Split(new[] { ',', ';' }, StringSplitOptions.RemoveEmptyEntries)
+                    .Select(s => s.Trim()).ToList();
+            }
+            else if (bcObj is IEnumerable<string> bcList)
+            {
+                _barcodes = bcList.ToList();
+            }
+        }
+
+        _ginBarcode = new ConcurrentDictionary<int, string?>();
         _ginRouting = new ConcurrentDictionary<int, List<string>?>();
     }
 
@@ -57,7 +75,7 @@ public class VirtualPlcDevice : TcpClientDeviceBase, IMessageProvider
 
         if (!ct.IsCancellationRequested)
         {
-            while (Machine.State != State.Connected )
+            while (Machine.State != State.Connected)
             {
                 if (ct.IsCancellationRequested) return;
 
@@ -82,11 +100,26 @@ public class VirtualPlcDevice : TcpClientDeviceBase, IMessageProvider
         if (msg is PlcMessage plcmsg && plcmsg.Payload is DecisionResponsePayload resp)
         {
             _ginRouting[resp.Gin] = resp.Actions;
+            Logger.Information("[{Gin}] stored : {Action}", resp.Gin, resp.Actions);
+
+            // Send DecisionUpdateMessage between 2 and 10 seconds randomly
+            _ = Task.Run(async () =>
+            {
+                int delayMs = Random.Shared.Next(2000, 10001);
+                await Task.Delay(delayMs);
+
+                string actionTaken = resp.Actions.FirstOrDefault() ?? "UNKNOWN";
+                var updateMsg = PlcMessageParser.CreateDecisionUpdate(Key.DeviceName, resp.DecisionPoint, resp.Gin, actionTaken, _ginBarcode.TryGetValue(resp.Gin, out var bc) ? new List<string> { bc } : null);
+
+                await SendAsync(updateMsg.ToString(), CancellationToken.None);
+                Logger.Information("[{Dev}] Sent DecisionUpdate for Gin: {Gin} Action: {Action} after {Delay}ms", Config.Name, resp.Gin, actionTaken, delayMs);
+            });
         }
         else
         {
             Logger.Error("[{Dev}] Unknown message type: {type}", Config.Name, msg?.GetType().Name);
         }
+
 
         return Task.CompletedTask;
     }
@@ -139,10 +172,12 @@ public class VirtualPlcDevice : TcpClientDeviceBase, IMessageProvider
 
         var conveyorClock = new Stopwatch();
         string destination = null;
+        
         try
         {
             for (int i = 0; i < phases.Count; i++)
             {
+                Logger.Information("[Beginning of loop : phases {phases}] Gin: {gin} Message: {i}", phases.Count, gin, i);
                 var currentPhaseOptions = phases[i];
                 if (currentPhaseOptions.Count == 0) continue;
 
@@ -153,83 +188,98 @@ public class VirtualPlcDevice : TcpClientDeviceBase, IMessageProvider
                     // --- PHASE 0: INDUCT ---
                     targetStep = currentPhaseOptions.First();
                     await Task.Delay(targetStep.DistanceMs, token);
-
+                  
                     conveyorClock.Start(); // Start clock the moment it passes induct
-                    var msg = PlcMessageParser.CreateDecisionRequest(Key.DeviceName, targetStep.DecisionPoint, gin);
+                    
+                    string? barcode = null;
+                    if (_barcodes != null && _barcodes.Count > 0)
+                    {
+                        int bcIndex = Interlocked.Increment(ref _barcodeIndex) % _barcodes.Count;
+                        barcode = _barcodes[Math.Abs(bcIndex)];
+                    }
+
+                    var msg = PlcMessageParser.CreateDecisionRequest(Key.DeviceName, targetStep.DecisionPoint, gin, barcode);
+                    _ginBarcode[gin] = msg.GetBarcode();
                     var str = msg.ToString();
-                    Logger.Information("[{Dev}] Gin: {gin} Message: {Msg}", Config.Name, gin, str);
+                    Logger.Information(" Gin: {gin} barcode: {barcode}", gin, _ginBarcode[gin]);
                     await SendAsync(str, token);
 
                     continue; // Move to the next phase in the chain
                 }
 
-                int divertDistanceMs = currentPhaseOptions.Min(p => p.DistanceMs);
-                long elapsedTravelMs = conveyorClock.ElapsedMilliseconds;
-                int remainingTravelMs = divertDistanceMs - (int)elapsedTravelMs;
-
-                if (remainingTravelMs > 0)
+                if (i == 1)
                 {
-                    // Tote is traveling. This gives the WCS time to populate the dictionary asynchronously.
-                    await Task.Delay(remainingTravelMs, token);
-                }
+                    if (currentPhaseOptions.Count == 1)
+                        Logger.Debug("[PHASE 2 : {Dev}] Gin: {gin} Message: {Msg}", Config.Name, gin,
+                            currentPhaseOptions[0].DecisionPoint);
+                    int divertDistanceMs = currentPhaseOptions.Min(p => p.DistanceMs);
+                    long elapsedTravelMs = conveyorClock.ElapsedMilliseconds;
+                    int remainingTravelMs = divertDistanceMs - (int)elapsedTravelMs;
 
-                // 2. The tote has reached the physical divert. Determine the target.
-                if (currentPhaseOptions.Count == 1)
-                {
+                    if (remainingTravelMs > 0)
+                    {
+                        Logger.Debug("[PHASE 2 : {i}] Gin: {gin} Waiting for {ms}ms",i, gin,
+                            remainingTravelMs);
+                        // Tote is traveling. This gives the WCS time to populate the dictionary asynchronously.
+                        await Task.Delay(remainingTravelMs, token);
+                    }
+
+                    if (!_ginRouting.TryGetValue(gin, out var routeList))
+                    {
+                        Logger.Warning("[PHASE 2 :gin was not in _ginRouting  {gin} count in list {count}",  gin, _ginRouting.Count());
+                        continue;
+                    }
+                    Logger.Debug("[PHASE 2 : _ginRouting {ele} {gin} count in list {count}", routeList.FirstOrDefault() ,gin, _ginRouting.Count());
+
+                    // 2. The tote has reached the physical divert. Determine the target.
+                    if (currentPhaseOptions.Count == 0 || routeList == null)
+                    {
+                        continue;
+                    }
+
+                    var wantedStep = routeList.FirstOrDefault();
                     targetStep = currentPhaseOptions[0];
+                    if (targetStep.DecisionPoint == wantedStep)
+                    {
+                        Logger.Debug("[PHASE 2 : {Dev}] Gin: {gin} Target: {target}", Config.Name, gin,
+                            targetStep.DecisionPoint);
+                           var msgx = PlcMessageParser.CreateDecisionRequest(Key.DeviceName, targetStep.DecisionPoint,
+                                gin, _ginBarcode[gin]);
+                            // 4. Fire the PLC message for this specific step
+                             await SendAsync(msgx.ToString(), token);
+                             Logger.Debug("[PHASE 2 : sent: {msg}", msgx);
+                    }
+                    await Task.Delay(1000, token);
+                    if (wantedStep == currentPhaseOptions[1].DecisionPoint)
+                    {
+                         Logger.Debug("[PHASE 2 : {Dev}] Gin: {gin} Target: {target}", Config.Name, gin,
+                            targetStep.DecisionPoint);
+                           var msgx = PlcMessageParser.CreateDecisionRequest(Key.DeviceName, wantedStep,
+                                gin, _ginBarcode[gin]);
+                            // 4. Fire the PLC message for this specific step
+                             await SendAsync(msgx.ToString(), token);
+                            
+                    }
+                    continue;
                 }
-                else
+
+                if (i == phases.Count - 1)
                 {
-                    // Check the dictionary for the GIN's route list
-                    if (_ginRouting.TryGetValue(gin, out var routeList))
-                    {
-                        // We MUST lock the list because multiple async tasks or background threads
-                        // cannot safely modify a standard List<T> at the exact same time.
-                        lock (routeList)
-                        {
-                            if (routeList.Count > 0)
-                            {
-                                destination = routeList[0]; // Grab the first destination
-                                routeList.RemoveAt(0); // Consume/remove it from the list
+                    // 3. If the specific target is slightly further down the belt than the divert point, wait the delta.
 
-                                // If that was the last stop, clean up the dictionary to prevent memory leaks
-                                if (routeList.Count == 0)
-                                {
-                                    _ginRouting.TryRemove(gin, out _);
-                                }
-                            }
-                        }
-                    }
-
-                    // Attempt to match the string we just pulled from the list to an actual physical option
-                    if (!string.IsNullOrEmpty(destination))
+                    int finalDeltaMs = 10000;
+                    if (finalDeltaMs > 0)
                     {
-                        targetStep = currentPhaseOptions.FirstOrDefault(p => p.DecisionPoint == destination);
+                        await Task.Delay(finalDeltaMs, token);
                     }
-
-                    // Fallback: If the list was empty, missing, or gave us an invalid name
-                    if (targetStep == null)
-                    {
-                        Logger.Warning(
-                            "[{Dev}] GIN:{Gin} No route found in _ginRouting at divert point. Using round-robin.",
-                            Config.Name, gin);
-                        targetStep = GetRoundRobinStep(currentPhaseOptions);
-                    }
+                    targetStep = currentPhaseOptions.Last();
+                    var msgx = PlcMessageParser.CreateDecisionRequest(Key.DeviceName, targetStep.DecisionPoint,
+                        gin, _ginBarcode[gin]);
+                     Logger.Information("[PHASE 3 : {Dev}] Gin: {gin} Target: {target}", Config.Name, gin,
+                            targetStep.DecisionPoint);
+                    // 4. Fire the PLC message for this specific step
+                    await SendAsync(msgx.ToString(), token);
                 }
-
-                // 3. If the specific target is slightly further down the belt than the divert point, wait the delta.
-                elapsedTravelMs = conveyorClock.ElapsedMilliseconds;
-                int finalDeltaMs = targetStep.DistanceMs - (int)elapsedTravelMs;
-
-                if (finalDeltaMs > 0)
-                {
-                    await Task.Delay(finalDeltaMs, token);
-                }
-
-                var msgx = PlcMessageParser.CreateDecisionRequest(Key.DeviceName, targetStep.DecisionPoint,
-                    gin);
-                // 4. Fire the PLC message for this specific step
-                await SendAsync(msgx.ToString(), token);
             }
         }
         catch (OperationCanceledException)
@@ -254,10 +304,16 @@ public class VirtualPlcDevice : TcpClientDeviceBase, IMessageProvider
         return options[Math.Abs(index)];
     }
 
-
+    /// <summary>
+    /// Parses a string representation of the decision chain into a nested list structure.
+    /// </summary>
+    /// <param name="configString"></param>
+    /// <returns></returns>
     public List<List<DecisionStep>> ParseChainFromString(string configString)
     {
+        // chain string is in the format:   "DP_Induct:0; DP_PRINT1:1000 | DP_PRINT2:2000; DP_Verify:1000"
         var chain = new List<List<DecisionStep>>();
+
 
         if (string.IsNullOrWhiteSpace(configString)) return chain;
 
@@ -300,6 +356,4 @@ public class VirtualPlcDevice : TcpClientDeviceBase, IMessageProvider
 
         return chain;
     }
-
-   
 }

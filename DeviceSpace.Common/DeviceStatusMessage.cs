@@ -1,8 +1,10 @@
-﻿using System.Collections.ObjectModel;
+using System.Collections.ObjectModel;
 using System.Text.Json;
 using DeviceSpace.Common.BaseClasses;
 using DeviceSpace.Common.Contracts;
 using DeviceSpace.Common.Enums;
+
+namespace DeviceSpace.Common;
 
 public record DeviceStatusMessage : DeviceMessageBase, IDeviceStatus
 {
@@ -11,6 +13,7 @@ public record DeviceStatusMessage : DeviceMessageBase, IDeviceStatus
     public string State { get; init; }
     public DeviceHealth Health { get; init; }
     public string Comment { get; init; }
+    public int ScreenIndex { get; init; }
     
     // --- Standard Metrics (Keep for UI Compatibility) ---
     public int CountInbound { get; init; }
@@ -18,10 +21,16 @@ public record DeviceStatusMessage : DeviceMessageBase, IDeviceStatus
     public int CountConnections { get; init; }
     public int CountDisconnects { get; init; }
     public int CountError { get; init; }
-    public double AvgProcessTime { get; set; } // Changed to init and double
+    public double InboundRate { get; init; }
+    public double OutboundRate { get; init; }
+    public double AvgProcessTime { get; set; }
     public char HbVisual { get; init; }
 
-    //  TODO Dynamic Metrics Dictionary ---
+    public int ResourceTasks { get; init; }
+    public int ResourceContainers { get; init; }
+    public int ResourceDeepCount { get; init; }
+
+    // Dynamic Metrics Dictionary
     public IReadOnlyDictionary<string, long> Metrics { get; init; }
 
     /// <summary>
@@ -32,13 +41,19 @@ public record DeviceStatusMessage : DeviceMessageBase, IDeviceStatus
         string state, 
         DeviceHealth health, 
         string comment,
+        int screenIndex,
         int countInbound, 
         int countOutbound, 
         int countConnections, 
-        int countDisconnects, 
+        int countDisconnects,
         int countError, 
+        double inboundRate,
+        double outboundRate,
         double avgProcessTime, 
         char hb,
+        int resTasks = 0,
+        int resContainers = 0,
+        int resDeepCount = 0,
         IDictionary<string, long>? extraMetrics = null) 
     {
         DeviceId = deviceId;
@@ -46,14 +61,20 @@ public record DeviceStatusMessage : DeviceMessageBase, IDeviceStatus
         State = state;
         Health = health;
         Comment = comment;
+        ScreenIndex = screenIndex;
         CountInbound = countInbound;
         CountOutbound = countOutbound;
         CountConnections = countConnections;
         CountDisconnects = countDisconnects;
         CountError = countError;
+        InboundRate = inboundRate;
+        OutboundRate = outboundRate;
         AvgProcessTime = avgProcessTime;
         HbVisual = hb;
-        
+        ResourceTasks = resTasks;
+        ResourceContainers = resContainers;
+        ResourceDeepCount = resDeepCount;
+
         // Wrap the dictionary in a ReadOnly collection for the record
         Metrics = new ReadOnlyDictionary<string, long>(extraMetrics ?? new Dictionary<string, long>());
     }
@@ -67,7 +88,8 @@ public record DeviceStatusMessage : DeviceMessageBase, IDeviceStatus
             deviceId = DeviceId.ToString(),
             health = Health.ToString(),
             state = State,
-            mainMetrics = new { In = CountInbound, Out = CountOutbound, Err = CountError },
+            mainMetrics = new { In = CountInbound, InRate = InboundRate, Out = CountOutbound, OutRate = OutboundRate, Err = CountError, ScreenIndex = ScreenIndex },
+            resources = new { Tasks = ResourceTasks, Containers = ResourceContainers, DeepCount = ResourceDeepCount },
             customMetrics = Metrics // All your Enum-based metrics appear here!
         };
 

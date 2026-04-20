@@ -1,12 +1,12 @@
-﻿using System.Collections.Concurrent;
+﻿using System.Buffers;
+using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
+using System.Net.NetworkInformation;
 using DeviceSpace.Common.Contracts;
-using Serilog;
-using System.Buffers;
 
-namespace DeviceSpace.Common
+namespace DeviceSpace.Common.TcpSocket
 {
     public enum TcpListenerState
     {
@@ -27,7 +27,7 @@ namespace DeviceSpace.Common
         private readonly IMessageProcessor _messageProcessor;
         private readonly ConcurrentDictionary<string, ClientConnection> _connectedClients = new();
         private readonly IFireLogger _logger;
-        private readonly ITerminationStrategy? _terminationStrategy;
+        public ITerminationStrategy? TerminationStrategy;
         private TcpListener? _listener;
         private CancellationTokenSource? _serverCts;
         private readonly int _timeoutMs;
@@ -35,7 +35,7 @@ namespace DeviceSpace.Common
         // ---  EVENTS ---
         public event Action<TcpListenerState>? ListenerStateChanged;
         public event Action<string, bool, TcpClient?>? ClientConnectionChanged;
-        public event Action<string, Exception>? ServerError;
+        public event Action<string, Exception?>? ServerError;
 
         private record ClientConnection(
             TcpClient Client,
@@ -56,11 +56,11 @@ namespace DeviceSpace.Common
             _messageProcessor = messageProcessor;
             _logger = logger;
             _maxBufferSize = maxBufferSize;
-            _terminationStrategy = termStrat;
+            TerminationStrategy = termStrat;
             _timeoutMs = timeoutMs;
 
             _logger.Information("[Server:{Port}] Initialized with Strategy: {Strategy}",
-                _listenPort, _terminationStrategy.GetType().Name);
+                _listenPort, TerminationStrategy?.GetType().Name);
         }
 
         private async Task StartSocketWatchdogAsync(CancellationToken token)
@@ -72,7 +72,7 @@ namespace DeviceSpace.Common
                 try
                 {
                     await Task.Delay(TimeSpan.FromSeconds(10), token);
-                    var now = DateTime.Now; // Swapped to Local Time
+                    var now = DateTime.UtcNow;
 
                     if (_timeoutMs > 0)
                     {
@@ -81,7 +81,16 @@ namespace DeviceSpace.Common
                         {
                             if (now - kvp.Value.LastSeen > timeout)
                             {
-                                _logger.Warning("[{ClientKey}] Watchdog: No heartbeat detected. Terminating.", kvp.Key);
+                                // Try to ping before giving up
+                                string ip = kvp.Key.Split(':')[0];
+                                if (await TryPingAsync(ip))
+                                {
+                                    _logger.Information("[{ClientKey}] Watchdog: No messages, but host responded to Ping. Keeping connection alive.", kvp.Key);
+                                    _connectedClients[kvp.Key] = kvp.Value with { LastSeen = DateTime.UtcNow };
+                                    continue;
+                                }
+
+                                _logger.Warning("[{ClientKey}] Watchdog: No heartbeat detected and Ping failed. Terminating.", kvp.Key);
                                 _ = CleanupClient(kvp.Key);
                             }
                         }
@@ -97,6 +106,22 @@ namespace DeviceSpace.Common
                 }
             }
         }
+
+        private async Task<bool> TryPingAsync(string ip)
+        {
+            try
+            {
+                using var pinger = new Ping();
+                var reply = await pinger.SendPingAsync(ip, 1000); // 1s timeout
+                return reply.Status == IPStatus.Success;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+        public int ConnectedClientCount => _connectedClients.Count;
+
         public List<string> GetConnectedClients() => _connectedClients.Keys.ToList();
 
         private async Task ListenForClientDataAsync(TcpClient client, string clientKey, CancellationToken token)
@@ -138,7 +163,7 @@ namespace DeviceSpace.Common
                         // 2. Create a lightweight span of the current message state
                         var currentSpan = new ReadOnlySpan<byte>(messageBuffer, 0, messageLength);
 
-                        if (_terminationStrategy.IsMessageComplete(currentSpan, b))
+                        if (TerminationStrategy != null && TerminationStrategy.IsMessageComplete(currentSpan, b))
                         {
                             _logger.Debug("[{ClientKey}] ETX detected. Processing {Size} bytes.", clientKey,
                                 messageLength);
@@ -203,7 +228,10 @@ namespace DeviceSpace.Common
         {
             if (payload is not string msg )
             {
-                _logger.Error("Bad Payload"); return false;}
+                NotifyError($"Failed to send in SendResponseAsync.  Wrong Payload ");
+                _logger.Error("Bad Payload"); return false;
+                
+            }
             if (!_connectedClients.TryGetValue(clientKey, out var connection))
             {
                 _logger.Warning("[{ClientKey}] Send failed: Client not found.", clientKey);
@@ -236,18 +264,22 @@ namespace DeviceSpace.Common
                 string clientKey = $"{remoteIpEndPoint.Address}:{remoteIpEndPoint.Port}";
                 _logger.Information("[Server:{Port}] New connection from {ClientKey}", _listenPort, clientKey);
 
-                ClientConnectionChanged?.Invoke(clientKey, true, client);
                 var clientCts = CancellationTokenSource.CreateLinkedTokenSource(token);
-
                 Task clientTask = Task.Run(
                     () => ListenForClientDataAsync(client, clientKey, clientCts.Token),
                     clientCts.Token);
 
-                var connection = new ClientConnection(client, clientCts, clientTask, DateTime.Now);
+                var connection = new ClientConnection(client, clientCts, clientTask, DateTime.UtcNow);
 
-                if (!_connectedClients.TryAdd(clientKey, connection))
+                if (_connectedClients.TryAdd(clientKey, connection))
+                {
+                    ClientConnectionChanged?.Invoke(clientKey, true, client);
+                }
+                else
                 {
                     _logger.Warning("[Server:{Port}] ClientKey {ClientKey} already exists.", _listenPort, clientKey);
+                    clientCts.Cancel();
+                    clientCts.Dispose();
                 }
             }
         }
@@ -302,10 +334,18 @@ namespace DeviceSpace.Common
 
         private void SetListenerState(TcpListenerState newState) => ListenerStateChanged?.Invoke(newState);
 
-        private void NotifyError(string context, Exception ex)
+        private void NotifyError(string context, Exception? ex = null)
         {
-            _logger.Error(ex, "[Server:{Port}] {Context}: {Message}", _listenPort, context, ex.Message);
-            ServerError?.Invoke(context, ex);
+            if (ex == null)
+            {
+                _logger.Error("[Server:{Port}] {Context}: {Message}", _listenPort, context);
+                ServerError?.Invoke(context, null);
+            }
+            else
+            {
+                _logger.Error(ex, "[Server:{Port}] {Context}: {Message}", _listenPort, context, ex.Message);
+                ServerError?.Invoke(context, ex);
+            }
         }
 
         private Task CleanupClient(string key)
@@ -350,6 +390,7 @@ namespace DeviceSpace.Common
 
         public async Task StopAsync()
         {
+            
             _serverCts?.Cancel();
             _listener?.Stop();
             foreach (var key in _connectedClients.Keys) await CleanupClient(key);

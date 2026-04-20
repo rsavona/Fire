@@ -14,7 +14,7 @@ namespace DeviceSpace.Common.Contracts
     {
         Serilog.ILogger GetRawLogger();
 
-        FireLogger WithContext(string propertyName, object value);
+        IFireLogger WithContext(string propertyName, object value);
 
         // --- Lifecycle ---
         void LogEnter(object? args = null, [CallerMemberName] string methodName = "",
@@ -36,9 +36,8 @@ namespace DeviceSpace.Common.Contracts
         void LogInfo(string message, params object?[] args);
         void Information(string message, params object?[] args);
         
-        // The ONLY method designed for explicit GIN and Method tracking!
-        // Notice: No 'params' keyword here to protect the compiler overload resolution.
-        void LogInfoData(string message, object?[] args, string gin = "---", [CallerMemberName] string methodName = "");
+        // Tracking for warehouse cartons and conveyor events
+        void LogConveyableEvent(string device, string message, string? gin , List<string> barcodes , string? decisionPoint = "");
 
         // --- Warning ---
         void LogWarning(string message, params object?[] args);

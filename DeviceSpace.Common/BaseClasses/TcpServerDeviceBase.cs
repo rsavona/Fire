@@ -1,12 +1,16 @@
 ﻿using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Net.Sockets;
 using System.Timers;
+using System.Net.NetworkInformation;
 using DeviceSpace.Common.Contracts;
 using DeviceSpace.Common.Enums;
+using DeviceSpace.Common.TcpSocket;
 using Stateless;
 using Serilog;
 using Serilog.Core;
 using ILogger = Serilog.ILogger;
+using System.Net;
 
 namespace DeviceSpace.Common.BaseClasses;
 
@@ -44,6 +48,7 @@ public abstract class TcpServerDeviceBase<TProcessor>
     protected readonly int MaxClients;
     protected readonly System.Timers.Timer Watchdog;
     protected readonly int HeartbeatTimeoutMs;
+    protected readonly HashSet<string>? AllowedHosts;
     protected readonly ConcurrentDictionary<string, DateTime> ConnectedClients = new();
 
     private StateMachine<State, Event>.TriggerWithParameters<string>? _clientDisconnectedTrigger;
@@ -73,6 +78,16 @@ public abstract class TcpServerDeviceBase<TProcessor>
         HeartbeatTimeoutMs = config.Properties.TryGetValue("HeartbeatTimeoutMs", out var ms)
             ? Convert.ToInt32(ms)
             : 30000;
+
+        string rawHosts = config.Properties.TryGetValue("AllowedHosts", out var hostsObj)
+            ? hostsObj.ToString() ?? "*"
+            : "*";
+
+        if (rawHosts != "*")
+        {
+            AllowedHosts = new HashSet<string>(rawHosts.Split(';', StringSplitOptions.RemoveEmptyEntries).Select(h => h.Trim()), StringComparer.OrdinalIgnoreCase);
+        }
+ 
         Watchdog = new System.Timers.Timer(1000) { AutoReset = true };
         Watchdog.Elapsed += OnWatchdogScan;
 
@@ -82,6 +97,10 @@ public abstract class TcpServerDeviceBase<TProcessor>
         Server.ClientConnectionChanged += OnInternalConnectionChanged;
 
         Processor.HeartbeatReceived += OnProcessorHeartbeatReceived;
+
+        RegisterContainer(Server);
+        RegisterContainer(Watchdog);
+
         ConfigureStateMachine();
     }
 
@@ -103,7 +122,13 @@ public abstract class TcpServerDeviceBase<TProcessor>
 
         // --- LISTENING ---
         Machine.Configure(State.Listening)
-            .OnEntry(() => Watchdog.Start())
+            .OnEntry(() =>
+            {
+                if (HeartbeatTimeoutMs > 0)
+                {
+                    Watchdog.Start();
+                }
+            })
             .Permit(Event.ClientConnected, State.Connected)
             .Permit(Event.Stop, State.Stopping) // Handle Stop while waiting for clients
             .Permit(Event.ServerError, State.Faulted);
@@ -113,6 +138,7 @@ public abstract class TcpServerDeviceBase<TProcessor>
             // --- CONNECTED ---
             Machine.Configure(State.Connected)
                 .SubstateOf(State.Listening)
+                .Ignore(Event.ClientConnected)
                 .OnEntry(OnMultiClientConnected)
                 .InternalTransition(Event.MessageReceived, () =>
                 {
@@ -171,8 +197,7 @@ public abstract class TcpServerDeviceBase<TProcessor>
     {
         // Trigger the state machine to move from Offline -> Starting
         await Machine.FireAsync(Event.Start);
-        OnStartAsync(token);
-        await Task.Delay(-1, token);
+        await  OnStartAsync(token);
     }
 
      protected override void OnStateChange(StateMachine<State, Event>.Transition transition)
@@ -203,13 +228,14 @@ public abstract class TcpServerDeviceBase<TProcessor>
             contextComment = $"{transition.Trigger.ToString()}:  port {Port}";
         }
 
-        Tracker.Update(
+        if (Tracker.Update(
             transition.Destination,
             transition.Trigger,
             MapStateToHealth(transition.Destination),
-            contextComment);
-
-        UpdateAndNotify();
+            contextComment))
+        {
+            UpdateAndNotify();
+        }
     }
      
     /// <summary>
@@ -217,6 +243,7 @@ public abstract class TcpServerDeviceBase<TProcessor>
     /// </summary>
     public override async Task StopAsync(CancellationToken token)
     {
+        Logger.Information("[{Dev}] Shutting down gracefully...", Config.Name);
         // Trigger the state machine to move toward Offline
         await Machine.FireAsync(Event.Stop);
     }
@@ -227,7 +254,6 @@ public abstract class TcpServerDeviceBase<TProcessor>
         Watchdog.Stop();
         ConnectedClients.Clear();
         Tracker.SetConnectionCount(0);
-        UpdateAndNotify();
     }
 
     protected virtual async Task OnEnterStartingAsync()
@@ -236,7 +262,7 @@ public abstract class TcpServerDeviceBase<TProcessor>
         {
             // Start the server in a managed background task
             // We use CancellationToken.None here because the server manages its own internal CTS
-            _ = Task.Run(async () => { await Server.StartAsync(CancellationToken.None); });
+            RegisterTask(Task.Run(async () => { await Server.StartAsync(CancellationToken.None); }));
 
             Logger.Debug("[{Dev}] TCP Server start initiated on port {Port}.", Config.Name, Port);
         }
@@ -251,7 +277,6 @@ public abstract class TcpServerDeviceBase<TProcessor>
     {
         Logger.Error("[{Dev}] Device entered FAULTED state. Stopping server.", Config.Name);
         _ = Server.StopAsync();
-        UpdateAndNotify();
     }
 
     protected virtual async Task OnEnterStoppingAsync()
@@ -261,8 +286,6 @@ public abstract class TcpServerDeviceBase<TProcessor>
         // 1. Stop the TCP Listener and disconnect all clients
         await Server.StopAsync();
 
-        // 2. Finalize the state machine transition to Offline
-        await Machine.FireAsync(Event.Stop);
     }
 
 
@@ -283,10 +306,31 @@ public abstract class TcpServerDeviceBase<TProcessor>
     {
         if (connected)
         {
+            if (AllowedHosts != null)
+            {
+                string? ip = (client?.Client.RemoteEndPoint as IPEndPoint)?.Address.ToString();
+                if (ip != null && !AllowedHosts.Contains(ip))
+                {
+                    Logger.Warning("[{Dev}] Connection from {Client} rejected: Not in AllowedHosts.", Config.Name, key);
+                    Server.DisconnectClient(key);
+                    return;
+                }
+            }
+
             if (MaxClients == 1)
                 foreach (var c in ConnectedClients.Keys)
                     Server.DisconnectClient(c);
-            ConnectedClients.TryAdd(key, DateTime.Now);
+            
+            ConnectedClients.TryAdd(key, DateTime.UtcNow);
+            
+            Tracker.IncrementConnections();
+            Tracker.SetConnectionCount(ConnectedClients.Count);
+
+            if (Machine.State == State.Connected)
+            {
+                UpdateAndNotify($"Connected: {key}");
+            }
+
             Machine.Fire(Event.ClientConnected);
         }
         else Machine.Fire(_clientDisconnectedTrigger!, key);
@@ -294,7 +338,7 @@ public abstract class TcpServerDeviceBase<TProcessor>
 
     protected void UpdateClientTimestamp(string clientId)
     {
-        if (ConnectedClients.ContainsKey(clientId)) ConnectedClients[clientId] = DateTime.Now;
+        if (ConnectedClients.ContainsKey(clientId)) ConnectedClients[clientId] = DateTime.UtcNow;
     }
 
     private void OnServerListenerStateChanged(TcpListenerState s)
@@ -305,13 +349,61 @@ public abstract class TcpServerDeviceBase<TProcessor>
     private State ClientDisconnected(string clientId)
     {
         ConnectedClients.TryRemove(clientId, out _);
+        
+        Tracker.IncrementDisconnects();
+        Tracker.SetConnectionCount(ConnectedClients.Count);
+        
         OnClientDisconnected(clientId, ConnectedClients.Count());
-        return ConnectedClients.IsEmpty ? State.Listening : State.Connected;
+        
+        var nextState = ConnectedClients.IsEmpty ? State.Listening : State.Connected;
+        
+        if (nextState == Machine.State)
+        {
+            UpdateAndNotify($"Disconnected: {clientId}");
+        }
+        
+        return nextState;
     }
 
     protected virtual void OnWatchdogScan(object? sender, ElapsedEventArgs e)
     {
-        /* Scan and Server.DisconnectClient if now - value > timeout */
+        if (HeartbeatTimeoutMs <= 0) return;
+
+        var now = DateTime.UtcNow;
+        foreach (var client in ConnectedClients)
+        {
+            if ((now - client.Value).TotalMilliseconds > HeartbeatTimeoutMs)
+            {
+                // Try to ping the host before giving up
+                string ip = client.Key.Split(':')[0];
+                if (TryPing(ip))
+                {
+                    Logger.Information("[{Dev}] Watchdog: No messages from {Client}, but host responded to Ping. Keeping connection alive.", 
+                        Config.Name, client.Key);
+                    // Reset the timer for this client
+                    ConnectedClients[client.Key] = DateTime.UtcNow;
+                    continue;
+                }
+
+                Logger.Warning("[{Dev}] Watchdog: Client {Client} timed out and Ping failed. Disconnecting.", 
+                    Config.Name, client.Key);
+                Server.DisconnectClient(client.Key);
+            }
+        }
+    }
+
+    private bool TryPing(string ip)
+    {
+        try
+        {
+            using var pinger = new Ping();
+            var reply = pinger.Send(ip, 1000); // 1s timeout
+            return reply.Status == IPStatus.Success;
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     protected virtual void OnProcessorHeartbeatReceived(string id) => UpdateClientTimestamp(id);

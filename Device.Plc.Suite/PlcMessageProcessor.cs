@@ -1,9 +1,8 @@
-﻿using System.Diagnostics;
-using System.Net.Sockets;
+﻿using System.Net.Sockets;
 using System.Text;
 using DeviceSpace.Common;
 using DeviceSpace.Common.Contracts;
-using DeviceSpace.Common.Logging;
+using Device.Plc.Suite.Messages;
 using Serilog; // Added for structured logging
 
 namespace Device.Plc.Suite
@@ -30,6 +29,8 @@ namespace Device.Plc.Suite
 
         }
 
+        public PlcMessageParser GetParser() => _parser;
+
         public async Task<bool> ProcessMessageAsync(NetworkStream stream, byte[] rawMessage, int len, string clientKey,
             CancellationToken token)
         {
@@ -42,7 +43,7 @@ namespace Device.Plc.Suite
         public string HandleResponse(string deviceName, object payload)
         {
             _logger.Debug("[{Dev}] Framing response payload: {Payload}", deviceName, payload);
-            return _parser.FrameResponse( payload, deviceName  );
+            return PlcMessageParser.FrameResponse( payload, deviceName  );
         }
 
         public async Task<bool> ProcessMessageAsync(NetworkStream stream, string rawMessage, string clientKey, CancellationToken token)
@@ -111,13 +112,13 @@ namespace Device.Plc.Suite
                 {
                     decisionPoint = req.DecisionPoint;
                     gin = req.Gin;
-                    _logger.Debug("Decision Request: DP={DP}  Message= {msg}", clientKey, gin, decisionPoint, req);
+                    _logger.Debug("Decision Request: DP={DP}  Message= {msg}", decisionPoint, req);
                 }
                 else if (plcMessage.Payload is DecisionUpdatePayload update)
                 {
                     decisionPoint = update.DecisionPoint;
                     gin = update.Gin;
-                    _logger.Debug("Decision Update : GIN={Gin} at DP={DP}  Message= {msg}", clientKey, gin, decisionPoint, update);
+                    _logger.Debug("Decision Update : GIN={Gin} at DP={DP}  Message= {msg}", gin, decisionPoint, update);
                 }
                 else
                 {
@@ -127,7 +128,8 @@ namespace Device.Plc.Suite
                 }
 
                 // 5) Build envelope and fire event
-                var topic = new MessageBusTopic("Unknown", plcMessage.Header.ToString(), decisionPoint);
+                string topicType = plcMessage.Header == PlcMessageHeaders.DUM ? "Update" : plcMessage.Header.ToString();
+                var topic = new MessageBusTopic(_deviceName, topicType, decisionPoint);
                 var envelope = new MessageEnvelope(topic, plcMessage.Payload, gin, clientKey);
 
                 MessageReceived?.Invoke(envelope);

@@ -6,6 +6,10 @@ using Microsoft.Extensions.Logging;
 
 try
 {
+    // Enforce UTF-8 for console output and input (e.g., for heart symbols, emojis, and special characters)
+    Console.OutputEncoding = System.Text.Encoding.UTF8;
+    Console.InputEncoding = System.Text.Encoding.UTF8;
+
     //   Build and configure the host adding the Device CoreServices
     HostApplicationBuilder builder = Host.CreateApplicationBuilder(args);
     if (Environment.UserInteractive && !args.Contains("--service"))
@@ -14,7 +18,7 @@ try
     {
         builder.Services.AddWindowsService(options =>
         {
-            options.ServiceName = "PandABridge"; // Set your service name
+            options.ServiceName = "FortnaFire"; // Set your service name
         });
     }
 
@@ -27,7 +31,7 @@ try
     if (Environment.UserInteractive && !args.Contains("--service"))
     {
         int result = new Random().Next(1, 3);
-        if (result == 1)
+        if (false)
             SplashScreenFusion.Print();
         else
             SplashScreenFire.Print();
@@ -63,7 +67,7 @@ catch (Exception ex)
 static void RunInteractiveConsole()
 {
     var pluginDir = Path.Combine(AppContext.BaseDirectory, "plugins");
-
+ 
     while (true)
     {
         var input = Console.ReadLine();

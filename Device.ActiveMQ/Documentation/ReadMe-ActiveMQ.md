@@ -69,7 +69,7 @@ ActiveMQ Devices are responsible for any leg of a route that starts with its Dev
   * All messages from that topic are sent to the queue <i>Source.Discriminator</i> in the external MQ. 
   * Messages from the MessageBus are removed from their envelope and only the payload is sent to the external MQ. 
 * Destinations - when a destination begins with the Active MQ's DeviceName 
-  * the Active MQ Device will sunscribe to the queue <i>"Destination.Discriminator"</i> in the External MQ
+  * the Active MQ Device will subscribe to the queue <i>"Destination.Discriminator"</i> in the External MQ
   * All messages to that queue are sent to the MessageQueue topic <i>"Destination"</i>. 
   * Message from the external MQ are placed in an envelope before they are sent to the MessageBus.
 

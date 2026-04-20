@@ -1,7 +1,9 @@
 ﻿using System.Reflection;
+using System.Diagnostics;
 using DeviceSpace.Common.Configurations;
 using DeviceSpace.Common.Contracts;
 using DeviceSpace.Common.Enums;
+using DeviceSpace.Common.Messaging;
 using Microsoft.CodeAnalysis.CSharp.Scripting;
 using Microsoft.CodeAnalysis.Scripting;
 using Microsoft.Extensions.Hosting;
@@ -39,6 +41,9 @@ public abstract class WorkflowBase : BackgroundService
     // Serilog Logger
     protected readonly ILogger Logger;
 
+    // Control State
+    protected bool IsSystemStarted { get; private set; } = false;
+
     // Logic Cache
     private readonly Dictionary<RouteKey, Func<MessageEnvelope, CancellationToken, Task<object?>>> _routeExecutors =
         new();
@@ -63,8 +68,32 @@ public abstract class WorkflowBase : BackgroundService
         WorkflowKey = new DeviceKey("SYSTEM", Config.Name);
         Tracker = new DeviceStatusTracker<WorkflowState, WorkflowEvent>(WorkflowState.Initializing,
             WorkflowEvent.Started);
+        Tracker.ScreenIndex = Config.ScreenIndex;
 
         Logger.Information("[{Workflow}] Workflow instance created.", WorkflowKey.DeviceName);
+        
+        // Subscribe to System Control messages to handle Startup Synchronization
+        MessageBus.SubscribeAsync(MessageBusTopic.SystemControl.ToString(), HandleSystemControlMessageAsync);
+    }
+
+    private Task HandleSystemControlMessageAsync(MessageEnvelope? envelope, CancellationToken ct)
+    {
+        if (envelope?.Payload is SystemControlMessage sysMsg)
+        {
+            switch (sysMsg.Command)
+            {
+                case SystemCommand.Start:
+                    IsSystemStarted = true;
+                    Logger.Information("[{Workflow}] System START received. Resuming business logic.", Config.Name);
+                    break;
+                case SystemCommand.Stop:
+                case SystemCommand.Pause:
+                    IsSystemStarted = false;
+                    Logger.Warning("[{Workflow}] System {Command} received. Business logic suspended.", Config.Name, sysMsg.Command);
+                    break;
+            }
+        }
+        return Task.CompletedTask;
     }
 
     /// <summary>
@@ -156,9 +185,10 @@ public abstract class WorkflowBase : BackgroundService
 
                 var topic = route.Source.ToUpper();
                 await MessageBus.SubscribeAsync(route.Source, HandleIncomingMessageAsync);
-                Logger.Information("[{Workflow}] {Route} Subscribed to topic: {Source} Handler: HandleIncomingMessageAsync",
-                    "Base-InitializeRoutesAsync", route.Name, route.Source);
+                Logger.Information("[{Workflow}] {Route} Subscribed to topic: {Source} Handler:{handler} dest: {dest}",
+                    "Base-InitializeRoutesAsync", route.Name, route.Source, route.Handler, route.Destination);
 
+                Tracker.IncrementConnections();
                 successfulRoutes++;
             }
             catch (Exception ex)
@@ -200,6 +230,14 @@ public abstract class WorkflowBase : BackgroundService
             return;
         }
 
+        if (false) //!IsSystemStarted)
+        {
+            Logger.Warning("[{Workflow}] System not started. Dropping message from {Source}.", Config.Name, message.Destination);
+            return;
+        }
+
+        long startMemory = GC.GetAllocatedBytesForCurrentThread();
+
         Tracker.IncrementInbound();
         // Trace for high-volume message monitoring
         Logger.Information("[{Workflow}] Message IN : {msg}",
@@ -229,8 +267,10 @@ public abstract class WorkflowBase : BackgroundService
                 {
                     Logger.Information("[{Workflow}] Executing {handler} for {Src} -> {Dest}",
                         "Base-HandleIncomingMessageAsync", rte.Value.ToString(), rte.Key.Source, rte.Key.Destination);
-
+                    var tmr = Environment.TickCount64;
+                    Tracker.StartTransaction(tmr);
                     var executor = rte.Value;
+                    Tracker.StopTransaction(tmr);
                     var result = await executor(message, ct);
 
                     if (result is MessageEnvelope resultPayload && !string.IsNullOrEmpty(rte.Key.Destination))
@@ -248,13 +288,21 @@ public abstract class WorkflowBase : BackgroundService
                         Logger.Information("[{Workflow}] Message Out: {msg}  published to {Destination}",
                             "Base-HandleIncomingMessageAsync", deviceMessage, rte.Key.Destination);
                     }
-                    else if (result is string payload && !string.IsNullOrEmpty(rte.Key.Destination))
+                    else if (result is string payload)
                     {
-                        var env = new MessageEnvelope(new MessageBusTopic(rte.Key.Destination), payload);
-                        Tracker.IncrementOutbound();
-                        _ = MessageBus.PublishAsync(rte.Key.Destination, env, ct);
-                        Logger.Information("[{Workflow}] Message Out: {msg}  published to {Destination}",
-                            "Base-HandleIncomingMessageAsync", payload, rte.Key.Destination);
+                        if (!string.IsNullOrEmpty(rte.Key.Destination))
+                        {
+                            var env = new MessageEnvelope(new MessageBusTopic(rte.Key.Destination), payload);
+                            Tracker.IncrementOutbound();
+                            _ = MessageBus.PublishAsync(rte.Key.Destination, env, ct);
+                            Logger.Information("[{Workflow}] Message Out: {msg}  published to {Destination}",
+                                "Base-HandleIncomingMessageAsync", payload, rte.Key.Destination);
+                        }
+                        else
+                        {
+                            Logger.Information("[{Workflow}] Received {msg}  No route to forward ",
+                                "Base-HandleIncomingMessageAsync", rte.Key.Source, rte.Key.Destination);
+                        }
                     }
                     else
                     {
@@ -280,8 +328,13 @@ public abstract class WorkflowBase : BackgroundService
             Logger.Error(ex, "[{Workflow}] Handler failure for {Device}", "Base-HandleIncomingMessageAsync");
             Tracker.IncrementError(ex.Message);
         }
+        
+       
+        long endMemory = GC.GetAllocatedBytesForCurrentThread();
+        long bytesUsed = endMemory - startMemory;
 
         _ = PublishStatusAsync();
+
         return;
     }
 

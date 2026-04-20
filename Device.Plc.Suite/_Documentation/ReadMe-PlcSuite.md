@@ -1,14 +1,14 @@
 # Device.Plc.Suite
 
-The `Device.Plc.Suite` serves as a high-performance communication gateway between the **Fusion** warehouse control system and various **PLCs**. It implements the `WES-Routing Interface Message Specification` to facilitate seamless data exchange for warehouse automation tasks.
+The `Device.Plc.Suite` serves as a high-performance communication gateway between the **Fire** warehouse control system and various **PLCs**. It implements the `WES-Routing Interface Message Specification` to facilitate seamless data exchange for warehouse automation tasks.
 
 ## Core Components
 
 The suite is built on a modular architecture to handle device management, message parsing, and simulation:
 This library holds 2 Devices
-* **PlcServerDevice**: Represents an individual connection to a PLC, typically requiring one device instance per server port.
-* **VirtualPlcDevice**: A dedicated simulation layer used for testing and product suite demonstrations. It translates WCS commands into simulated hardware responses without requiring a physical PLC.
-#### other conponents
+* **PlcServerDevice**: a Tcp Socket Server intended to receive connections from a PLC thst sends Decision Request, Decision Updates and Receives Decision Responses t to/from the WCS.
+* **VirtualPlcDevice**: A simulation of the PLC client that sends Decision Request, Decision Updates and Receives Decision Responses to/from the WCS.
+* #### other conponents
 * **PlcDeviceManager & VirtualPlcManager**: A central manager responsible for the lifecycle and creation of all `PlcServerDevice` instances. It coordinates inbound messages from PLCs to the system message bus and routes outbound bus responses back to the correct PLC client.
 * **PlcMessageProcessor**: Manages the low-level processing of network streams. It extracts framed messages using protocol delimiters, handles heartbeats automatically, and prepares business data for the application layer.
 * **PlcMessageParser**: Provides the logic for framing JSON payloads into the required protocol format and parsing raw strings into C# objects.

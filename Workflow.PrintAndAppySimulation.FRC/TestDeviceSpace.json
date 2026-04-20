@@ -7,6 +7,7 @@
           "Name": "TBROKER",
           "Manager": "ActiveMQManager",
           "Enable": true,
+          "ScreenIndex": 3,
           "Properties": {
             "ConnectionString": "tcp://127.0.0.1:61616?useKeepAlive=true",
             "DoubleQueue": true
@@ -16,17 +17,22 @@
           "Name": "TPNA2",
           "Manager": "VirtualPlcManager",
           "Enable": true,
+          "ScreenIndex": 2,
           "Properties": {
             "IPAddress": "127.0.0.1",
             "Port": 6999,
-            "DecisionPoints":  "PNALINE-2:0",
-            "TotalTotes": 10,
-            "InductionFreq": 10000
+            "HeartbeatTimeoutMs": 0,
+            "HeartbeatIntervalMs": 0,
+            "DecisionPoints":  "SNC302:0",
+            "Barcodes": "LPN-00001,LPN-00002,LPN-00003, LPN-00004, LPN-00005, LPN-00006, LPN-00007, LPN-00008, LPN-00009, LPN-00010, LPN-00011, LPN-00012, LPN-00013, LPN-00014, LPN-00015, LPN-00016, LPN-00017, LPN-00018, LPN-00019, LPN-00020, LPN-00021",
+            "TotalTotes": 21,
+            "InductionFreq": 1000
           }
         },
         {
           "Name": "PNA2 151",
           "Manager": "VirtualPrinterManager",
+          "ScreenIndex":4,
           "Enable": true,
           "Properties": {
             "Port": 9100
@@ -35,6 +41,7 @@
         {
           "Name": "PNA2 152",
           "Manager": "VirtualPrinterManager",
+          "ScreenIndex":5,
           "Enable": true,
           "Properties": {
             "Port": "9101"
@@ -55,6 +62,15 @@
           "Properties": {
             "Port": 9103
           }
+        },
+        {
+          "Name": "DIAG_SERVER",
+          "Manager": "DiagnosticDeviceManager",
+          "Enable": true,
+          "ScreenIndex": 6,
+          "Properties": {
+            "Port": 9999
+          }
         }
       ],
       "WorkflowList": [
@@ -65,6 +81,7 @@
           "IsSimulation": true,
           "TotalTotes": 100,
           "InductionIntervalMs": 1000,
+           "ScreenIndex":1,
           "Routes": [
             {
               "Mode": 1,

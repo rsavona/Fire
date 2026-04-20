@@ -1,6 +1,7 @@
 ﻿using System.Collections.Concurrent;
 using DeviceSpace.Common.Configurations;
 using DeviceSpace.Common.Contracts;
+using DeviceSpace.Common.Enums;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Serilog;
@@ -20,25 +21,59 @@ public abstract class DeviceManagerBase<TDevice> : BackgroundService, IDeviceMan
     protected readonly ConcurrentDictionary<string, TDevice> DeviceInstances = new();
 
     protected Func<IDeviceConfig, IFireLogger, TDevice> DeviceFactory;
+    private readonly ConcurrentDictionary<string, (string State, DeviceHealth Health)> _lastDeviceStatus = new();
 
     /// abstract methods
     protected virtual void RegisterDeviceDestRoutes(IDevice device)
     {
-   
+  
+        var devLogger = device.GetLogger();
         var routes = ConfigurationLoader.GetAllWorkflowConfig()
             .SelectMany(w => w.Routes)
             .Where(r => r.Destination.StartsWith(device.Config.Name));
 
-       
-        foreach (var route in routes)
+        var workflowRoutes = routes as WorkflowRoute[] ?? routes.ToArray();
+        if (workflowRoutes.Length == 0) devLogger.Information("[{dec}] No Routes found with a destination for this Device", device.Config.Name);
+        foreach (var route in workflowRoutes)
         {
-            device.GetLogger().Information("{method} [{Dev}]  Manager initializing Route: {route}","RegisterDeviceDestRoutes", device.Config.Name, route.Name);
+            devLogger.Information("{method} [{Dev}]  Manager initializing Route: {route}","RegisterDeviceDestRoutes", device.Config.Name, route.Name);
             MessageBus.SubscribeAsync(route.Destination, HandleBusMessageAsync);
         }
     }
 
     protected virtual void OnDeviceCreated(IDevice device)
     {
+    }
+
+    protected virtual void RegisterControlRoutes(IDevice device)
+    {
+        var controlTopic = $"SYS.CONTROL.{device.Config.Name.ToUpper()}";
+        MessageBus.SubscribeAsync(controlTopic, async (envelope, ct) =>
+        {
+            try
+            {
+                var payload = envelope.Payload.ToString() ?? "";
+                if (payload.Contains("RESTART", StringComparison.OrdinalIgnoreCase))
+                {
+                    Logger.Warning("[{Dev}] Remote RESTART signal received.", device.Config.Name);
+                    await ReinitializeDeviceAsync(device.Config.Name);
+                }
+                else if (payload.Contains("OFFLINE", StringComparison.OrdinalIgnoreCase))
+                {
+                    Logger.Warning("[{Dev}] Remote OFFLINE signal received.", device.Config.Name);
+                    await TakeDeviceOfflineAsync(device.Config.Name);
+                }
+                else if (payload.Contains("ONLINE", StringComparison.OrdinalIgnoreCase))
+                {
+                    Logger.Warning("[{Dev}] Remote ONLINE signal received.", device.Config.Name);
+                    await ReinitializeDeviceAsync(device.Config.Name);
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.Error(ex, "[{Dev}] Error processing remote control command", device.Config.Name);
+            }
+        });
     }
 
     protected virtual Task OnDeviceMessageToMessageBusAsync(object? sender, object messageEnv) {  return Task.CompletedTask; }
@@ -94,6 +129,7 @@ public abstract class DeviceManagerBase<TDevice> : BackgroundService, IDeviceMan
                 
                 PrepareForRouteDestinations(device);
                 RegisterDeviceDestRoutes(device);
+                RegisterControlRoutes(device);
                
                 // announce presence to the Diag Server
                 if (device is IDiagnosticProvider diagProvider)
@@ -120,9 +156,22 @@ public abstract class DeviceManagerBase<TDevice> : BackgroundService, IDeviceMan
     {
         if (sender is not { } device) return;
 
+        string name = device.Config.Name;
+        _lastDeviceStatus.TryGetValue(name, out var oldStatus);
+        
+        bool changed = oldStatus == default || oldStatus.State != status.State || oldStatus.Health != status.Health;
 
-        Logger.Information("[{Dev}] Status Change: {State} (Health: {Health})",
-            device.Config.Name, status.State, status.Health);
+        if (changed)
+        {
+            _lastDeviceStatus[name] = (status.State, status.Health);
+            Logger.Information("[{Dev}] Status Change: {State} (Health: {Health})",
+                name, status.State, status.Health);
+        }
+        else
+        {
+            Logger.Verbose("[{Dev}] Status Update (Metrics/HB): {State} (Health: {Health})",
+                name, status.State, status.Health);
+        }
 
         _ = MessageBus.PublishAsync(MessageBusTopic.DeviceStatus.ToString(),
             new MessageEnvelope(MessageBusTopic.DeviceStatus, status));
@@ -213,6 +262,13 @@ public abstract class DeviceManagerBase<TDevice> : BackgroundService, IDeviceMan
 
 
     public override async Task StopAsync(CancellationToken cancellationToken)
+    {
+        Logger.Information("Stopping Manager for {DeviceType}", typeof(TDevice).Name);
+        await StopDevicesAsync(cancellationToken);
+        await base.StopAsync(cancellationToken);
+    }
+
+    public async Task StopDevicesAsync(CancellationToken cancellationToken)
     {
         foreach (var device in DeviceInstances.Values.ToList())
         {

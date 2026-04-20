@@ -9,7 +9,7 @@ using Stateless.Graph;
 using ILogger = Serilog.ILogger;
 
 namespace DeviceSpace.Common.BaseClasses;
-public abstract class DeviceBase<TState, TEvent, TMetric> : IDevice, IDiagnosticProvider
+public abstract class DeviceBase<TState, TEvent, TMetric> : IDevice
     where TState : struct, Enum
     where TEvent : struct, Enum
     where TMetric : struct, Enum
@@ -17,11 +17,48 @@ public abstract class DeviceBase<TState, TEvent, TMetric> : IDevice, IDiagnostic
     // --- Core Dependencies ---
     protected readonly StateMachine<TState, TEvent> Machine;
     public IDeviceConfig Config { get; }
-    protected readonly DeviceStatusTracker<TState, TEvent> Tracker;
+    public readonly DeviceStatusTracker<TState, TEvent> Tracker;
     protected readonly IFireLogger Logger;
     protected LoggingLevelSwitch LogSwitch;
     public bool NeedsHeartbeat { get; set; }
     private bool _disposed = false;
+    private string _lastError;
+   
+
+    // --- Resource Tracking ---
+    protected readonly List<Task> ManagedTasks = [];
+    protected readonly List<object> ManagedContainers = [];
+    public int ActiveTaskCount => ManagedTasks.Count(t => !t.IsCompleted);
+    public int ContainerCount => ManagedContainers.Count;
+
+    public int GetDeepCount()
+    {
+        int count = 0;
+        foreach (var container in ManagedContainers)
+        {
+            if (container is System.Collections.ICollection collection)
+            {
+                count += collection.Count;
+            }
+            else
+            {
+                // Try reflection for a "Count" or "Length" property if it doesn't implement ICollection
+                var type = container.GetType();
+                var countProp = type.GetProperty("Count") ?? type.GetProperty("Length") ?? type.GetProperty("ConnectedClientCount");
+                if (countProp != null)
+                {
+                    try
+                    {
+                        var val = countProp.GetValue(container);
+                        if (val is int i) count += i;
+                        else if (val is long l) count += (int)l;
+                    }
+                    catch { /* Ignore reflection errors */ }
+                }
+            }
+        }
+        return count;
+    }
 
     // --- IDevice Properties ---
     public string CurrentStateAsString => Machine.State.ToString();
@@ -31,7 +68,7 @@ public abstract class DeviceBase<TState, TEvent, TMetric> : IDevice, IDiagnostic
     public event Action<IDevice>? DeviceReady;
 
     // --- Abstract Methods ---
-    private CancellationTokenSource _sessionCts;
+    private CancellationTokenSource? _sessionCts;
 
     // A helper to safely provide a token to the derived class
     protected CancellationToken ConnectionToken => _sessionCts?.Token ?? CancellationToken.None;
@@ -43,8 +80,9 @@ public abstract class DeviceBase<TState, TEvent, TMetric> : IDevice, IDiagnostic
 
     protected virtual void OnDeviceReady() => DeviceReady?.Invoke(this);
 
-    protected virtual void OnStartAsync(CancellationToken token)
+    protected virtual Task OnStartAsync(CancellationToken token)
     {
+        return Task.CompletedTask;
     }
 
     public IFireLogger GetLogger()
@@ -64,23 +102,37 @@ public abstract class DeviceBase<TState, TEvent, TMetric> : IDevice, IDiagnostic
         TEvent eventDef)
     {
         Config = config;
+        _lastError = "";
         Logger = logger.WithContext("DeviceName", config.Name);
-
+         
+        Logger.Information("[{Device}] ------------- Initializing -------------- DeviceBase Constructor", Config.Name);
         LogSwitch = new LoggingLevelSwitch();
 
     
         LogSwitch.MinimumLevel = LogEventLevel.Verbose;
         Key = new DeviceKey("SYS", config.Name);
         Tracker = new DeviceStatusTracker<TState, TEvent>(statDef, eventDef);
+        Tracker.ScreenIndex = config.ScreenIndex;
 
         Machine = new StateMachine<TState, TEvent>(statDef);
 
         Machine.OnTransitioned(OnStateChange);
 
-        // Log initialization
-        Logger.Debug("[{Device}] Initializing DeviceBase. Initial State: {State}", Config.Name, statDef);
+       
     }
 
+    public void StartTransaction(string transactionId,  int idx)
+    {
+        Tracker.StartTransaction(transactionId, idx);
+        Logger.Verbose("[{Device}] Timer started {strId}-{id}", Config.Name, transactionId, idx);
+    }
+    
+    public double StopTransaction(string transactionId, int idx)
+    {
+        Logger.Verbose("[{Device}] Timer stopped {strId}-{id}", Config.Name, transactionId, idx);
+        return Tracker.StopTransaction(transactionId, idx);
+    }
+    
     public string GetDeviceVersion()
     {
         // Pulls the version from the actual DLL (e.g., 2.5.0.0)
@@ -122,14 +174,21 @@ public abstract class DeviceBase<TState, TEvent, TMetric> : IDevice, IDiagnostic
     /// </summary>
     protected virtual void OnStateChange(StateMachine<TState, TEvent>.Transition transition)
     {
-        Logger.Debug("[{Device}] Transition:{Source} -> {Dest} (Trigger: {Trigger})",
+        Logger.LogInfo("[{Device}] Transition:{Source} -> {Dest} (Trigger: {Trigger})",
             Config.Name, transition.Source, transition.Destination, transition.Trigger);
 
-        Tracker.Update(transition.Destination, transition.Trigger, MapStateToHealth(transition.Destination),
-            $"Event: {transition.Trigger}");
-        StatusUpdated?.Invoke(this, CreateStatusSnapshot());
+        if (Tracker.Update(transition.Destination, transition.Trigger, MapStateToHealth(transition.Destination),
+            $"Event: {transition.Trigger}"))
+        {
+            StatusUpdated?.Invoke(this, CreateStatusSnapshot());
+        }
     }
 
+    /// <summary>
+    /// Prepares a new session token for the device.
+    /// </summary>
+    /// <param name="globalToken"></param>
+    /// <returns></returns>
     protected CancellationToken PrepareSessionToken(CancellationToken globalToken)
     {
         _sessionCts?.Cancel();
@@ -154,9 +213,7 @@ public abstract class DeviceBase<TState, TEvent, TMetric> : IDevice, IDiagnostic
     /// </param>
     protected void UpdateAndNotify(string comment = "")
     {
-        Logger.Verbose("[{Dev}] Stats: In={In}, Out={Out}, Err={Err}",
-            Config.Name, Tracker.CountInbound, Tracker.CountOutbound, Tracker.CountError);
-        StatusUpdated?.Invoke(this, CreateStatusSnapshot(comment));
+      StatusUpdated?.Invoke(this, CreateStatusSnapshot(comment));
     }
 
     /// <summary>
@@ -187,7 +244,7 @@ public abstract class DeviceBase<TState, TEvent, TMetric> : IDevice, IDiagnostic
     /// <returns>A representation of the current device status as an <see cref="IDeviceStatus"/> object.</returns>
     public IDeviceStatus CreateStatusSnapshot( string comment = "")
     {
-        return Tracker.ToStatusMessage(this.Key, comment);
+        return Tracker.ToStatusMessage(this.Key, comment, ActiveTaskCount, ContainerCount, GetDeepCount());
     }
 
     // =========================================================================================
@@ -252,6 +309,38 @@ public abstract class DeviceBase<TState, TEvent, TMetric> : IDevice, IDiagnostic
     /// </summary>
     protected virtual void DisposeManagedResources()
     {
+        foreach (var container in ManagedContainers)
+        {
+            if (container is IDisposable disposable)
+            {
+                try
+                {
+                    disposable.Dispose();
+                }
+                catch (Exception ex)
+                {
+                    Logger.Error(ex, "[{Device}] Error disposing container", Config.Name);
+                }
+            }
+        }
+        ManagedContainers.Clear();
+        ManagedTasks.Clear();
+    }
+
+    protected void RegisterTask(Task task)
+    {
+        ManagedTasks.Add(task);
+        PruneTasks();
+    }
+
+    protected void RegisterContainer(object container)
+    {
+        ManagedContainers.Add(container);
+    }
+
+    protected void PruneTasks()
+    {
+        ManagedTasks.RemoveAll(t => t.IsCompleted);
     }
 
     /// <summary>
@@ -310,11 +399,8 @@ public abstract class DeviceBase<TState, TEvent, TMetric> : IDevice, IDiagnostic
         {
             var message = context;
             if (ex != null) message += ": " + ex.Message;
-
-            Logger.Error(ex, "[{Dev}] Operation failed: {Msg}", Config.Name, message);
             Logger.Error(ex, "[{Dev}] Error in context: {Context}. Current State: {State}",
                 Config.Name, context, Machine.State);
-
             Tracker.IncrementError(message);
             UpdateAndNotify();
         }

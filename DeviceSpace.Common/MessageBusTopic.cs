@@ -6,6 +6,7 @@ public record MessageBusTopic
     public static readonly MessageBusTopic DeviceStatus = new MessageBusTopic("All_Devices", "StatusMessage");
     public static readonly MessageBusTopic InternalError = new MessageBusTopic("All_Devices", "Exceptions");
     public static readonly MessageBusTopic Discovery = new MessageBusTopic("All_Devices", "DiagDiscovery");
+    public static readonly MessageBusTopic SystemControl = new MessageBusTopic("System", "Control");
     
     public readonly string DeviceName;
     public readonly string MessageType;

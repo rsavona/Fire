@@ -1,28 +1,41 @@
-<div class="col-2 bg-dark text-white p-3 border-end border-secondary h-100 overflow-auto">
-    <h6 class="text-uppercase text-muted mb-3 small" style="color: #ffccbc !important;">Toolkit</h6>
-    <div class="nav flex-column nav-pills gap-2">
-        <div class="nav-link text-white toolbox-item d-flex align-items-center gap-2 rounded p-2" draggable="true" @ondragstart="@(() => HandleDragStart("ActiveMqDevice"))">
-            <i class="bi bi-envelope-paper text-info"></i> <span class="small">ActiveMQ</span>
-        </div>
-        <div class="nav-link text-white toolbox-item d-flex align-items-center gap-2 rounded p-2" draggable="true" @ondragstart="@(() => HandleDragStart("PlcDevice"))">
-            <i class="bi bi-hdd-rack text-danger"></i> <span class="small">PLC</span>
-        </div>
-        <div class="nav-link text-white toolbox-item d-flex align-items-center gap-2 rounded p-2" draggable="true" @ondragstart="@(() => HandleDragStart("PrinterDevice"))">
-            <i class="bi bi-printer text-warning"></i> <span class="small">Printer</span>
-        </div>
-        
-        <hr class="border-secondary my-2" />
-        <div class="nav-link text-white toolbox-item d-flex align-items-center gap-2 rounded p-2" draggable="true" @ondragstart="@(() => HandleDragStart("VirtualPlcDevice"))">
-            <i class="bi bi-cpu text-white-50"></i> <span class="small">Virtual PLC</span>
-        </div>
-        <div class="nav-link text-white toolbox-item d-flex align-items-center gap-2 rounded p-2" draggable="true" @ondragstart="@(() => HandleDragStart("VirtualPrinterDevice"))">
-            <i class="bi bi-file-earmark-code text-white-50"></i> <span class="small">Virtual Printer</span>
-        </div>
+@using FireBuilder.Services
+@inject DeviceDiscoveryService DiscoveryService
 
-        <hr class="border-secondary" />
-        <div class="nav-link text-white toolbox-item d-flex align-items-center gap-2 rounded p-2" draggable="true" @ondragstart="@(() => HandleDragStart("Workflow"))">
-            <i class="bi bi-diagram-3 text-warning"></i> <span class="small">Workflow</span>
-        </div>
+<div class="flex-grow-1 overflow-auto h-100" style="background-color: #CE2029; min-height: 100vh;">
+    <div class="sidebar-section-header" style="background-color: rgba(0,0,0,0.2); color: white; padding: 10px 15px; font-size: 0.75rem; font-weight: bold; text-transform: uppercase;">Devices</div>
+    <div class="nav flex-column nav-pills gap-1 p-2">
+        @foreach (var deviceType in DiscoveryService.GetDiscoveredDevices())
+        {
+            <div class="nav-link text-white toolbox-item d-flex align-items-center gap-2 rounded p-2 mb-1" 
+                 style="cursor: grab; background-color: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.1);"
+                 draggable="true" 
+                 @ondragstart="@(() => HandleDragStart(deviceType.Name))">
+                <i class="bi @GetIconForType(deviceType.Name) text-white"></i> <span class="small text-white">@FormatName(deviceType.Name)</span>
+            </div>
+        }
+    </div>
+    
+    <div class="sidebar-section-header mt-2" style="background-color: rgba(0,0,0,0.2); color: white; padding: 10px 15px; font-size: 0.75rem; font-weight: bold; text-transform: uppercase;">Workflows</div>
+    <div class="nav flex-column nav-pills gap-1 p-2">
+        @foreach (var wfType in DiscoveryService.GetDiscoveredWorkflows())
+        {
+            <div class="nav-link text-white toolbox-item d-flex align-items-center gap-2 rounded p-2 mb-1" 
+                 style="cursor: grab; background-color: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.1);"
+                 draggable="true" 
+                 @ondragstart="@(() => HandleDragStart("Workflow"))">
+                <i class="bi bi-diagram-3 text-white"></i> <span class="small text-white">@wfType.Name</span>
+            </div>
+        }
+
+        @if (!DiscoveryService.GetDiscoveredWorkflows().Any())
+        {
+            <div class="nav-link text-white toolbox-item d-flex align-items-center gap-2 rounded p-2" 
+                 style="cursor: grab; background-color: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.1);"
+                 draggable="true" 
+                 @ondragstart="@(() => HandleDragStart("Workflow"))">
+                <i class="bi bi-diagram-3 text-white"></i> <span class="small text-white">Workflow</span>
+            </div>
+        }
     </div>
 </div>
 
@@ -37,5 +50,22 @@
     private async Task HandleDragStart(string deviceType)
     {
         await OnItemDragStart.InvokeAsync(deviceType);
+    }
+
+    private string GetIconForType(string typeName) => typeName switch
+    {
+        string s when s.Contains("Plc") && s.Contains("Virtual") => "bi-cpu text-white-50",
+        string s when s.Contains("Plc") => "bi-hdd-rack text-danger",
+        string s when s.Contains("Printer") && s.Contains("Virtual") => "bi-file-earmark-code text-white-50",
+        string s when s.Contains("Printer") => "bi-printer text-warning",
+        string s when s.Contains("ActiveMq") => "bi-envelope-paper text-info",
+        string s when s.Contains("Database") => "bi-database-fill text-primary",
+        string s when s.Contains("Api") || s.Contains("Controller") => "bi-cloud-arrow-down text-success",
+        _ => "bi-box text-muted"
+    };
+
+    private string FormatName(string name)
+    {
+        return name.Replace("Device", "").Replace("Server", "").Replace("Client", "");
     }
 }

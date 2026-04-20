@@ -1,7 +1,10 @@
 ﻿
 using System.Collections.Concurrent;
 using DeviceSpace.Common;
+using DeviceSpace.Common.Configurations;
 using DeviceSpace.Common.Contracts;
+using DeviceSpace.Common.Enums;
+using DeviceSpace.Common.Messaging;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Serilog.Core;
@@ -24,13 +27,18 @@ public class DeviceSpaceCore : BackgroundService
     // Key: Manager Name (e.g., "PlcDeviceManager")
     // Value: Summary String (e.g., "PLC1: Connected, PLC2: Faulted")
     private readonly ConcurrentDictionary<string, string> _managerStatusSummaries = new();
- 
+    private readonly ConcurrentDictionary<string, DeviceHealth> _deviceHealths = new();
+    private bool _systemStarted = false;
+    private int _expectedDeviceCount = 0;
+
     public DeviceSpaceCore(
         IMessageBus messageBus,
         ILogger<DeviceSpaceCore> logger)
     {
         _messageBus = messageBus;
         _logger = logger;
+
+        _expectedDeviceCount = ConfigurationLoader.GetAllDeviceConfig().Count(d => d.Enable);
     }
 
     /// <summary>
@@ -39,10 +47,26 @@ public class DeviceSpaceCore : BackgroundService
     /// </summary>
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+       _logger.LogInformation("Orchestrator: Monitoring {Count} devices for system ready.", _expectedDeviceCount);
        
+       // Subscribe to device status to track system readiness
+       await _messageBus.SubscribeAsync(MessageBusTopic.DeviceStatus.ToString(), HandleStatusUpdateAsync);
+
        try
        {
-            await Task.Delay(Timeout.Infinite, stoppingToken);
+            while (!stoppingToken.IsCancellationRequested)
+            {
+                if (!_systemStarted && CheckSystemReadiness())
+                {
+                    _logger.LogInformation("Orchestrator: ALL DEVICES READY. Releasing System START signal.");
+                    _systemStarted = true;
+                    var startMsg = new SystemControlMessage(SystemCommand.Start);
+                    await _messageBus.PublishAsync(MessageBusTopic.SystemControl.ToString(), 
+                        new MessageEnvelope(MessageBusTopic.SystemControl, startMsg));
+                }
+
+                await Task.Delay(1000, stoppingToken);
+            }
        }
        catch (OperationCanceledException)
        {
@@ -52,6 +76,23 @@ public class DeviceSpaceCore : BackgroundService
        {
             _logger.LogCritical(ex, "DeviceSpaceCore encountered a fatal error.");
        }
+    }
+
+    private Task HandleStatusUpdateAsync(MessageEnvelope? envelope, CancellationToken ct)
+    {
+        if (envelope?.Payload is IDeviceStatus status)
+        {
+            _deviceHealths[envelope.Destination.DeviceName] = status.Health;
+        }
+        return Task.CompletedTask;
+    }
+
+    private bool CheckSystemReadiness()
+    {
+        if (_expectedDeviceCount == 0) return true;
+        if (_deviceHealths.Count < _expectedDeviceCount) return false;
+
+        return _deviceHealths.Values.All(h => h == DeviceHealth.Normal || h == DeviceHealth.Warning);
     }
     
     /// <summary>

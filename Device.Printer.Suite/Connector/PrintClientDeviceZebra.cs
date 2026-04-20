@@ -173,7 +173,7 @@ public class PrintClientDeviceZebra : TcpClientDeviceBase, IMessageProvider, ITc
     /// <summary>
     /// Sends ZPL data over the persistent TCP stream.
     /// </summary>
-    public async Task PrintAsync(LabelToPrintMessage labelData)
+    public async Task PrintAsync(string labelData)
     {
         // Ensure we are in a connected state before attempting to write
         if (Machine.State is not State.Connected)
@@ -181,24 +181,21 @@ public class PrintClientDeviceZebra : TcpClientDeviceBase, IMessageProvider, ITc
             Logger.Warning("[{Dev}] Print ignored: Device is in state {State}", Config.Name, Machine.State);
             return;
         }
-
         try
         {
-            // Validate the ZPL structure using your ZplString class
-            var validatedZpl = new ZplString(labelData.ZplData);
-            byte[] data = Encoding.ASCII.GetBytes(validatedZpl.Value);
+            byte[] data = Encoding.ASCII.GetBytes(labelData);
 
             // Get the stream from the base TcpClientDeviceBase
             NetworkStream? stream = GetStream();
             if (stream != null && stream.CanWrite)
             {
-                Logger.Information("[{Dev}] Sending Print Job. Session: {SessionId}", Config.Name, labelData.SessionId);
+                Logger.Information("[{Dev}] Sending Print Job. Session: {SessionId}", Config.Name, labelData);
 
                 await stream.WriteAsync(data, 0, data.Length);
                 await stream.FlushAsync();
 
                 Tracker.IncrementOutbound();
-                Logger.Verbose("[{Dev}] ZPL Sent: {Zpl}", Config.Name, validatedZpl.Value);
+                Logger.Verbose("[{Dev}] ZPL Sent: {Zpl}", Config.Name, labelData);
             }
             else
             {
@@ -208,8 +205,8 @@ public class PrintClientDeviceZebra : TcpClientDeviceBase, IMessageProvider, ITc
         }
         catch (Exception ex)
         {
-            Logger.Error(ex, "[{Dev}] Critical error during PrintAsync for Session {Id}", Config.Name,
-                labelData.SessionId);
+            Logger.Error(ex, "[{Dev}] Critical error during PrintAsync for label {label}", Config.Name,
+                labelData);
         }
     }
 

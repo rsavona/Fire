@@ -17,15 +17,9 @@
 
     <ItemGroup>
       <PackageReference Include="Castle.Core" Version="5.2.1" />
-      <PackageReference Include="Castle.DynamicProxy" Version="2.2.0" />
-      <PackageReference Include="ILRepack.Lib.MSBuild.Task" Version="2.0.44.1">
-        <PrivateAssets>all</PrivateAssets>
-        <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
-      </PackageReference>
       <PackageReference Include="Microsoft.Extensions.Configuration" Version="9.0.9" />
       <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="9.0.9" />
       <PackageReference Include="Microsoft.Extensions.Hosting" Version="9.0.9" />
-      <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="9.0.9" />
       <PackageReference Include="Microsoft.Extensions.Logging" Version="9.0.9" />
       <PackageReference Include="Microsoft.Extensions.Logging.Configuration" Version="9.0.9" />
       <PackageReference Include="Microsoft.Extensions.Logging.Console" Version="9.0.9" />
@@ -49,6 +43,9 @@
     </ItemGroup>
 
     <ItemGroup>
+      <None Update="TargetDekalb.json">
+        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      </None>
       <None Update="DeviceSpace.json">
         <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       </None>

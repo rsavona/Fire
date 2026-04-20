@@ -1,4 +1,5 @@
 ﻿using System.Collections.Concurrent;
+using System.Diagnostics;
 using DeviceSpace.Common;
 using DeviceSpace.Common.Contracts;
 using Serilog;
@@ -61,11 +62,31 @@ public class MessageBus : IMessageBus
         return Task.FromResult(added);
     }
 
+    public Task<bool> SubscribeAsync(string topic, Func<MessageEnvelope, CancellationToken, Task> handler)
+    {
+        return SubscribeAsync(topic, (Delegate)handler);
+    }
+
+    /// <summary>
+    /// Subscribes to a topic using a strongly-typed handler.
+    /// </summary>
+    /// <param name="topic"></param>
+    /// <param name="handler"></param>
+    /// <typeparam name="TMessage"></typeparam>
+    /// <returns></returns>
     public Task<bool> SubscribeAsync<TMessage>(string topic, Func<TMessage, Task> handler)
     {
         return SubscribeAsync(topic, (Delegate)handler);
     }
 
+    /// <summary>
+    /// Subscribes to a topic using a strongly-typed request/response handler.
+    /// </summary>
+    /// <param name="topic"></param>
+    /// <param name="handler"></param>
+    /// <typeparam name="TRequest"></typeparam>
+    /// <typeparam name="TResponse"></typeparam>
+    /// <returns></returns>
     public Task<bool> SubscribeAsync<TRequest, TResponse>(string topic, Func<TRequest, Task<TResponse>> handler)
     {
         return SubscribeAsync(topic, (Delegate)handler);
@@ -154,13 +175,11 @@ public class MessageBus : IMessageBus
         return DispatchStatusInternal(topic, topic, snapshot, cancellationToken);
     }
 
-// 3. Overload: Specific Topic
     public Task PublishStatusAsync(string topic, DeviceStatusMessage snapshot, CancellationToken ct)
     {
         return DispatchStatusInternal(topic, topic, snapshot, ct);
     }
-
-// 4. Overload: Device Key 
+    
     public Task PublishStatusAsync(string keyDeviceName, IDeviceStatus status)
     {
         // Preserving your original logic: Envelope gets the device key, but it publishes to the "DeviceStatus" topic
@@ -186,8 +205,7 @@ public class MessageBus : IMessageBus
 
         return listeners;
     }
-
-
+    
     public List<string> GetSubscriptionList(MessageBusTopic messageBusTopic)
     {
         return GetSubscriptionList(messageBusTopic.ToString());
@@ -220,7 +238,7 @@ public class MessageBus : IMessageBus
         // Check Verbose status once at the start of dispatch
         bool isVerbose = _logger.IsEnabled(Serilog.Events.LogEventLevel.Verbose);
 
-        // 1. Global Subscribers
+        // Global Subscribers
         foreach (var globalHandler in _globalSubscribers.Keys)
         {
             if (token.IsCancellationRequested) break;
@@ -231,9 +249,8 @@ public class MessageBus : IMessageBus
                         TaskContinuationOptions.OnlyOnFaulted));
             }
         }
-
-
-        // 2. Topic Subscribers
+        
+        // Topic Subscribers
         if (_subscriptions.TryGetValue(topic, out var handlers))
         {
             foreach (var handler in handlers.Keys)

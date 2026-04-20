@@ -11,7 +11,7 @@ namespace DeviceSpace.Common.Contracts // Or your preferred core namespace
     /// <summary>
     /// Defines the core contract for any manageable device in the system.
     /// </summary>
-    public interface IDevice : IDisposable 
+    public interface IDevice : IDisposable, IAsyncDisposable 
     {
         /// <summary>
         /// Gets the unique, immutable key for this device.
@@ -57,7 +57,7 @@ namespace DeviceSpace.Common.Contracts // Or your preferred core namespace
 
         IEnumerable<DiagCommand> GetAvailableCommands();
         
-        void OnError(string context, Exception ex = null);
+        void OnError(string context, Exception? ex = null);
         
         public event Action<IDevice>? DeviceReady;
         

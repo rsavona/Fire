@@ -1,7 +1,9 @@
-﻿using DeviceSpace.Common;
+﻿using System.Text.Json.Nodes;
+using DeviceSpace.Common;
 using DeviceSpace.Common.BaseClasses;
 using DeviceSpace.Common.Contracts;
 using Microsoft.Extensions.Logging;
+
 
 namespace Device.Printer.Suite;
 
@@ -54,11 +56,20 @@ public class PrintClientManager : DeviceManagerBase<ITcpPrintClientBase>
         DeviceInstances.TryGetValue(topic.DeviceName, out var device);
         try
         {
-            if (envelope.Payload is LabelToPrintMessage message && device is ITcpPrintClientBase dev)
+            var node = JsonNode.Parse(envelope.Payload.ToString());
+            if (node == null) 
             {
-                // The ITcpPrinter interface provides the PrintAsync method [cite: 42]
-                await dev.PrintAsync(message);
+                Logger.Error( "ERROR payload not in JSON");
+                return;
             }
+        
+            var jsonObj = node.AsObject();
+            var labelList = jsonObj["labels"]?.GetValue<List<string>>();  
+            var lb = labelList.FirstOrDefault();
+            var label = jsonObj["PrinterData"]?.GetValue<List<string>>();      
+            // The ITcpPrinter interface provides the PrintAsync method [cite: 42]
+            await device?.PrintAsync(label.ToString());
+            
         }
         catch (Exception ex)
         {

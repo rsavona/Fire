@@ -2,9 +2,13 @@
 
 namespace Device.Plc.Suite.Messages;
 
-public class DecisionResponsePayload
+public record DecisionResponseMessage : PlcMessage
 {
-    
+     public DecisionResponseMessage( string client, int seq, PlcMessageHeaders hdr,
+        DecisionResponsePayload payload)
+        : base(false, client, seq, hdr.ToString(), payload)
+    {
+    }
 }
 
 

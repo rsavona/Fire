@@ -48,6 +48,8 @@ public class DurableMessageBus : IMessageBus
         return Task.FromResult(true);
     }
 
+    public Task<bool> SubscribeAsync(string topic, Func<MessageEnvelope, CancellationToken, Task> handler) => SubscribeAsync(topic, (Delegate)handler);
+
     public Task<bool> SubscribeAsync<TMessage>(string topic, Func<TMessage, Task> handler) => SubscribeAsync(topic, (Delegate)handler);
 
     public Task<bool> SubscribeAsync<TRequest, TResponse>(string topic, Func<TRequest, Task<TResponse>> handler) => SubscribeAsync(topic, (Delegate)handler);
@@ -229,9 +231,21 @@ public class DurableMessageBus : IMessageBus
             {
                 await globalHandler("N/A", envelope); 
             }
+            else if (handler is Func<MessageEnvelope, CancellationToken, Task> envelopeHandler)
+            {
+                await envelopeHandler(envelope, cts.Token);
+            }
             else
             {
-                var result = handler.DynamicInvoke(envelope);
+                var methodParams = handler.Method.GetParameters();
+                object[] args = methodParams.Length switch
+                {
+                    1 => new object[] { envelope },
+                    2 => new object[] { envelope, cts.Token },
+                    _ => new object[] { envelope }
+                };
+
+                var result = handler.DynamicInvoke(args);
                 if (result is Task task) await task.WaitAsync(cts.Token);
             }
 

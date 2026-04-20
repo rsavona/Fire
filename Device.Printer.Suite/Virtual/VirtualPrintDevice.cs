@@ -18,18 +18,15 @@ public class VirtualPrintDevice : TcpServerDeviceBase<PrintMessageProcessor>
     private bool _isPaused = false;
     private bool _isHeadOpen = false;
 
-    
-    public int PeriodicCheckTimeoutMs { get; set; }
-
     public VirtualPrintDevice(IDeviceConfig config, IFireLogger logger, LoggingLevelSwitch ls)
         : base(config, logger, new PrintMessageProcessor(logger), ls,
             config.Properties.TryGetValue("Port", out var p) ? Convert.ToInt32(p) : 9100,
             terminalStr: new SequenceTerminationStrategy(
                 Encoding.ASCII.GetBytes("~HS"),
                 Encoding.ASCII.GetBytes("^ZX")),
-            maxClients: 1)
+            maxClients: 10)
     {
-        Logger.Debug($"ConfigName: {config.Name}");
+        Logger.Information($"ConfigName: {config.Name}");
         Processor.HeartbeatReceived += OnProcessorHBReceived;
         Processor.MessageReceived += OnProcessorMessageReceived;
         Processor.OnMessageError += OnProcessorMessageError;
@@ -42,7 +39,6 @@ public class VirtualPrintDevice : TcpServerDeviceBase<PrintMessageProcessor>
         _ = SendAsync(client, GenerateZebraStatus());
     }
        
-   
     private void OnProcessorMessageError(string errorMessage)
     {
         OnError("Protocol", new Exception(errorMessage));
@@ -69,6 +65,7 @@ public class VirtualPrintDevice : TcpServerDeviceBase<PrintMessageProcessor>
 
     protected override void OnProcessorHeartbeatReceived(string id)
     {
+        base.OnProcessorHeartbeatReceived(id);
         _ = SendAsync(id, GenerateZebraStatus());
     }
 
@@ -180,30 +177,6 @@ public class VirtualPrintDevice : TcpServerDeviceBase<PrintMessageProcessor>
         {
             Logger.Information($"[{Config.Name}] Processing Label Job...", gin);
             Task.Delay(300).ContinueWith(_ => Logger.Debug($"[{Config.Name}] Job Printed Successfully.", gin));
-        }
-    }
-
-
-    protected void OnPeriodicCheck(object? sender, ElapsedEventArgs e)
-    {
-        // No need for LogEnter/Exit here to avoid flooding logs every second
-        if (ConnectedClients.IsEmpty) return;
-
-        var now = DateTime.Now;
-        foreach (var client in ConnectedClients)
-        {
-            var elapsed = now - client.Value;
-            if (elapsed.TotalMilliseconds > PeriodicCheckTimeoutMs)
-            {
-                Logger.Warning(
-                    $"[{Config.Name}] Watchdog: Client {client.Key} timed out after {elapsed.TotalSeconds:F1}s.");
-
-                // Disconnect the client at the server level
-                Server.DisconnectClient(client.Key);
-
-                // The Server.ClientConnectionChanged will fire, 
-                // which eventually calls OnClientDisconnected in the state machine.
-            }
         }
     }
 

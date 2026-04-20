@@ -31,6 +31,12 @@ public static class MessageParser
         string? ginStr = GetPart(payload, "GIN") ?? GetPart(payload, "gin");
         return int.TryParse(ginStr, out int gin) ? gin : 0;
     }
+    public static string? GetSession(object? payload)
+    {
+        string? sessionStr = GetPart(payload, "Session") ?? GetPart(payload, "session");
+        return sessionStr;
+    }
+    
     
     public static string GetDecisionPoint(object? payload)
     {

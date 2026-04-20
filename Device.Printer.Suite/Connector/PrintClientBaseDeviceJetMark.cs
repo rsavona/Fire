@@ -59,7 +59,7 @@ namespace Device.Printer.Suite.Connector
         public PrintDestination DestinationType { get; init; }
         public bool PrintError { get; init; }
         public ZplString ErrorLabel { get; init; }
-        public Task PrintAsync(LabelToPrintMessage labelData)
+        public Task PrintAsync(string labelData)
         {
             throw new NotImplementedException();
         }

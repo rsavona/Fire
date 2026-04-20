@@ -1,6 +1,7 @@
 ﻿using System.Collections.Concurrent;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using Device.Plc.Suite.Messages;
 using DeviceSpace.Common;
 using DeviceSpace.Common.BaseClasses;
 using DeviceSpace.Common.Configurations;
@@ -39,7 +40,8 @@ public class  PlcDeviceManager : DeviceManagerBase<PlcServerDevice>
         {
             _pendingResponses[new ResponseKey(req.DecisionPoint, req.Gin)] = new PendingRequest(device, env.Client, req);
             MessageBusTopic messageBusTopic = new MessageBusTopic(device.Config.Name, "DReqM", req.DecisionPoint);
-            targetLogger.LogInfoData("Request to {topic} : {msg}", [messageBusTopic , messEnv],  req.Gin.ToString());
+            
+            Logger.LogConveyableEvent( device.Key.DeviceName, $"Request to {messageBusTopic}", req.Gin.ToString(), req.Barcodes, req.DecisionPoint);
 
             List<string> subList = MessageBus.GetSubscriptionList(messageBusTopic);
             var logMessage = $"[{device.Config.Name}]";
@@ -58,7 +60,10 @@ public class  PlcDeviceManager : DeviceManagerBase<PlcServerDevice>
         }
         else if (env.Payload is DecisionUpdatePayload upd)
         {
-            MessageBusTopic messageBusTopic = new MessageBusTopic(device.Config.Name, "DUM", upd.DecisionPoint);
+            MessageBusTopic messageBusTopic = new MessageBusTopic(device.Config.Name, "Update", upd.DecisionPoint);
+            
+            Logger.LogConveyableEvent(device.Key.DeviceName, upd.ToString(),  upd.Gin.ToString(),upd.Barcodes, upd.DecisionPoint);
+
             targetLogger.Information("[{Dev}] PLC-UPD >> GIN: {Gin} at {DP}", device.Config.Name, upd.Gin,
                 upd.DecisionPoint);
             _ = MessageBus.PublishAsync(messageBusTopic.ToString(), new MessageEnvelope(messageBusTopic, env.Payload));
@@ -92,11 +97,12 @@ public class  PlcDeviceManager : DeviceManagerBase<PlcServerDevice>
             // 2. Locate the original PLC requester
             if (_pendingResponses.TryRemove(key, out var request))
             {
-                var responseMsg = new DecisionResponsePayload(dp, gin.Value,
+                var responsePayload = new DecisionResponsePayload(dp, gin.Value,
                     node!["Actions"]?.AsArray().Select(a => a?.ToString() ?? "").ToList() ?? new());
+                var responseMsg = PlcMessageParser.FrameResponse(responsePayload,topic.DeviceName );
                 
-                device.GetLogger().LogInfoData("Response from {topic} to {Client} : {msg} ",
-                    [envelope.Destination, request.Client, responseMsg], gin.ToString());
+                Logger.LogConveyableEvent(device.Key.DeviceName,$"Response from {envelope.Destination} to {request.Client}: {responseMsg}", 
+                    gin.ToString(), responsePayload.Actions, responsePayload.DecisionPoint);
                     
                 var success = await request.MultiClientDevice.SendResponseAsync(responseMsg, request.Client); 
                 

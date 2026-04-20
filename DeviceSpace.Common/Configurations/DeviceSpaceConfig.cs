@@ -12,9 +12,10 @@ namespace DeviceSpace.Common.Configurations
         public string Name { get; set; } = string.Empty;
         public string Type { get; set; } = string.Empty; 
         public bool Enable { get; set; } 
+        public int ScreenIndex { get; set; }
         // The list of routing rules
         public List<WorkflowRoute> Routes { get; set; } = new();
-    
+        public Dictionary<string, object> Properties { get; set; } = new ();
     }
 
     public class WorkflowRoute
@@ -27,10 +28,10 @@ namespace DeviceSpace.Common.Configurations
         public required string Source { get; set; }
 
         // Topic to publish result to (e.g. "MEDBroker.LabelRequest")
-        public required string Destination { get; set; }
+        public required  string Destination { get; set; }
 
         // Method Name OR File Path
-        public required string Handler { get; set; }
+        public required  string Handler { get; set; }
     }
     
 
@@ -42,6 +43,7 @@ namespace DeviceSpace.Common.Configurations
         public required string Name { get; set; } 
         public required string Manager { get; set; } 
         public bool Enable { get; set; } 
+        public int ScreenIndex { get; set; }
         public Dictionary<string, object> Properties { get; set; } = new Dictionary<string, object>();
         
   

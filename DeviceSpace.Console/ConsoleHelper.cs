@@ -75,7 +75,7 @@ public static class ConsoleHelper
         info.FontWeight = 400; // Normal weight
 
         // 3. Apply changes
-        SetCurrentConsoleFontEx(hnd, false, ref info);
+        var result  = SetCurrentConsoleFontEx(hnd, true, ref info);
     }
     
     public static void SetConsoleWindowSize()
@@ -86,32 +86,30 @@ public static class ConsoleHelper
         {
             try
             {
-                // Set a large buffer size (e.g., 200 columns, 50 rows)
-                // The window size cannot be larger than the buffer size.
-                Console.SetBufferSize(400, 400);
+                int targetWidth = 250;
+                int targetHeight = 60;
 
-                // Set the window size (e.g., 180 columns, 40 rows)
-                Console.SetWindowSize(350, 325);
+                // Cap to what the screen/OS actually supports
+                targetWidth = Math.Min(targetWidth, Console.LargestWindowWidth);
+                targetHeight = Math.Min(targetHeight, Console.LargestWindowHeight);
+
+                if (targetWidth > 0 && targetHeight > 0)
+                {
+                    // Set buffer first if we are expanding
+                    if (Console.BufferWidth < targetWidth) Console.BufferWidth = targetWidth;
+                    if (Console.BufferHeight < targetHeight) Console.BufferHeight = targetHeight;
+
+                    Console.WindowWidth = targetWidth;
+                    Console.WindowHeight = targetHeight;
+
+                    // Match buffer to window
+                    Console.BufferWidth = targetWidth;
+                    Console.BufferHeight = targetHeight;
+                }
             }
-            catch (PlatformNotSupportedException)
+            catch (Exception)
             {
-                // This happens on non-Windows systems (Linux/macOS)
-                Console.WriteLine("Resizing not supported on this OS.");
-            }
-            catch (ArgumentOutOfRangeException)
-            {
-                // This happens if the size is too big for the user's monitor
-                Console.WriteLine("The requested size is too large for this screen.");
-            }
-            catch (IOException ex)
-            {
-                // This can fail if the console doesn't support resizing
-                // (e.g., running in a non-interactive shell)
-            }
-            catch (Exception ex1)
-            {
-                // This can fail if the size is too large for the screen
-                // or invalid.
+                // Silently ignore resizing failures
             }
         }
     }

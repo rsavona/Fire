@@ -8,5 +8,18 @@ public interface IDiagnosticProvider
     
     // Executes a command by name
     Task<DiagResult> ExecuteCommandAsync(string commandName, Dictionary<string, string> parameters);
+    
+    string GetStatus();
+    Task ResetStats();
+    int GetLatencyMs();
+    string GetDeviceName();
+    bool Reconnect();
+    string GetLastErrorCode();
+    string GetBufferDepth();
+    bool ClearBuffer();
+    bool InjectMockPayload();
+    void SetLoglevel(string level);
+    
+    
 }
 

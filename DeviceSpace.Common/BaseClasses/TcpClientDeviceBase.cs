@@ -44,11 +44,11 @@ public abstract class TcpClientDeviceBase : ClientDeviceBase
 
             // Using a 5-second timeout for the physical connection attempt
             using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+            if (_host == null) return false;
             await _tcpClient.ConnectAsync(_host, _port, cts.Token);
 
             TransportStream = _tcpClient.GetStream();
-
-            _ = Task.Run(() => ReadLoopAsync(CancellationToken.None));
+            
             return true;
         }
         catch (Exception ex)
@@ -58,6 +58,12 @@ public abstract class TcpClientDeviceBase : ClientDeviceBase
             _tcpClient = null;
             return false;
         }
+    }
+
+    protected override Task DeviceConnectedAsync()
+    {
+        _ = Task.Run(() => ReadLoopAsync(CancellationToken.None));
+        return base.DeviceConnectedAsync();
     }
 
     protected override void OnStateChange(StateMachine<State, Event>.Transition transition)
@@ -116,7 +122,10 @@ public abstract class TcpClientDeviceBase : ClientDeviceBase
     private bool CheckTcpConnection(TcpClient? client)
     {
         if (client == null || !client.Connected)
+        {
+            Tracker.SetConnectionCount(0);
             return false;
+        }
 
         try
         {
@@ -126,8 +135,8 @@ public abstract class TcpClientDeviceBase : ClientDeviceBase
                 byte[] buff = new byte[1];
                 if (client.Client.Receive(buff, SocketFlags.Peek) == 0)
                 {
-                    Tracker.IncrementDisconnects();
                     Logger.Warning("[{Dev}] Peer closed the connection (Zero-byte receive).", Config.Name);
+                    Tracker.SetConnectionCount(0);
                     return false;
                 }
             }
@@ -135,9 +144,13 @@ public abstract class TcpClientDeviceBase : ClientDeviceBase
         catch (SocketException ex)
         {
             Logger.Debug("[{Dev}] Socket health check failed: {Msg}", Config.Name, ex.Message);
+            Tracker.SetConnectionCount(0);
             return false;
         }
 
+        if (Machine.State == State.Connected)
+            Tracker.SetConnectionCount(1);
+            
         return true;
     }
 
@@ -200,7 +213,7 @@ public abstract class TcpClientDeviceBase : ClientDeviceBase
                 // Immediate Check: If it's a heartbeat, return true/exit immediately
                 if (IsHeartbeat(incomingData))
                 {
-                    NotifyHeartbeatReceived("", "");
+                    _ = NotifyHeartbeatReceived("", "");
                     continue;
                 }
 
@@ -238,6 +251,7 @@ public abstract class TcpClientDeviceBase : ClientDeviceBase
         if (!IsConnected || TransportStream == null)
         {
             Logger.Warning("[{Dev}] Send aborted: Not Connected.", Config.Name);
+            await Machine.FireAsync(Event.ConnectionLost);
             return;
         }
 

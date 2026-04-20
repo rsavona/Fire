@@ -22,15 +22,27 @@ public interface IDeviceStatus : IDeviceMessage
 
     // WHY: A human-readable message
     string Comment { get; }
+
+    int ScreenIndex { get; }
     
     // These are required by DeviceStatusCollection.Summarize
     // The data comes *from* the tracker.
     int CountInbound { get; }
     int CountOutbound { get; }
     int CountConnections { get; }
+    int CountDisconnects { get; }
     int CountError { get; }
     
+    double InboundRate { get; }
+    double OutboundRate { get; }
+    
     double AvgProcessTime { get; set; }
+
+    int ResourceTasks { get; }
+    int ResourceContainers { get; }
+    int ResourceDeepCount { get; }
+
+    char HbVisual { get; }
     
     string GetShortStatusJson();
 } 

@@ -1,18 +1,31 @@
-﻿@using System.Text.Json
+@using System.Text.Json
 @using DeviceSpace.Common.Contracts 
 @using DeviceSpace.Common 
 @using DeviceSpace.Common.Configurations
+@using Microsoft.AspNetCore.Components.Forms
+@inject IJSRuntime JSRuntime
 
 <div class="d-flex flex-row flex-grow-1 w-100" style="overflow: hidden;">
     
-    <ToolkitSidebar OnItemDragStart="OnDragStart" />
+    <!-- LEFT SIDEBAR: TOOLKIT -->
+    <div class="left-sidebar">
+        <ToolkitSidebar OnItemDragStart="OnDragStart" />
+    </div>
 
-    <div class="col-7 p-4 bg-light h-100 d-flex flex-column">
+    <!-- MAIN CANVAS AREA -->
+    <div class="flex-grow-1 p-4 bg-light h-100 d-flex flex-column" style="position: relative;">
         <div class="d-flex justify-content-between align-items-center mb-3">
             <h5 class="text-dark fw-bold m-0"><i class="bi bi-layers-half"></i> Designer Canvas</h5>
             <div class="d-flex gap-2">
                 <button class="btn btn-sm btn-outline-secondary" @onclick="CollapseAll">Collapse All</button>
                 <button class="btn btn-sm btn-outline-danger" @onclick="() => { _deviceSpace.DeviceList.Clear(); _deviceSpace.WorkflowList.Clear(); }">Clear Canvas</button>
+                
+                <div class="ms-3 border-start ps-3 d-flex gap-2">
+                    <button class="btn btn-sm btn-@( _isJsonVisible ? "secondary" : "info")" @onclick="() => _isJsonVisible = !_isJsonVisible">
+                        <i class="bi @(_isJsonVisible ? "bi-eye-slash" : "bi-code-slash")"></i> 
+                        @(_isJsonVisible ? "Hide JSON" : "Show JSON")
+                    </button>
+                </div>
             </div>
         </div>
 
@@ -100,12 +113,26 @@
         </div>
     </div>
 
-    <div class="col-3 bg-dark text-white p-0 d-flex flex-column border-start border-secondary h-100">
-        <div class="p-3 bg-dark border-bottom border-secondary">
-            <h6 class="m-0 text-warning small">Live JSON Output</h6>
+    <!-- RIGHT SIDEBAR: JSON (Toggleable) -->
+    @if (_isJsonVisible)
+    {
+        <div class="right-sidebar">
+            <div class="sidebar-section-header d-flex justify-content-between align-items-center">
+                <span>Live JSON Output</span>
+            </div>
+            <textarea readonly class="form-control json-textarea p-3">@GetJson()</textarea>
+            
+            <div class="save-load-bar">
+                <button class="btn btn-xs btn-success w-100" @onclick="SaveJson">
+                    <i class="bi bi-download"></i> Save
+                </button>
+                <label class="btn btn-xs btn-primary w-100 m-0">
+                    <i class="bi bi-upload"></i> Load
+                    <InputFile OnChange="LoadJson" class="d-none" />
+                </label>
+            </div>
         </div>
-        <textarea readonly class="form-control bg-dark text-info border-0 w-100 h-100 p-3" style="font-family: monospace; font-size: 0.75rem;">@GetJson()</textarea>
-    </div>
+    }
 
 </div>
 
@@ -129,6 +156,7 @@
 @code {
     private DeviceSpace _deviceSpace = new DeviceSpace();
     private string _draggedType;
+    private bool _isJsonVisible = false;
     private HashSet<object> _collapsedItems = new HashSet<object>();
 
     private Dictionary<string, List<string>> _messageSchemas = new() {
@@ -142,10 +170,59 @@
 
     public string GetJson() => JsonSerializer.Serialize(new { 
         AppSettings = new { 
-            Devices = _deviceSpace.DeviceList.ToDictionary(d => d.Name, d => d), 
-            Workflows = _deviceSpace.WorkflowList.ToDictionary(w => w.Name, w => w) 
+            DeviceSpace = new {
+                Name = _deviceSpace.Name,
+                Devices = _deviceSpace.DeviceList.ToDictionary(d => d.Name, d => d), 
+                Workflows = _deviceSpace.WorkflowList.ToDictionary(w => w.Name, w => w) 
+            }
         } 
     }, new JsonSerializerOptions { WriteIndented = true });
+
+    private async Task SaveJson()
+    {
+        var json = GetJson();
+        await JSRuntime.InvokeVoidAsync("downloadFile", "DeviceSpace.json", json);
+    }
+
+    private async Task LoadJson(InputFileChangeEventArgs e)
+    {
+        try
+        {
+            using var reader = new StreamReader(e.File.OpenReadStream());
+            var content = await reader.ReadToEndAsync();
+            var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+            
+            var root = JsonDocument.Parse(content);
+            var appSettings = root.RootElement.GetProperty("AppSettings").GetProperty("DeviceSpace");
+            
+            _deviceSpace.DeviceList.Clear();
+            _deviceSpace.WorkflowList.Clear();
+
+            if (appSettings.TryGetProperty("Devices", out var devices))
+            {
+                foreach (var devProp in devices.EnumerateObject())
+                {
+                    var dev = devProp.Value.Deserialize<DeviceConfig>(options);
+                    if (dev != null) _deviceSpace.DeviceList.Add(dev);
+                }
+            }
+
+            if (appSettings.TryGetProperty("Workflows", out var workflows))
+            {
+                foreach (var wfProp in workflows.EnumerateObject())
+                {
+                    var wf = wfProp.Value.Deserialize<WorkflowConfig>(options);
+                    if (wf != null) _deviceSpace.WorkflowList.Add(wf);
+                }
+            }
+            
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error loading JSON: {ex.Message}");
+        }
+    }
 
     private void OnDragStart(string type) => _draggedType = type;
 
@@ -156,8 +233,10 @@
         if (_draggedType == "Workflow") {
             _deviceSpace.WorkflowList.Add(new WorkflowConfig { Name = $"Workflow_{_deviceSpace.WorkflowList.Count + 1}", Enable = true });
         } else {
-            var newDev = new DeviceConfig { Name = "New_Device", Manager = _draggedType, Enable = true, Properties = new() };
+            var newDev = new DeviceConfig { Name = "New_Device", Manager = "UnknownManager", Enable = true, Properties = new() };
+            
             switch (_draggedType) {
+                case "PlcServerDevice":
                 case "PlcDevice":
                     newDev.Name = $"PLC_{_deviceSpace.DeviceList.Count + 1}";
                     newDev.Manager = "PlcDeviceManager";
@@ -168,6 +247,7 @@
                     newDev.Manager = "ActiveMQManager";
                     newDev.Properties = new() { { "ConnectionString", "tcp://localhost:61616" }, { "DoubleQueue", true } };
                     break;
+                case "PrintClientDeviceZebra":
                 case "PrinterDevice":
                     newDev.Name = $"P{(_deviceSpace.DeviceList.Count + 1).ToString("D3")}";
                     newDev.Manager = "PrinterManager";
@@ -183,6 +263,22 @@
                     newDev.Manager = "VirtualPrinterManager";
                     newDev.Properties = new() { { "Port", 9100 } };
                     break;
+                case "MsSqlDatabaseDevice":
+                case "MySqlDatabaseDevice":
+                case "PostgreSqlDatabaseDevice":
+                    newDev.Name = $"DB_{_deviceSpace.DeviceList.Count + 1}";
+                    newDev.Manager = "DatabaseDeviceManager";
+                    newDev.Properties = new() { { "ConnectionString", "" }, { "DatabaseType", _draggedType.Replace("DatabaseDevice", "") } };
+                    break;
+                case "SocketServerDevice":
+                    newDev.Name = $"Socket_{_deviceSpace.DeviceList.Count + 1}";
+                    newDev.Manager = "SocketManager"; 
+                    newDev.Properties = new() { { "Port", 8080 }, { "TerminationType", "DELIMITED" }, { "Delimiter", "\\n" } };
+                    break;
+                default:
+                    newDev.Name = $"{_draggedType}_{_deviceSpace.DeviceList.Count + 1}";
+                    newDev.Manager = $"{_draggedType}Manager";
+                    break;
             }
             _deviceSpace.DeviceList.Add(newDev);
         }
@@ -193,6 +289,7 @@
         string s when s.Contains("Plc") => "bi-hdd-rack-fill text-danger",
         string s when s.Contains("ActiveMq") => "bi-envelope-paper-fill text-info",
         string s when s.Contains("Printer") => "bi-printer-fill text-warning",
+        string s when s.Contains("Database") => "bi-database-fill text-primary",
         _ => "bi-cpu-fill text-white-50"
     };
 
@@ -218,11 +315,12 @@
         _showTopicModal = true; 
     }
 
-    private void ApplyTopic(string topicString) 
+    private async Task ApplyTopic(string topicString) 
     { 
         if (_isEditingSource) _editingRoute.Source = topicString; 
         else _editingRoute.Destination = topicString; 
         _showTopicModal = false; 
+        await Task.CompletedTask;
     }
 
     private void OpenHandlerBuilder(WorkflowRoute r) 
@@ -231,9 +329,10 @@
         _showHandlerModal = true; 
     }
 
-    private void ApplyHandler(string handlerString) 
+    private async Task ApplyHandler(string handlerString) 
     { 
         _editingRoute.Handler = handlerString; 
         _showHandlerModal = false; 
+        await Task.CompletedTask;
     }
 }

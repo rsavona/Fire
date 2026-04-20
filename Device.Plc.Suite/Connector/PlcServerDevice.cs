@@ -1,4 +1,6 @@
 ﻿using System.Text;
+using System.Text.Json.Nodes;
+using Device.Plc.Suite.Messages;
 using DeviceSpace.Common;
 using DeviceSpace.Common.BaseClasses;
 using DeviceSpace.Common.Configurations;
@@ -8,6 +10,7 @@ using DeviceSpace.Common.Logging;
 using DeviceSpace.Common.TCP_Classes;
 using Serilog;
 using Serilog.Core;
+using Serilog.Events;
 
 namespace Device.Plc.Suite.Connector;
 
@@ -15,6 +18,8 @@ public class PlcServerDevice : TcpServerDeviceBase<PlcMessageProcessor>, IMessag
 {
     public event Func<object, object, Task> MessageReceived;
     public event Action<object, object>? OnMessageError;
+
+    private readonly GinSequenceLearner _ginLearner;
 
     /// <summary>
     /// Represents a multi-client device implementation for connecting to PLCs (Programmable Logic Controllers).
@@ -38,12 +43,20 @@ public class PlcServerDevice : TcpServerDeviceBase<PlcMessageProcessor>, IMessag
             deviceLogger,
             new PlcMessageProcessor(new PlcMessageParser(), config.Name, deviceLogger), ls,
             ConfigurationLoader.GetRequiredConfig<int>(config.Properties, "DevicePort"),
-            terminalStr: new DelimiterSetStrategy(  new byte[] { 0x03 })
+            terminalStr: new DelimiterSetStrategy(new byte[] { 0x03 })
             , 99)
     {
+        _ginLearner = new GinSequenceLearner(config.Name, deviceLogger);
         Processor.HeartbeatReceived += OnProcessorHBReceived;
         Processor.MessageReceived += OnProcessorMessageReceived;
         Processor.OnMessageError += OnProcessorMessageError;
+        LogControl.SetDeviceLevel(Key.DeviceName, LogEventLevel.Verbose);
+    }
+
+    protected override async Task OnEnterStoppingAsync()
+    {
+        _ginLearner.SaveData();
+        await base.OnEnterStoppingAsync();
     }
 
     /// <summary>
@@ -74,16 +87,63 @@ public class PlcServerDevice : TcpServerDeviceBase<PlcMessageProcessor>, IMessag
     /// <returns>
     /// A task that represents the asynchronous message sending operation.
     /// </returns>
-    public async Task<bool>  SendResponseAsync(object  jsonPayload, string clientKey)
+    public async Task<bool> SendResponseAsync(object jsonPayload, string clientKey)
     {
-        if (!ConnectedClients.ContainsKey(clientKey)) { Logger.Error( "Counldn't find client connection"); return false;}
-        var ret = await Server.SendResponseAsync(Key.DeviceName, clientKey, jsonPayload);
-        if (ret)
+        if (!ConnectedClients.ContainsKey(clientKey))
         {
-            await Machine.FireAsync(Event.MessageSent);
-            
+            Logger.Error("Counldn't find client connection");
+            return false;
         }
 
+        // 1. Ensure the payload is framed if it's a raw object
+        object finalPayload = jsonPayload;
+        if (jsonPayload is not string)
+        {
+            finalPayload = PlcMessageParser.FrameResponse(jsonPayload, Key.DeviceName);
+        }
+
+        var ret = await Server.SendResponseAsync(Key.DeviceName, clientKey, finalPayload);
+        if (ret)
+        {
+            string decisionPoint = "UNKNOWN";
+            int gin = 0;
+
+            // 2. Extract IDs for the transaction timer
+            if (jsonPayload is DecisionResponseMessage respMsg && respMsg.Payload is DecisionResponsePayload drp)
+            {
+                decisionPoint = drp.DecisionPoint;
+                gin = drp.Gin;
+            }
+            else if (jsonPayload is DecisionResponsePayload payload)
+            {
+                decisionPoint = payload.DecisionPoint;
+                gin = payload.Gin;
+            }
+            else if (jsonPayload is string jsonStr)
+            {
+                // If it's a string, it might be framed or raw JSON
+                if (Processor.GetParser().TryParseToPlcMessage(jsonStr, out var parsed) &&
+                    parsed?.Payload is DecisionResponsePayload d)
+                {
+                    decisionPoint = d.DecisionPoint;
+                    gin = d.Gin;
+                }
+                else
+                {
+                    try
+                    {
+                        var node = JsonNode.Parse(jsonStr);
+                        decisionPoint = node?["DecisionPoint"]?.GetValue<string>() ?? "UNKNOWN";
+                        gin = node?["GIN"]?.GetValue<int>() ?? 0;
+                    }
+                    catch { Logger.LogError("Unable to parse outgoing message"); }
+                }
+            }
+
+            var ptime = StopTransaction(decisionPoint, gin);
+            await Machine.FireAsync(Event.MessageSent);
+            Logger.Verbose("Message OUT {ptime}ms: {msg}", ptime, finalPayload);
+        }
         return ret;
     }
 
@@ -97,22 +157,45 @@ public class PlcServerDevice : TcpServerDeviceBase<PlcMessageProcessor>, IMessag
     /// message, including client information, payload, and destination.
     /// </param>
     private void OnProcessorMessageReceived(object message)
-    { 
+    {
         if (message is not MessageEnvelope msg) return;
-        
+
         Machine.Fire(Event.MessageReceived);
-        Logger.LogInfoData("Message IN :{msg}", new object[] { msg.Payload } , msg.Gin.ToString());
+
+        string gin = msg.Gin.ToString();
+        string barcodes = "";
+        string dp = "";
+
+        if (msg.Payload is DecisionRequestPayload drp)
+        {
+            barcodes = string.Join(",", drp.Barcodes);
+            dp = drp.DecisionPoint;
+            gin = drp.Gin.ToString();
+            StartTransaction(drp.DecisionPoint, drp.Gin);
+            _ginLearner.ProcessGin(dp, drp.Gin);
+        }
+        else if (msg.Payload is DecisionUpdatePayload dup)
+        {
+            barcodes = string.Join(",", dup.Barcodes);
+            dp = dup.DecisionPoint;
+            gin = dup.Gin.ToString();
+            _ginLearner.ProcessGin(dp, dup.Gin);
+        }
+
+        Logger.LogDebug($"Message IN: {msg.Payload}", gin, barcodes, dp);
+
         if (!string.IsNullOrEmpty(msg.Client))
             ConnectedClients.AddOrUpdate(msg.Client, DateTime.UtcNow, (k, v) => DateTime.UtcNow);
         MessageReceived?.Invoke(this, msg);
     }
 
+    /// <summary>
+    /// Handles the heartbeat received event from the processor, updating the device status tracker,
+    /// </summary>
+    /// <param name="client"></param>
     private void OnProcessorHBReceived(string client)
     {
         Tracker.HeartBeat();
         UpdateAndNotify();
     }
 }
-
-   
-  

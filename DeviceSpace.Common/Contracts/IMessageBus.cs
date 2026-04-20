@@ -28,6 +28,12 @@ public interface IMessageBus
     Task<bool> SubscribeAsync(string topic, Delegate handler);
 
     /// <summary>
+    /// Subscribes an async handler to a specific topic.
+    /// The handler receives the MessageEnvelope and a CancellationToken.
+    /// </summary>
+    Task<bool> SubscribeAsync(string topic, Func<MessageEnvelope, CancellationToken, Task> handler);
+
+    /// <summary>
     /// Subscribes an async handler to a specific topic, using a type-safe message payload.
     /// </summary>
     /// <typeparam name="TMessage">The type of the message payload expected.</typeparam>

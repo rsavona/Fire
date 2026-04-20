@@ -6,48 +6,67 @@
       "DiagnosticPort": 9999,
       "WorkflowList": [
         {
-          "Name": "PrintAndApplyFrc",
-          "Type": "PrintAndApplyFrc",
-          "Enable": false,
+          "Name": "StandardSort",
+          "Type": "StandardSort",
+          "Enable": true,
+          "ScreenIndex": 0,
+          "Properties": {
+            "Exits": "EXIT1, EXIT2, EXIT3"
+          },
           "Routes": [
             {
-              "Mode": 0,
+              "Mode": 1,
+              "Name": "SortRoute",
+              "Source": "TPNA2.DReqM.SORT_POINT",
+              "Handler": "RoundRobinSort",
+              "Destination": "TPNA2.DRespM.SORT_POINT"
+            }
+          ]
+        },
+        {
+          "Name": "PrintAndApplyFrc",
+          "Type": "PrintAndApplyFrc",
+          "Enable": true,
+          "ScreenIndex": 1,
+          "Routes": [
+            {
+              "Mode": 1,
               "Name": "Route1-InductRequestToResponse",
               "Source": "TPNA2.DReqM.PNALINE-2",
               "Handler": "HandlePrintersToUseAsync",
               "Destination": "TPNA2.DRespM.PNALINE-2"
             },
             {
-              "Mode": 0,
+              "Mode": 1,
                "Name": "Route2-InductRequestToQueue",
               "Source": "TPNA2.DReqM.PNALINE-2",
               "Handler": "HandleLabelRequestToMqAsync",
               "Destination": "TBROKER.LabelRequestFrcMessage.AC.PNA.LABELREQUEST"
             },
             {
-              "Mode": 0,
+              "Mode": 1,
               "Name": "Route3-VerifyRequestToQueue",
-              "Source": "TPNA2.DReqM.Verification",
+              "Source": "TPNA2.DReqM.PNA2_Verification",
               "Handler": "HandleLabelVerificationToMqAsync",
               "Destination": "TBROKER.LabelVerifyFrcMessage.AC.PNA.LABELVERIFY"
             },{
-              "Mode": 0,
+              "Mode": 1,
               "Name": "Route4-QueueToMemory",
               "Source": "TBROKER.LabelDataFrcMessage.AC.PNA.LABELDATA",
               "Handler": "HandleLabelToStorageAsync",
               "Destination": "PrintAndApplyFrc.LabelToPrint.Storage"
               
             },{
-              "Mode": 0,
+              "Mode": 1,
               "Name": "Route5-PrintRequestToPrinter1",
-              "Source": "TPNA2.DReqM.PNA2 152",
-              "Destination": "P001.LabelToPrint.None",
+              "Source": "TPNA2.DReqM.PNA2 151",
+              "Destination": "PNA2 151.LabelToPrint.None",
               "Handler": "HandleBarcodeToPrinterAsync"
             },{
-              "Mode": 0,
+              "Mode": 1,
               "Name": "Route6-PrintRequestToPrinter2",
-              "Source": "TPNA2.DReqM.PNA2 153",
-              "Destination": "P002.LabelToPrint.None",
+              "Source": "TPNA2.DReqM.PNA2 152",
+              "Destination": "PNA2 152.LabelToPrint.None",
               "Handler": "HandleBarcodeToPrinterAsync"
             },{
               "Mode": 0,
@@ -56,7 +75,7 @@
               "Handler": "HandleContentToPrinterAsync",
               "Destination": "I001.LabelToPrint.None"
             },{
-              "Mode": 1,
+              "Mode": 0,
               "Name": "Route8-PrintRequestToPrinter4",
               "Source": "TPNA2.DReqM.I002",
               "Handler": "HandleContentToPrinterAsync",
@@ -66,15 +85,11 @@
         }
       ],
       "DeviceList": [
-        { "Name":  "FireLog", 
-          "Manager": "FireLogDeviceManager", 
-          "Enable": true,
-           "Properties": {}
-        },
         {
           "Name": "TPNA2",
           "Manager": "PlcDeviceManager",
-          "Enable": false,
+          "Enable": true,
+          "ScreenIndex": 2,
           "Properties": {
             "DevicePort": "6999",
             "DeviceTimeout": "15000"
@@ -83,7 +98,8 @@
         {
           "Name": "TBROKER",
           "Manager": "ActiveMQManager",
-          "Enable": false,
+          "Enable": true,
+          "ScreenIndex": 3,
           "Properties": {
             "ConnectionString": "tcp://127.0.0.1:61616?useKeepAlive=true",
             "DoubleQueue": true
@@ -92,7 +108,8 @@
         {
           "Name": "PNA2 151",
           "Manager": "PrintClientManager",
-          "Enable": false,
+          "Enable": true,
+          "ScreenIndex": 4,
           "Properties": {
             "IPAddress": "127.0.0.1",
             "Port": 9100,
@@ -112,7 +129,8 @@
         {
           "Name": "PNA2 152",
           "Manager": "PrintClientManager",
-          "Enable": false,
+          "Enable": true,
+          "ScreenIndex": 5,
           "Properties": {
             "IPAddress": "127.0.0.1",
             "Port": 9101,
@@ -120,44 +138,6 @@
             "DestinationType": "Ship",
             "PrintType": "SHIPTOP",
             "Induct": "PNALINE-2",
-            "DeviceTimeout": 2000,
-            "PollRateMs": 1000,
-            "PrintTimeoutMs": 5000,
-            "PrintError": false,
-            "ErrorLabel": "ERROR",
-            "PreferredGroup": 2
-          }
-        },
-        {
-          "Name": "I001",
-          "Manager": "PrintClientManager",
-          "Enable": false,
-          "Properties": {
-            "IPAddress": "127.0.0.1",
-            "Port": 9102,
-            "Brand": "Zebra",
-            "DestinationType": "Ship",
-            "PrintType": "CONTENTSDROP",
-            "Induct": "PNALINE-2",
-            "DeviceTimeout": 2000,
-            "PollRateMs": 1000,
-            "PrintTimeoutMs": 5000,
-            "PrintError": false,
-            "ErrorLabel": "ERROR",
-            "PreferredGroup": 1
-          }
-        },
-        {
-          "Name": "I002",
-          "Manager": "PrintClientManager",
-          "Enable": false,
-          "Properties": {
-            "IPAddress": "127.0.0.1",
-            "Port": 9103,
-            "Brand": "Zebra",
-            "DestinationType": "Ship",
-            "PrintType": "CONTENTSDROP",
-            "Induct": "PNA_Induct",
             "DeviceTimeout": 2000,
             "PollRateMs": 1000,
             "PrintTimeoutMs": 5000,

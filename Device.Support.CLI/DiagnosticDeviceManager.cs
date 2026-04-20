@@ -1,29 +1,30 @@
-﻿using DeviceSpace.Common;
+using DeviceSpace.Common;
 using DeviceSpace.Common.BaseClasses;
 using DeviceSpace.Common.Contracts;
-using Microsoft.Extensions.Logging;
 
 namespace Device.Support.CLI;
 
-public class DiagnosticDeviceManager 
+/// <summary>
+/// Manages the Diagnostic telnet server.
+/// </summary>
+public class DiagnosticDeviceManager : DeviceManagerBase<DiagnosticDevice>, IDeviceManager
 {
-    public DiagnosticDeviceManager(string mapExportPath, IMessageBus mb, List<IDeviceConfig> config, ILoggerFactory lf) 
-        
+    public DiagnosticDeviceManager(IMessageBus bus, List<IDeviceConfig> configs,
+        IFireLogger<DeviceManagerBase<DiagnosticDevice>> logger,
+        Func<IDeviceConfig, IFireLogger, DiagnosticDevice> deviceFactory)
+        : base(bus, configs, logger, deviceFactory)
     {
-        if (!Directory.Exists(mapExportPath)) Directory.CreateDirectory(mapExportPath);
     }
 
-    public void RefreshSystemVisuals()
+    protected override async Task OnDeviceMessageToMessageBusAsync(object? dev, object messEnv)
     {
-      
+        if (dev is not DiagnosticDevice device || messEnv is not MessageEnvelope env) return;
+        await MessageBus.PublishAsync(env.Destination.ToString(), env);
     }
 
-    protected  void RegisterDeviceHandlers(DiagnosticDevice device) { }
-
-    protected  void OnDeviceMessageReceived(object? sender, object messageEnv) { }
-
-    protected  Task HandleBusMessageAsync(DiagnosticDevice device, string routeSource, string dest, MessageEnvelope envelope, CancellationToken ct)
+    protected override async Task HandleBusMessageAsync(MessageEnvelope envelope, CancellationToken ct)
     {
-        return Task.CompletedTask;
+        // Handle custom diagnostic commands from the bus if needed
+        await Task.CompletedTask;
     }
 }

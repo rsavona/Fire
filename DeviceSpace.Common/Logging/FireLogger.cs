@@ -18,13 +18,18 @@ namespace DeviceSpace.Common.Logging
 
     public class FireLogger : IFireLogger
     {
-        private readonly ILogger _logger;
-        private const string DefaultGin = "---";
+        private readonly Serilog.ILogger _logger;
+        private readonly IMessageBus? _messageBus;
+        private string _deviceName = "System";
+
+        private const string DefaultValue = "-----";
         private static readonly ConcurrentDictionary<string, int> _sampleCounters = new();
 
-        public FireLogger(ILogger logger)
+        public FireLogger(Serilog.ILogger logger, IMessageBus? messageBus = null, string deviceName = "System")
         {
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+            _messageBus = messageBus;
+            _deviceName = deviceName;
         }
 
         public Serilog.ILogger GetRawLogger()
@@ -32,9 +37,11 @@ namespace DeviceSpace.Common.Logging
             return _logger;
         }
 
-        public FireLogger WithContext(string propertyName, object value)
+        public IFireLogger WithContext(string propertyName, object value)
         {
-            return new FireLogger(_logger.ForContext(propertyName, value));
+            var newLogger = _logger.ForContext(propertyName, value);
+            var newDeviceName = propertyName == "DeviceName" ? value.ToString() ?? _deviceName : _deviceName;
+            return new FireLogger(newLogger, _messageBus, newDeviceName);
         }
 
         private string FormatMethodTag(string methodName)
@@ -95,24 +102,76 @@ namespace DeviceSpace.Common.Logging
             string safeTemplate = messageTemplate?.Replace("\r", "[CR]").Replace("\n", "[LF]") ?? "";
 
             contextualLogger.Write(level, ex, safeTemplate, SanitizeArgs(args));
+
+            if (_messageBus != null)
+            {
+                var topic = $"{_deviceName}.{level}.Log";
+                PublishToBus(topic, safeTemplate, args, ex);
+            }
         }
 
-        // 2. The Data Write (Used exclusively by LogInfoData to track warehouse cartons)
-        // Hardcoded to LogEventLevel.Information and null Exception.
-        private void WriteWithGin(string gin, string methodName, string messageTemplate, object?[] args)
+        // 2. The Data Write (Used exclusively by LogConveyableEvent to track warehouse cartons)
+        private void WriteConveyableEvent(string device, string message, string? gin, List<string> barcodes, string? decisionPoint)
         {
             var contextualLogger = _logger;
 
-            // Use the new formatter
-            string methodTag = FormatMethodTag(methodName);
-            contextualLogger = contextualLogger.ForContext("MethodTag", methodTag);
+            contextualLogger = contextualLogger.ForContext("Context", "ConveyableEvents");
+            contextualLogger = contextualLogger.ForContext("DeviceName", device);
+            contextualLogger = contextualLogger.ForContext("GIN", gin);
+            contextualLogger = contextualLogger.ForContext("Barcodes", barcodes);
+            contextualLogger = contextualLogger.ForContext("DecisionPoint", decisionPoint);
 
-            string ginTag = (string.IsNullOrEmpty(gin) || gin == DefaultGin) ? "" : $"[GIN:{gin.PadLeft(3, '0')}] ";
+
+            string ginTag = (string.IsNullOrEmpty(device) || device == DefaultValue)
+                ? ""
+                : $"[{device.PadLeft(3, ' ')}]" +
+                  ((string.IsNullOrEmpty(gin) || gin == DefaultValue) ? "" : $"[GIN:{gin.PadLeft(3, '0')}] ") +
+                  $"[BC:{string.Join(", ", barcodes)}]" +
+                  (string.IsNullOrEmpty(decisionPoint) ? "" : $" [DP:{decisionPoint}] ");
+
             contextualLogger = contextualLogger.ForContext("GinTag", ginTag);
+            contextualLogger = contextualLogger.ForContext("MethodTag", ""); // No method tag for data events
 
-            string safeTemplate = messageTemplate?.Replace("\r", "[CR]").Replace("\n", "[LF]") ?? "";
+            string safeTemplate = message?.Replace("\r", "[CR]").Replace("\n", "[LF]") ?? "";
 
-            contextualLogger.Write(LogEventLevel.Information, (Exception?)null, safeTemplate, SanitizeArgs(args));
+            contextualLogger.Write(LogEventLevel.Information, (Exception?)null, safeTemplate, Array.Empty<object>());
+
+            if (_messageBus != null)
+            {
+                var topic = $"Conveyable.Event";
+                PublishToBus(topic, safeTemplate, Array.Empty<object>(), null, gin, string.Join(", ", barcodes), decisionPoint);
+            }
+        }
+
+        private void PublishToBus(string topic, string template, object?[] args, Exception? ex, string? gin = null,
+            string? barcodes = null, string? decisionPoint = null)
+        {
+            if (_messageBus == null) return;
+
+            try
+            {
+                var formattedMessage = args != null && args.Length > 0
+                    ? string.Format(template.Replace("{", "{{").Replace("}", "}}"), args)
+                    : template;
+
+                var logPayload = new
+                {
+                    Device = _deviceName,
+                    Timestamp = DateTime.UtcNow,
+                    Message = formattedMessage,
+                    Exception = ex?.ToString(),
+                    Gin = gin,
+                    Barcodes = barcodes,
+                    DecisionPoint = decisionPoint
+                };
+
+                var envelope = new MessageEnvelope(new MessageBusTopic(topic), logPayload);
+                _ = _messageBus.PublishAsync(topic, envelope);
+            }
+            catch
+            {
+                // Eat errors to prevent logging loops
+            }
         }
 
         #endregion
@@ -173,10 +232,13 @@ namespace DeviceSpace.Common.Logging
         public void Information(string message, params object?[] args) =>
             Write(LogEventLevel.Information, null, "", message, args);
 
-        // The ONLY method designed for explicit GIN and Method tracking!
-        public void LogInfoData(string message, object?[] args, string gin = DefaultGin,
-            [CallerMemberName] string methodName = "") =>
-            WriteWithGin(gin, methodName, message, args);
+        public void LogConveyableEvent(string device, string message, string? gin, List<string> barcodes, string? decisionPoint = "")
+        {
+            WriteConveyableEvent(device, message , gin, barcodes, decisionPoint);
+        }
+
+  
+
 
         // --- Warning ---
         public void LogWarning(string message, params object?[] args) =>

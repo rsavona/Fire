@@ -3,20 +3,15 @@ using DeviceSpace.Common.Contracts;
 
 namespace DeviceSpace.Common.TCP_Classes;
 
-public class SequenceTerminationStrategy : ITerminationStrategy
+/// <summary>
+/// Terminiator that is more than 1 character long.
+/// </summary>
+public class SequenceTerminationStrategy(params byte[][]? terminators) : ITerminationStrategy
 {
-    private readonly List<byte[]> _terminators;
-
-    public SequenceTerminationStrategy(params byte[][]? terminators)
-    {
-        _terminators = (terminators != null && terminators.Length > 0) 
-            ? terminators.ToList() 
-            : new List<byte[]> 
-              { 
-                  Encoding.ASCII.GetBytes("~HS"), 
-                  Encoding.ASCII.GetBytes("^ZX") 
-              };
-    }
+    private readonly List<byte[]> _terminators = terminators is { Length: > 0 } 
+        ? terminators.ToList() 
+        :
+        [ ];
 
     public bool IsMessageComplete(ReadOnlySpan<byte> buffer, byte lastByte)
     {
@@ -56,5 +51,15 @@ public class DelimiterSetStrategy : ITerminationStrategy
     public bool IsMessageComplete(ReadOnlySpan<byte> buffer, byte lastByte)
     {
         return _delimiters.Contains(lastByte);
+    }
+}
+
+public class FixedLengthTerminationStrategy(int length) : ITerminationStrategy
+{
+    private readonly int _fixedLength = length;
+
+    public bool IsMessageComplete(ReadOnlySpan<byte> buffer, byte lastByte)
+    {
+        return buffer.Length >= _fixedLength;
     }
 }

@@ -12,7 +12,6 @@
 
     <ItemGroup>
       <ProjectReference Include="..\DeviceSpace.Common\DeviceSpace.Common.csproj" />
-      <ProjectReference Include="..\Workflow.PrintAndApply.Frc\Workflow.PrintAndApply.Frc.csproj" />
     </ItemGroup>
 
     <ItemGroup>
@@ -22,10 +21,6 @@
     </ItemGroup>
 
     <ItemGroup>
-      <PackageReference Include="ILRepack.Lib.MSBuild.Task" Version="2.0.44.1">
-        <PrivateAssets>all</PrivateAssets>
-        <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
-      </PackageReference>
       <PackageReference Include="Serilog" Version="4.3.1" />
       <PackageReference Include="Serilog.Enrichers.CorrelationId" Version="3.0.1" />
       <PackageReference Include="Serilog.Enrichers.Dynamic" Version="1.0.9" />

@@ -1,5 +1,6 @@
 ﻿using System.Collections.Concurrent;
 using Serilog;
+using Serilog.Context;
 using Serilog.Core;
 using Serilog.Events;
 
@@ -13,6 +14,9 @@ public class BufferedLog : ILogEventSink
 
     public void Emit(LogEvent logEvent)
     {
+        // Avoid re-buffering events that are being dumped
+        if (logEvent.Properties.ContainsKey("BufferedDump")) return;
+
         // 1. If it's an Error, "Dump" the buffer to the real log immediately
         if (logEvent.Level >= LogEventLevel.Error)
         {
@@ -21,7 +25,7 @@ public class BufferedLog : ILogEventSink
         }
 
         // 2. Otherwise, if it's a Trace (Verbose) or Debug, just store it in memory
-        if ( logEvent.Level == LogEventLevel.Debug)
+        if ( logEvent.Level == LogEventLevel.Debug || logEvent.Level == LogEventLevel.Verbose)
         {
             _buffer.Enqueue(logEvent);
 
@@ -38,16 +42,14 @@ public class BufferedLog : ILogEventSink
         if (_buffer.IsEmpty) return;
 
         Log.Logger.Warning("!!! [SMART DUMP] Error detected. Dumping last {Count} trace events for forensics:", _buffer.Count);
-        var x = _buffer.Count;
-        var i = 1;
-        while (_buffer.TryDequeue(out var e))
+        
+        using (LogContext.PushProperty("BufferedDump", true))
         {
-            i++;
-            // We write these out so they hit your file-based sinks
-            Log.Logger.Write(e);
-
-            if (i == x)
-                break;
+            while (_buffer.TryDequeue(out var e))
+            {
+                // We write these out so they hit your file-based sinks
+                Log.Logger.Write(e);
+            }
         }
         
         Log.Logger.Warning("!!! [SMART DUMP] End of forensic dump.");

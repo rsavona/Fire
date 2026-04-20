@@ -3,7 +3,6 @@ using DeviceSpace.Common.BaseClasses;
 using DeviceSpace.Common.Configurations;
 using DeviceSpace.Common.Contracts;
 using Serilog;
-using Workflow.PrintAndApplyFrc;
 
 namespace Workflow.PrintAndAppySimulation.FRC;
 

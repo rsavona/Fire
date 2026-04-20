@@ -1,6 +1,7 @@
 ﻿using DeviceSpace.Common.Configurations;
 using DeviceSpace.Common.Contracts;
 using DeviceSpace.Common.Enums;
+using System.Diagnostics;
 using Serilog.Core;
 using ILogger = Serilog.ILogger;
 
@@ -55,10 +56,18 @@ public abstract class ClientDeviceBase : DeviceBase<ClientDeviceBase.State, Clie
         needsHb = false)
         : base(config, logger, ls, State.Offline, Event.Start)
     {
-        NeedsHeartbeat = needsHb;
-        _interval = ConfigurationLoader.GetOptionalConfig(Config.Properties, "HeartbeatInterval", 5000);
-        _timeout = ConfigurationLoader.GetOptionalConfig(Config.Properties, "HeartbeatTimeout", 15000);
+        _interval = ConfigurationLoader.GetOptionalConfig(Config.Properties, "HeartbeatIntervalMs", 5000);
+        
+        // Safety check: Prevent 0ms interval from causing infinite spin loops
+        if (_interval < 100) _interval = 100;
 
+        _timeout = ConfigurationLoader.GetOptionalConfig(Config.Properties, "HeartbeatTimeoutMs", 15000);
+        
+        if (_timeout > 0)
+            NeedsHeartbeat = needsHb;
+        else
+            NeedsHeartbeat = false;
+        
         ConfigureStateMachine();
     }
 
@@ -70,7 +79,7 @@ public abstract class ClientDeviceBase : DeviceBase<ClientDeviceBase.State, Clie
 
 
     // ------ optional virtual methods ----
-    protected virtual Task OnStartAsync(CancellationToken token)
+    protected override Task OnStartAsync(CancellationToken token)
     {
         return Task.CompletedTask;
     }
@@ -123,7 +132,7 @@ public abstract class ClientDeviceBase : DeviceBase<ClientDeviceBase.State, Clie
         InitPeriodicEvent();
         _periodicEventCancellation?.Cancel();
         _periodicEventCancellation = new CancellationTokenSource();
-        _ = HeartbeatLoopAsync(_periodicEventCancellation.Token);
+        RegisterTask(HeartbeatLoopAsync(_periodicEventCancellation.Token));
     }
 
     private void StopHeartbeat()
@@ -151,20 +160,27 @@ public abstract class ClientDeviceBase : DeviceBase<ClientDeviceBase.State, Clie
             {
                 _connectionAttempts++;
                 Logger.Information("[{Dev}] Connection attempt #{Count}", Config.Name, _connectionAttempts);
-                ExecuteConnect(); // Call the actual connection logic
+                _ = Task.Run(ExecuteConnect); // Avoid async void
             })
             .Permit(Event.ConnectSuccess, State.Connected)
-            .Permit(Event.ConnectFailed, State.WaitingToRetry) // Move here on failure
+            .Permit(Event.ConnectFailed, State.WaitingToRetry)
             .Permit(Event.Stop, State.Offline);
 
         Machine.Configure(State.WaitingToRetry)
             .OnEntry(async t =>
             {
-                // Wait 5 seconds (or use a config value) before trying again
-                await Task.Delay(_interval, _shutdownToken);
+                Tracker.SetConnectionCount(0);
+                
+                // Exponential backoff: Double the interval for each attempt, cap at 60 seconds
+                int backoffMs = Math.Min(_interval * (int)Math.Pow(2, Math.Min(_connectionAttempts - 1, 6)), 60000);
+                
+                Logger.Information("[{Dev}] Waiting {ms}ms before next reconnection attempt.", Config.Name, backoffMs);
+                
+                await Task.Delay(backoffMs, _shutdownToken);
+                
                 if (!_shutdownToken.IsCancellationRequested)
                 {
-                    Machine.Fire(Event.ConnectRetry);
+                    await Machine.FireAsync(Event.ConnectRetry);
                 }
             })
             .Permit(Event.ConnectRetry, State.Connecting)
@@ -173,32 +189,31 @@ public abstract class ClientDeviceBase : DeviceBase<ClientDeviceBase.State, Clie
         Machine.Configure(State.Connected)
             .OnEntry(() =>
             {
-                Tracker.IncrementConnections();
                 Tracker.SetConnectionCount(1);
                 _connectionAttempts = 0;
-                DeviceConnectedAsync();
+                _ = DeviceConnectedAsync();
                 _lastResponse = DateTime.UtcNow; // Reset on connect
                 if (NeedsHeartbeat)
                     StartPeriodicEvent();
             })
             .OnExit(() =>
             {
-                Tracker.IncrementDisconnects();
                 Tracker.SetConnectionCount(0);
-                DeviceDisconnectedAsync();
+                _ = DeviceDisconnectedAsync();
                 if (NeedsHeartbeat)
                     StopHeartbeat();
-            })
-            .InternalTransition(Event.MessageSent, () =>
-            {
-                Tracker.IncrementOutbound();
-                UpdateAndNotify();
             })
             .InternalTransition(Event.MessageReceived, () =>
             {
                 Tracker.IncrementInbound();
                 UpdateAndNotify();
             })
+            .InternalTransition(Event.MessageSent, () =>
+            {
+                Tracker.IncrementOutbound();
+                UpdateAndNotify();
+            })
+
             .Permit(Event.MakeUnavailable, State.Unavailable)
             .Permit(Event.ConnectionLost, State.ServerOffline)
             .Permit(Event.NoResponse, State.NoActivity)
@@ -283,20 +298,23 @@ public abstract class ClientDeviceBase : DeviceBase<ClientDeviceBase.State, Clie
         try
         {
             await SendHeartbeatAsync(ct);
-            _lastResponse = DateTime.Now;
+            _lastResponse = DateTime.UtcNow;
             while (!ct.IsCancellationRequested)
             {
                 await Task.Delay(_interval, ct);
                 if (Machine.State == State.Connected)
                 {
-                    // 1. Check for timeout (Active Heartbeat)
-                    var timeSinceLastResponse = (DateTime.UtcNow - _lastResponse).TotalMilliseconds;
-                    if (timeSinceLastResponse > _timeout)
+                    // 1. Check for timeout (Active Heartbeat) - Skip if _timeout is 0 or less
+                    if (_timeout > 0)
                     {
-                        Logger.Error("[{Dev}] Heartbeat timeout! No response for {ms}ms", Config.Name,
-                            timeSinceLastResponse);
-                        await Machine.FireAsync(Event.ConnectionLost);
-                        break;
+                        var timeSinceLastResponse = (DateTime.UtcNow - _lastResponse).TotalMilliseconds;
+                        if (timeSinceLastResponse > _timeout)
+                        {
+                            Logger.Error("[{Dev}] Heartbeat timeout! No response for {ms}ms", Config.Name,
+                                timeSinceLastResponse);
+                            await Machine.FireAsync(Event.ConnectionLost);
+                            break;
+                        }
                     }
 
                     // 2. Send the next heartbeat
@@ -315,7 +333,7 @@ public abstract class ClientDeviceBase : DeviceBase<ClientDeviceBase.State, Clie
         }
         catch (OperationCanceledException)
         {
-            Machine.FireAsync(Event.Stop);
+            await Machine.FireAsync(Event.Stop);
         }
         catch (Exception ex)
         {
@@ -354,7 +372,11 @@ public abstract class ClientDeviceBase : DeviceBase<ClientDeviceBase.State, Clie
         await OnStartAsync(cancellationToken);
     }
 
-    public override async Task StopAsync(CancellationToken token) => await Machine.FireAsync(Event.Stop);
+    public override async Task StopAsync(CancellationToken token)
+    {
+        Logger.Information("[{Dev}] Shutting down gracefully...", Config.Name);
+        await Machine.FireAsync(Event.Stop);
+    }
 
     public override void OnError(string context, Exception? ex = null)
     {

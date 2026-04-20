@@ -24,6 +24,7 @@ namespace Device.ActiveMQ
         private readonly object _reconnectLock = new object();
         private readonly string? _conStr;
         private readonly string _heartbeatQueue;
+        private readonly bool DoubleQueue;
 
         /// <summary>
         /// Event triggered when a message is received.
@@ -46,6 +47,7 @@ namespace Device.ActiveMQ
             // Load queues from config with fallbacks
             _defaultReadQueue = ConfigurationLoader.GetOptionalConfig(config.Properties, "DefaultReadQueue", "");
             _defaultWriteQueue = ConfigurationLoader.GetOptionalConfig(config.Properties, "DefaultWriteQueue", "");
+            DoubleQueue = ConfigurationLoader.GetOptionalConfig(config.Properties, "DoubleQueue", false);
             _heartbeatQueue = $"{Key.DeviceName}-Heartbeat";
             _conStr = ConfigurationLoader.GetRequiredConfig<string>(config.Properties, "ConnectionString");
 
@@ -351,7 +353,7 @@ namespace Device.ActiveMQ
 
             if (fireEvent)
             {
-                Logger.Information("{method}}] TX >> {Queue}: {Msg}", "write", queue, message);
+                Logger.Information("[{device}] TX >> {Queue}: {Msg}", Config.Name, queue, message);
             }
             else
             {
@@ -368,13 +370,21 @@ namespace Device.ActiveMQ
 
             try
             {
-                using ISession? session = _connection?.CreateSession();
-                using IMessageProducer? producer = session?.CreateProducer(session.GetQueue(queue));
-                ITextMessage? textMessage = session?.CreateTextMessage(message);
-
+                using var session = _connection?.CreateSession();
+                using var producer = session?.CreateProducer(session.GetQueue(queue));
+                var textMessage = session?.CreateTextMessage(message);
                 producer?.Send(textMessage);
-                if (fireEvent) // don't fire event if its the heartbeat
+                if (fireEvent)
+                {
+                    if (DoubleQueue)
+                    {
+                        using var producer2 = session?.CreateProducer(session.GetQueue(queue + "2"));
+                        var textMessage2 = session?.CreateTextMessage(message);
+                        producer2?.Send(textMessage2);
+                    }
+
                     Machine.Fire(Event.MessageSent);
+                }
             }
             catch (NMSException ex)
             {
@@ -550,9 +560,10 @@ namespace Device.ActiveMQ
                     if (message is ITextMessage textMessage)
                     {
                         string payload = textMessage.Text;
-                        Logger.Verbose("[{Dev}] RX << {Queue}: {Data}", Config.Name, queue, payload);
+                        
                         if (queue != _heartbeatQueue)
                         {
+                            Logger.Information("[{Dev}] RX << {Queue}: {Data}", Config.Name, queue, payload);
                             Machine.Fire(Event.MessageReceived);
                         }
 
@@ -595,7 +606,7 @@ namespace Device.ActiveMQ
         /// <returns>A task that represents the asynchronous operation of stopping the device.</returns>
         public override Task StopAsync(CancellationToken token)
         {
-            Logger.Information("[{Dev}] Stop initiated.", Config.Name);
+            Logger.Information("[{Dev}] Shutting down gracefully...", Config.Name);
             Machine.Fire(Event.Stop);
             return Task.CompletedTask;
         }

@@ -13,6 +13,10 @@
       <OutputPath>..\Output\</OutputPath>
     </PropertyGroup>
 
+    <PropertyGroup Condition=" '$(Configuration)' == 'Release' ">
+      <OutputPath>..\Output\</OutputPath>
+    </PropertyGroup>
+
     <ItemGroup>
       <ProjectReference Include="..\DeviceSpace.Core\DeviceSpace.Core.csproj" />
     </ItemGroup>
@@ -24,10 +28,7 @@
     </ItemGroup>
 
     <ItemGroup>
-      <PackageReference Include="ILRepack.Lib.MSBuild.Task" Version="2.0.44.1">
-        <PrivateAssets>all</PrivateAssets>
-        <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
-      </PackageReference>
+      <PackageReference Include="Microsoft.Data.SqlClient" Version="7.0.0" />
       <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="10.0.5" />
       <PackageReference Include="Serilog" Version="4.3.1" />
       <PackageReference Include="Serilog.Enrichers.CorrelationId" Version="3.0.1" />

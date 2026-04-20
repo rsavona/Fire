@@ -1,7 +1,9 @@
 ﻿using System.Collections.Concurrent;
+using System.Diagnostics.Metrics;
 using DeviceSpace.Common;
 using DeviceSpace.Common.Contracts;
 using DeviceSpace.Common.Enums;
+using Microsoft.Extensions.Logging;
 
 namespace DeviceSpaceConsole;
 
@@ -12,26 +14,53 @@ public class ConsoleStatusMonitor
     private const int START_ERROR = 30;
 
     // Thread-safe dictionary to store the latest status from the message bus
-    private readonly ConcurrentDictionary<string, int> _lineMap = new();
+    private readonly DeviceLineRegistry _lineMap = new();
     private int _lines;
     private int _errorLine;
+    private int _startingLineOffset = 0;
     private DateTime _startTime;
+    private readonly IFireLogger _logger;
 
-    public ConsoleStatusMonitor(IMessageBus bus)
+    public ConsoleStatusMonitor(IMessageBus bus, IFireLogger<ConsoleStatusMonitor> logger)
     {
-        _startTime =  DateTime.Now;
+        _startTime = DateTime.Now;
         var messageBus = bus ?? throw new ArgumentNullException(nameof(bus));
         _lines = 0;
         _errorLine = 30;
+        _logger = logger;
         // Subscribe to all status messages.
         messageBus.SubscribeAsync(MessageBusTopic.DeviceStatus.ToString(), HandleStatusMessageAsync);
         if (OperatingSystem.IsWindows())
         {
-            // 140 columns gives us plenty of room for the 99 cells + labels
-            Console.WindowWidth = 250;
-            Console.WindowHeight = 60;
-            Console.BufferWidth = 250;
-            Console.BufferHeight = 60;
+            try
+            {
+                // 140 columns gives us plenty of room for the 99 cells + labels
+                int targetWidth = 250;
+                int targetHeight = 60;
+
+                // Cap to what the screen/OS actually supports
+                targetWidth = Math.Min(targetWidth, Console.LargestWindowWidth);
+                targetHeight = Math.Min(targetHeight, Console.LargestWindowHeight);
+
+                // Set buffer first if we are expanding, to avoid window being larger than buffer.
+                // Then set window. Finally set buffer to match window exactly if desired.
+                if (targetWidth > 0 && targetHeight > 0)
+                {
+                    if (Console.BufferWidth < targetWidth) Console.BufferWidth = targetWidth;
+                    if (Console.BufferHeight < targetHeight) Console.BufferHeight = targetHeight;
+
+                    Console.WindowWidth = targetWidth;
+                    Console.WindowHeight = targetHeight;
+
+                    Console.BufferWidth = targetWidth;
+                    Console.BufferHeight = targetHeight;
+                }
+            }
+            catch
+            {
+                // Silently ignore failures to resize the console window.
+                // This can happen in many terminal environments (VS Code, Windows Terminal, CI).
+            }
         }
     }
 
@@ -40,51 +69,76 @@ public class ConsoleStatusMonitor
         if (string.IsNullOrEmpty(value)) return value;
         return value.Length <= maxLength ? value : value.Substring(0, maxLength);
     }
-    
+
     private async Task HandleStatusMessageAsync(MessageEnvelope? message, CancellationToken ct)
     {
         await Task.Run(() =>
         {
             if (message == null) return;
-
-
+            
             if (message.Payload is not DeviceStatusMessage msg) return;
             var name = msg.DeviceId.DeviceName.ToUpper();
-
             var color = DeviceHealthExtension.ToAnsiColor(msg.Health);
             var reset = DeviceHealthExtension.ToAnsiColor(null);
 
             // Prepare the comment
             string raw = string.IsNullOrEmpty(msg.Comment) ? "" : $" - {msg.Comment}";
-            string commentSuffix = raw.Length > 35 ? $"{raw.Substring(0, 33)}..." : raw;
-            string formattedLine = $"{Truncate(name,12),-12}{color}{Truncate(msg.State,12),-12}";
+            string commentSuffix = raw.Length > 44 ? $"{raw.Substring(0, 43)}" : raw;
+            string hbString = "\e[30m♥ \e[0m"; 
+            if (msg.HbVisual != ' ')
+            {
+                // Active heartbeat -> Toggle between Bright Red and Blue based on the even/odd second
+                hbString = msg.HbVisual == 'H' ? "\e[34m♥ \e[0m" : "\e[31m♥ \e[0m";
+            }
 
+            string formattedLine = $"{Truncate(name, 15),15}{hbString}{color}{Truncate(msg.State, 12),-12}";
             if (name.Contains("Manager", StringComparison.OrdinalIgnoreCase))
             {
                 return;
             }
             else
             {
-                TimeSpan cleanTime = new TimeSpan(msg.Timestamp.TimeOfDay.Hours, msg.Timestamp.TimeOfDay.Minutes,
-                    msg.Timestamp.TimeOfDay.Seconds);
-                var hbString = "   ";
-                if (msg.HbVisual != ' ')
-                    hbString = $"({msg.HbVisual})";
-                formattedLine += $"{hbString}C/D:{msg.CountConnections % 100,2}/{msg.CountDisconnects % 100,-2} APT:{msg.AvgProcessTime,-5} I/O:{msg.CountInbound % 1000,3}/{msg.CountOutbound % 1000,-3} Er:{msg.CountError,-2}  {cleanTime.ToString(),-9} {commentSuffix,-40}{reset}";
-            }
-            
+                string div = "\e[90m│\e[0m"; // Dark gray vertical divider
+              
+                // Connections / Disconnects
+                string cdString = $"{msg.CountConnections % 100,2}\e[90m/\e[0m{msg.CountDisconnects % 100,-2}";
 
-            int lineIndex;
+                // Process Time
+                var apt = Math.Round(msg.AvgProcessTime, 1);
+
+                var aptColor = apt < 30 ? "\e[92m" : (apt < 100 ? "\e[93m" : "\e[91m"); // Green/Yellow/Red
+
+                var str = apt.ToString("000.0");
+                string aptString = $"{aptColor}⏱ {str}\e[0m";
+                // I/O Messages 
+                string ioString =
+                    $"\e[96m↓\e[0m{msg.CountInbound % 10000,4}\e[90m│\e[0m\e[36m↑\e[0m{msg.CountOutbound % 10000,4}";
+
+                // Errors (Green checkmark if 0, Red warning if > 0)
+                string errString = msg.CountError > 0
+                    ? $"\e[91m✖ {msg.CountError,-2}\e[0m"
+                    : $"\e[92m✓ 0 \e[0m";
+
+                // Time Formatting
+                var displayTime = msg.Timestamp.ToLocalTime().ToString("d/hh:mm:ss");
+                // Build the final appended line (Assuming formattedLine already contains DeviceName and Status)
+                formattedLine +=
+                    $"{div}⇄ {cdString}{div}{aptString}{div}{ioString}{div}{errString} {div}⌚{displayTime,-11}{div}{commentSuffix,-43}{reset}";
+            }
+
+            int lineIndex = 0;
+
             lock (ConsoleLock)
             {
-                if (!_lineMap.TryGetValue(name, out lineIndex))
+                if (msg.ScreenIndex >= 0)
                 {
-                    _lines = _lines + 1;
-                    _errorLine = _lines + 2;
-                    lineIndex = _lines;
-                    _lineMap[name] = lineIndex;
+                    lineIndex = msg.ScreenIndex + _startingLineOffset + 1;
                 }
-
+                else
+                {
+                    lineIndex = _startingLineOffset + 2;
+                }
+             
                 WriteStatusLines(lineIndex, formattedLine);
                 if (msg.Health != DeviceHealth.Critical) return;
                 lock (ConsoleLock)
@@ -101,6 +155,7 @@ public class ConsoleStatusMonitor
 
     public void Start(CancellationToken cancellationToken, int startingLine)
     {
+        _startingLineOffset = startingLine;
         Task.Run(async () =>
         {
             Console.CursorVisible = false;
@@ -108,15 +163,33 @@ public class ConsoleStatusMonitor
             {
                 while (!cancellationToken.IsCancellationRequested)
                 {
-                    lock (ConsoleLock)
+                    try
                     {
-                        // Reset _lines occasionally or just ensure header is printed
-                        Console.SetCursorPosition(0, startingLine);
+                        lock (ConsoleLock)
+                        {
+                            // Ensure startingLine is within buffer bounds
+                            if (startingLine >= 0 && startingLine < Console.BufferHeight)
+                            {
+                                Console.SetCursorPosition(0, startingLine);
                                 // line 12,12,3,10,10,
                                 Console.WriteLine(
-                                    $"\x1b[48;2;220;220;220m\x1b[38;2;0;90;190mDevice Name \x1b[38;2;0;0;0m|\x1b[38;2;0;90;190m   Status  \x1b[38;2;0;0;0m|\x1b[38;2;0;90;190mHB\x1b[38;2;0;0;0m|\x1b[38;2;0;90;190m Con/Dis \x1b[38;2;0;0;0m|\x1b[38;2;0;90;190mProcTime \x1b[38;2;0;0;0m|\x1b[38;2;0;90;190mMsgs IN/OUT\x1b[38;2;0;0;0m|\x1b[38;2;0;90;190mErrors\x1b[38;2;0;0;0m|\x1b[38;2;0;90;190mLast Active\x1b[38;2;0;0;0m| Started:{_startTime:T} Now:{DateTime.Now:T} \x1b[0m");
-                        if (_lines == 0)
-                            _lines = startingLine + 1;
+                                    $"\e[48;2;220;220;220m\e[38;2;0;90;190m {"Device Name",-10} \e[38;2;0;0;0m│" +
+                                    $"\e[38;2;0;90;190mHB\e[38;2;0;0;0m│" +
+                                    $"\e[38;2;0;90;190m {"Status",-9} \e[38;2;0;0;0m│" +
+                                    $"\e[38;2;0;90;190mConnect\e[38;2;0;0;0m│" +
+                                    $"\e[38;2;0;90;190mPsTm ms\e[38;2;0;0;0m│" +
+                                    $"\e[38;2;0;90;190m↓IN /↑OUT  \e[38;2;0;0;0m│" +
+                                    $"\e[38;2;0;90;190mError\e[38;2;0;0;0m│" +
+                                    $"\e[38;2;0;90;190mLast Active  \e[38;2;0;0;0m│" +
+                                    $"\e[38;2;0;90;190m Started:{_startTime:HH:mm:ss}      Now:{DateTime.Now:HH:mm:ss}        \e[0m");
+                            }
+                            if (_lines == 0)
+                                _lines = startingLine + 1;
+                        }
+                    }
+                    catch
+                    {
+                        // Ignore console I/O errors
                     }
 
                     await Task.Delay(TimeSpan.FromSeconds(1), cancellationToken);
@@ -125,30 +198,38 @@ public class ConsoleStatusMonitor
             catch (TaskCanceledException)
             {
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                Console.Clear();
-                Console.WriteLine($"Status monitor task failed: {ex.Message}");
+                _logger.Error("Status monitor task failed: {ex.Message}");
             }
             finally
             {
                 Console.CursorVisible = true;
-                Console.Clear();
-                Console.WriteLine("`Status monitor stopped.");
             }
         }, cancellationToken);
     }
 
     private void WriteStatusLines(int index, string status)
     {
-        lock (ConsoleLock)
+        try
         {
-            int width = Console.WindowWidth > 0 ? Console.WindowWidth : 85;
+            lock (ConsoleLock)
+            {
+                int width = Console.WindowWidth > 0 ? Console.WindowWidth : 85;
 
-            Console.SetCursorPosition(0, index);
-            // Prevent crash if window is too small
-            int padWidth = Math.Max(0, 85);
-            Console.WriteLine(status.PadRight(padWidth));
+                // Ensure index is within buffer bounds to prevent ArgumentOutOfRangeException
+                if (index >= 0 && index < Console.BufferHeight)
+                {
+                    Console.SetCursorPosition(0, index);
+                    // Pad to the window width to clear old content
+                    int padWidth = Math.Max(0, width - 1);
+                    Console.WriteLine(status.PadRight(padWidth));
+                }
+            }
+        }
+        catch
+        {
+            // Ignore console I/O errors
         }
     }
 }
