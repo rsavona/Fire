@@ -1,0 +1,22 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <TargetFramework>net10.0</TargetFramework>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <Nullable>enable</Nullable>
+    </PropertyGroup>
+
+    <PropertyGroup Condition=" '$(Configuration)' == 'Debug' ">
+      <OutputPath>..\Output\</OutputPath>
+    </PropertyGroup>
+
+    <PropertyGroup Condition=" '$(Configuration)' == 'Release' ">
+      <OutputPath>..\Output\</OutputPath>
+    </PropertyGroup>
+
+    <ItemGroup>
+      <ProjectReference Include="..\DeviceSpace.Common\DeviceSpace.Common.csproj" />
+      <ProjectReference Include="..\DeviceSpace.Core\DeviceSpace.Core.csproj" />
+    </ItemGroup>
+
+</Project>
