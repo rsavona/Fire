@@ -1,0 +1,114 @@
+{
+  "AppSettings": {
+    "DeviceSpace": {
+      "Name": "TuraSort",
+      "ColorConsole": false,
+      "DiagnosticPort": 9999,
+      "WorkflowList": [
+        {
+          "Name": "StandardSort",
+          "Type": "StandardSort",
+          "Enable": true,
+          "ScreenIndex": 1,
+          "Properties": {
+            "Diverts": "1;2;3;4;5;15"
+          },
+
+          "Routes": [
+            {
+              "Mode": 0,
+              "Name": "Route1-InductRequestToResponse",
+              "Source": "CP1.DReqM.SNC302",
+              "Handler": "HandleInductionRoundRobinSort",
+              "Destination": "CP1.DRespM.SNC302"
+            },
+            { "Mode": 1,
+              "Name": "Route2-InductRequestToSQL",
+              "Source": "CP1.DReqM.SNC302",
+              "Handler": "HandleInductionSqlSort",
+              "Destination": "MSSQL_Store.Query.SNC302"
+            },
+            { "Mode": 1,
+              "Name": "Route3-InductRequestToSQL",
+              "Source": "CP1.DReqM.SNC301",
+              "Handler": "HandleInductionSqlSort",
+              "Destination": "MySQL_Store.Query.SNC301"
+            },
+            {
+              "Mode": 1,
+              "Name": "Route4-InductRequestToResponse",
+              "Source": "MSSQL_Store.Destination.SNC302",
+              "Handler": "HandleDestinastionResult",
+              "Destination": "CP1.DRespM.SNC302"
+            },
+             {
+              "Mode": 1,
+              "Name": "Route5-InductRequestToResponse",
+              "Source": "MySQL_Store.Destination.SNC301",
+              "Handler": "HandleDestinastionResult",
+              "Destination": "CP1.DRespM.SNC301"
+            }
+          ]
+        }
+      ],
+      "DeviceList": [
+        {
+          "Name": "CP1",
+          "Manager": "PlcDeviceManager",
+          "Enable": true,
+          "ScreenIndex": 2,
+          "Properties": {
+            "DevicePort": "6999",
+            "HeartbeatTimeoutMs": 20000,
+            "AllowedHosts": "*"
+          }
+        },
+        {
+          "Name": "MSSQL_Store",
+          "Manager": "DatabaseDeviceManager",
+          "Enable": true,
+          "ScreenIndex": 4,
+          "Properties": {
+            "DatabaseType": "MsSql",
+            "ConnectionString": "Server=LocalHost;Database=FortnaFire;Integrated Security=True;Encrypt=false;TrustServerCertificate=True;",       
+            "HeartbeatTimeout": 0
+          }
+        },
+        {
+          "Name": "Postgres_Store",
+          "Manager": "DatabaseDeviceManager",
+          "Enable": true,
+          "ScreenIndex": 5,
+          "Properties": {
+            "DatabaseType": "PostgreSql",
+            "ConnectionString": "Server=localhost;Port=5432;User Id=postgres;Password=postgres;Database=WcsDatabase;Minimum Pool Size=10;Command Timeout=5;",
+            "HeartbeatTimeout": 0
+          }
+        },
+        {
+          "Name": "MySQL_Store",
+          "Manager": "DatabaseDeviceManager",
+          "Enable": true,
+          "ScreenIndex": 6,
+          "Properties": {
+            "DatabaseType": "MySql",
+            "ConnectionString": "Server=localhost;Port=3306;User Id=atronix;Password=atronix;Database=FortnaFire;",
+            "HeartbeatTimeout": 0
+          }
+        },
+        {
+          "Name": "HostCommServer",
+          "Manager": "TcpServerDeviceManager",
+          "Enable": false,
+          "ScreenIndex": 3,
+          "Properties": {
+            "Port": 5000,
+            "MaxClients": 10,
+            "BodyDelimiter": "|",
+            "FieldNames": "Field1,Field2,Field3"
+          }
+        }
+      ]
+    }
+  }
+}

@@ -6,9 +6,9 @@ using Serilog;
 
 namespace Workflow.PrintAndAppySimulation.FRC;
 
-public class PrintAndApplyFrcSimulation : WorkflowBase
+public class WorkflowSimulation : WorkflowBase
 {
-    public PrintAndApplyFrcSimulation(IMessageBus bus, WorkflowConfig config, ILogger logger)
+    public WorkflowSimulation(IMessageBus bus, WorkflowConfig config, ILogger logger)
         : base(bus, config, logger)
     {
         Logger.Information("[{Workflow}] Simulation Physics & Logic Initialized.", WorkflowKey.DeviceName);

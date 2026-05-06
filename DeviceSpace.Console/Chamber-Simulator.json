@@ -1,7 +1,8 @@
 {
   "AppSettings": {
     "DeviceSpace": {
-      "Name": "Fire-PnA-Simulation",
+      "Name": "Simulation",
+      "ColorConsole": true,
       "DeviceList": [
         {
           "Name": "TBROKER",
@@ -23,10 +24,11 @@
             "Port": 6999,
             "HeartbeatTimeoutMs": 0,
             "HeartbeatIntervalMs": 0,
-            "DecisionPoints":  "SNC302:0",
-            "Barcodes": "LPN-00001,LPN-00002,LPN-00003, LPN-00004, LPN-00005, LPN-00006, LPN-00007, LPN-00008, LPN-00009, LPN-00010, LPN-00011, LPN-00012, LPN-00013, LPN-00014, LPN-00015, LPN-00016, LPN-00017, LPN-00018, LPN-00019, LPN-00020, LPN-00021",
-            "TotalTotes": 21,
-            "InductionFreq": 1000
+            "DecisionPoints": [ "SNC302:0",
+                                "SNC301:0",
+                                "SNC303:0"],
+            "TotalTotes": 1000,
+            "InductionFreq": 50
           }
         },
         {
@@ -75,8 +77,8 @@
       ],
       "WorkflowList": [
         {
-          "Name": "Wf.TestPAndA.FRC",
-          "Type": "PrintAndApplyFrcSimulation",
+          "Name": "Workflow.Simulation",
+          "Type": "WorkflowSimulation",
           "Enable": true,
           "IsSimulation": true,
           "TotalTotes": 100,

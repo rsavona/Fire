@@ -28,11 +28,18 @@ public record MessageBusTopic
         }
         var parts = strTopic.ToUpper().Split('.');
         DeviceName = parts[0];
-        MessageType = parts[1];
-
-        // Join everything from index 2 to the end using "." as the separator
-        Discriminator = string.Join(".", parts.Skip(2));
-
+        
+        if (parts.Length > 1)
+        {
+            MessageType = parts[1];
+            // Join everything from index 2 to the end using "." as the separator
+            Discriminator = string.Join(".", parts.Skip(2));
+        }
+        else
+        {
+            MessageType = "DEFAULT";
+            Discriminator = string.Empty;
+        }
     }
 
     public override string ToString()

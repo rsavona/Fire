@@ -6,6 +6,7 @@ namespace DeviceSpace.Common.Contracts;
 public interface IDeviceSpace
     {
         string Name { get; set;}
+        bool ColorConsole { get; set; }
         List<IDeviceConfig> DeviceList { get; set; }
         List<IWorkflowConfig> WorkflowList { get; set; }
     }
