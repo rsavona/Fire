@@ -17,20 +17,49 @@
       <OutputPath>..\Output\</OutputPath>
     </PropertyGroup>
 
-    <ItemGroup>
-      <ProjectReference Include="..\DeviceSpace.Core\DeviceSpace.Core.csproj" />
-    </ItemGroup>
-
+      <ItemGroup>
+      <ProjectReference Include="..\Device.ActiveMQ\Device.ActiveMQ.csproj" />
+      <ProjectReference Include="..\Device.Api.Suite\Device.Api.Suite.csproj" />
+      <ProjectReference Include="..\Device.Database.Suite\Device.Database.Suite.csproj" />
+      <ProjectReference Include="..\Device.HostComm\Device.HostComm.csproj" />
+   
+      <ProjectReference Include="..\Device.Plc.Suite\Device.Plc.Suite.csproj" />
+      <ProjectReference Include="..\Device.Printer.Suite\Device.Printer.Suite.csproj" />
+      <ProjectReference Include="..\Device.Support.CLI\Device.Support.CLI.csproj" />
+      <ProjectReference Include="..\Tools\TuraHostTester\TuraHostTester.csproj" />
+      <ProjectReference Include="..\Workflow.PrintAndApply.Frc\Workflow.PrintAndApply.Frc.csproj" />
+      <ProjectReference Include="..\Workflow.Simulation\Workflow.Simulation.csproj" />
+      <ProjectReference Include="..\Workflow.Sort.Standard\Workflow.Sort.Standard.csproj" />
+          <ProjectReference Include="..\DeviceSpace.Core\DeviceSpace.Core.csproj" />
+          
+          <ProjectReference Include="..\Workflow.Sort.Standard\Workflow.Sort.Standard.csproj" />
+          
+          <ProjectReference Include="..\Workflow.Tura.HostComm\Workflow.Tura.HostComm.csproj" />
+  
+     </ItemGroup>
+    
     <ItemGroup>
       <None Update="appsettings.json">
+        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      </None>
+      <None Update="Chamber-Simulator.json">
+        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      </None>
+      <None Update="Chamber-Tura.json">
+        <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+      </None>
+      <None Update="Chamber-TuraHost.json">
         <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       </None>
     </ItemGroup>
 
     <ItemGroup>
-      <PackageReference Include="Microsoft.Data.SqlClient" Version="7.0.0" />
+      <PackageReference Include="Microsoft.Data.SqlClient" Version="7.0.1" />
       <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="10.0.5" />
+      <PackageReference Include="Microsoft.Extensions.Logging" Version="10.0.7" />
       <PackageReference Include="Serilog" Version="4.3.1" />
+      <PackageReference Include="Serilog.Sinks.Console" Version="6.1.1" />
+      <PackageReference Include="Serilog.Sinks.File" Version="7.0.0" />
       <PackageReference Include="Serilog.Enrichers.CorrelationId" Version="3.0.1" />
       <PackageReference Include="Serilog.Enrichers.Dynamic" Version="1.0.9" />
       <PackageReference Include="Serilog.Enrichers.Process" Version="3.0.0" />

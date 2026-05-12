@@ -15,7 +15,6 @@ public interface IDeviceSpace
         string Name { get; set; }
         string Manager { get; set; }
         bool Enable { get; set; } // Added based on JSON
-        int ScreenIndex { get; set; }
         Dictionary<string, object> Properties { get; set; }
 
     }
@@ -27,7 +26,6 @@ public interface IDeviceSpace
         string Name { get; set; } 
         string Type { get; set; }
         public bool Enable { get; set; } 
-        int ScreenIndex { get; set; }
         // The list of routing rules
         public List<WorkflowRoute> Routes { get; set; } 
         Dictionary<string, object> Properties { get; set; }

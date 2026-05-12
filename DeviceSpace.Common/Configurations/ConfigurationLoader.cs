@@ -7,23 +7,84 @@ namespace DeviceSpace.Common.Configurations;
 public static class ConfigurationLoader
 {
     private static IConfiguration? _configuration;
+    private static string? _loadedFilePath;
     private static bool _initCalled;
+
+    public static event Action? OnConfigurationChanged;
 
     public static IConfiguration? InitConfig(string[]? args)
     {
         if (!_initCalled)
         {
             _initCalled = true;
-            var fileName = args is { Length: > 0 } ? args[0] : "DeviceSpace.json";
+            string? fileName = args is { Length: > 0 } ? args[0] : null;
+
+            // If no file was provided via args, try to discover a Chamber file
+            if (string.IsNullOrEmpty(fileName))
+            {
+                var directory = Directory.GetCurrentDirectory();
+                var chamberFiles = Directory.GetFiles(directory, "Chamber-*.json");
+
+                if (chamberFiles.Length > 0)
+                {
+                    // Pick the most recently modified Chamber file
+                    fileName = chamberFiles
+                        .Select(f => new FileInfo(f))
+                        .OrderByDescending(fi => fi.LastWriteTime)
+                        .First()
+                        .Name;
+                }
+                else
+                {
+                    // Fallback to the default .chamber name
+                    fileName = ".chamber";
+                }
+            }
+
+            _loadedFilePath = Path.IsPathRooted(fileName) ? fileName : Path.Combine(Directory.GetCurrentDirectory(), fileName);
 
             var builder = new ConfigurationBuilder()
                 .SetBasePath(Directory.GetCurrentDirectory())
-                .AddJsonFile(fileName, optional: false, reloadOnChange: false)
+                .AddJsonFile(fileName, optional: false, reloadOnChange: true)
                 .AddJsonFile("appsettings.json", optional: false, reloadOnChange: true);
             _configuration = builder.Build();
+
+            // Notify subscribers when configuration is reloaded
+            Microsoft.Extensions.Primitives.ChangeToken.OnChange(
+                () => _configuration.GetReloadToken(),
+                () => OnConfigurationChanged?.Invoke());
         }
 
         return _configuration;
+    }
+
+    public static async Task UpdateDevicePropertyAsync(string deviceName, string propertyName, object value)
+    {
+        if (string.IsNullOrEmpty(_loadedFilePath) || !File.Exists(_loadedFilePath)) return;
+
+        try
+        {
+            var json = await File.ReadAllTextAsync(_loadedFilePath);
+            var root = System.Text.Json.Nodes.JsonNode.Parse(json);
+            
+            var devices = root?["AppSettings"]?["DeviceSpace"]?["DeviceList"]?.AsArray();
+            if (devices == null) return;
+
+            var device = devices.FirstOrDefault(d => d?["Name"]?.GetValue<string>() == deviceName);
+            if (device == null) return;
+
+            var properties = device["Properties"]?.AsObject();
+            if (properties == null) return;
+
+            properties[propertyName] = System.Text.Json.Nodes.JsonValue.Create(value);
+
+            var options = new System.Text.Json.JsonSerializerOptions { WriteIndented = true };
+            await File.WriteAllTextAsync(_loadedFilePath, root.ToJsonString(options));
+        }
+        catch (Exception ex)
+        {
+            Serilog.Log.Error(ex, "Failed to update device property {Prop} for {Dev} in {File}", propertyName, deviceName, _loadedFilePath);
+        }
     }
 
     public static IDeviceSpace? GetSpaceConfig()

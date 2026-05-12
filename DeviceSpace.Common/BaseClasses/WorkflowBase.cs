@@ -68,7 +68,6 @@ public abstract class WorkflowBase : BackgroundService
         WorkflowKey = new DeviceKey("SYSTEM", Config.Name);
         Tracker = new DeviceStatusTracker<WorkflowState, WorkflowEvent>(WorkflowState.Initializing,
             WorkflowEvent.Started);
-        Tracker.ScreenIndex = Config.ScreenIndex;
 
         Logger.Information("[{Workflow}] Workflow instance created.", WorkflowKey.DeviceName);
         
@@ -91,6 +90,9 @@ public abstract class WorkflowBase : BackgroundService
                     IsSystemStarted = false;
                     Logger.Warning("[{Workflow}] System {Command} received. Business logic suspended.", Config.Name, sysMsg.Command);
                     break;
+                case SystemCommand.RefreshStatus:
+                    _ = PublishStatusAsync();
+                    break;
             }
         }
         return Task.CompletedTask;
@@ -105,6 +107,7 @@ public abstract class WorkflowBase : BackgroundService
     /// <returns>A task representing the asynchronous execution operation.</returns>
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        await Task.Yield();
         Logger.Information("[{Workflow}] ExecuteAsync started.", "Base-ExecuteAsync");
         UpdateStatus(WorkflowState.Initializing, WorkflowEvent.Started, DeviceHealth.Warning, "Workflow starting...");
 
@@ -223,6 +226,8 @@ public abstract class WorkflowBase : BackgroundService
     /// <param name="ct"></param>
     private async Task HandleIncomingMessageAsync(MessageEnvelope? message, CancellationToken ct)
     {
+        await Task.Yield(); // Break synchronous recursion to prevent stack overflow
+
         if (message == null)
         {
             Logger.Warning("[{Workflow}] Received null message from bus.", "Base-HandleIncomingMessageAsync");
@@ -270,13 +275,19 @@ public abstract class WorkflowBase : BackgroundService
                     var tmr = Environment.TickCount64;
                     Tracker.StartTransaction(tmr);
                     var executor = rte.Value;
-                    Tracker.StopTransaction(tmr);
+                 
                     var result = await executor(message, ct);
+                    Tracker.StopTransaction(tmr);
+
+                    if (result == null)
+                    {
+                        continue;
+                    }
 
                     if (result is MessageEnvelope resultPayload && !string.IsNullOrEmpty(rte.Key.Destination))
                     {
                         Tracker.IncrementOutbound();
-                        _ = MessageBus.PublishAsync(rte.Key.Destination, resultPayload, ct);
+                        await MessageBus.PublishAsync(rte.Key.Destination, resultPayload, ct);
                         Logger.Information("[{Workflow}] Message Out: {msg}  published to {Destination}",
                             "Base-HandleIncomingMessageAsync", resultPayload, rte.Key.Destination);
                     }
@@ -284,7 +295,7 @@ public abstract class WorkflowBase : BackgroundService
                     {
                         var env = deviceMessage.WrapMessage(new MessageBusTopic(rte.Key.Destination));
                         Tracker.IncrementOutbound();
-                        _ = MessageBus.PublishAsync(rte.Key.Destination, env, ct);
+                        await MessageBus.PublishAsync(rte.Key.Destination, env, ct);
                         Logger.Information("[{Workflow}] Message Out: {msg}  published to {Destination}",
                             "Base-HandleIncomingMessageAsync", deviceMessage, rte.Key.Destination);
                     }
@@ -292,9 +303,9 @@ public abstract class WorkflowBase : BackgroundService
                     {
                         if (!string.IsNullOrEmpty(rte.Key.Destination))
                         {
-                            var env = new MessageEnvelope(new MessageBusTopic(rte.Key.Destination), payload);
+                            var env = new MessageEnvelope(new MessageBusTopic(rte.Key.Destination), payload, message.Gin, message.Client);
                             Tracker.IncrementOutbound();
-                            _ = MessageBus.PublishAsync(rte.Key.Destination, env, ct);
+                            await MessageBus.PublishAsync(rte.Key.Destination, env, ct);
                             Logger.Information("[{Workflow}] Message Out: {msg}  published to {Destination}",
                                 "Base-HandleIncomingMessageAsync", payload, rte.Key.Destination);
                         }

@@ -18,10 +18,13 @@ public abstract class DeviceManagerBase<TDevice> : BackgroundService, IDeviceMan
     protected readonly IMessageBus MessageBus;
     protected readonly List<IDeviceConfig> DeviceConfigList;
     protected readonly IFireLogger<DeviceManagerBase<TDevice>> Logger;
+    protected readonly string ManagerName;
     protected readonly ConcurrentDictionary<string, TDevice> DeviceInstances = new();
 
     protected Func<IDeviceConfig, IFireLogger, TDevice> DeviceFactory;
     private readonly ConcurrentDictionary<string, (string State, DeviceHealth Health)> _lastDeviceStatus = new();
+    private readonly SemaphoreSlim _reconciliationLock = new(1, 1);
+    private CancellationToken _stoppingToken;
 
     /// abstract methods
     protected virtual void RegisterDeviceDestRoutes(IDevice device)
@@ -39,6 +42,9 @@ public abstract class DeviceManagerBase<TDevice> : BackgroundService, IDeviceMan
             devLogger.Information("{method} [{Dev}]  Manager initializing Route: {route}","RegisterDeviceDestRoutes", device.Config.Name, route.Name);
             MessageBus.SubscribeAsync(route.Destination, HandleBusMessageAsync);
         }
+
+        // Always subscribe to the device name itself as a fallback
+        MessageBus.SubscribeAsync(device.Config.Name, HandleBusMessageAsync);
     }
 
     protected virtual void OnDeviceCreated(IDevice device)
@@ -92,12 +98,14 @@ public abstract class DeviceManagerBase<TDevice> : BackgroundService, IDeviceMan
     /// <param name="deviceFactory"></param>
     protected DeviceManagerBase(IMessageBus bus, List<IDeviceConfig> configs,
         IFireLogger<DeviceManagerBase<TDevice>> logger,
-        Func<IDeviceConfig, IFireLogger, TDevice> deviceFactory)
+        Func<IDeviceConfig, IFireLogger, TDevice> deviceFactory,
+        string managerName)
     {
         MessageBus = bus;
         Logger = logger;
         DeviceConfigList = configs ?? new List<IDeviceConfig>();
         DeviceFactory = deviceFactory;
+        ManagerName = managerName;
     }
 
     /// <summary>
@@ -106,45 +114,31 @@ public abstract class DeviceManagerBase<TDevice> : BackgroundService, IDeviceMan
     /// <param name="stoppingToken"></param>
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        await Task.Yield();
+        _stoppingToken = stoppingToken;
         Logger.Information("Starting Manager for {DeviceType}", typeof(TDevice).Name);
 
-        // for each device in the config that this mmanager is responsible for
-        foreach (var config in DeviceConfigList.Where(c => c.Enable))
-        {
-            var device = DeviceFactory(config, Logger);
-            Logger.Verbose($"Device Created {device.Key.DeviceName}");
-            DeviceInstances[device.Key.DeviceName] = device;
+        // Initial load
+        await ReconcileDevicesAsync();
 
-            try
+        // Subscribe to configuration changes
+        ConfigurationLoader.OnConfigurationChanged += async () =>
+        {
+            Logger.Information("[{Manager}] Configuration change detected. Reconciling devices...", typeof(TDevice).Name);
+            await ReconcileDevicesAsync();
+        };
+
+        // Subscribe to Global System Control for Status Refresh
+        await MessageBus.SubscribeAsync(MessageBusTopic.SystemControl.ToString(), async (envelope, ct) =>
+        {
+            if (envelope.Payload is Messaging.SystemControlMessage sysMsg && sysMsg.Command == Messaging.SystemCommand.RefreshStatus)
             {
-                Logger.Verbose(
-                    "Adding the Device Managers 'OnDeviceMessageToMessageBusAsync' so that all messages are funneled through the manager. ");
-                if (device is IMessageProvider provider)
+                foreach (var device in DeviceInstances.Values)
                 {
-                    provider.MessageReceived += OnDeviceMessageToMessageBusAsync;
-                    Logger.LogDebug("[{Dev}] Messaging interface auto-wired.", config.Name);
+                    device.RefreshStatus();
                 }
-                // staus update handler
-                device.StatusUpdated += OnDeviceStatusUpdated;
-                
-                PrepareForRouteDestinations(device);
-                RegisterDeviceDestRoutes(device);
-                RegisterControlRoutes(device);
-               
-                // announce presence to the Diag Server
-                if (device is IDiagnosticProvider diagProvider)
-                    await AnnouncePresenceAsync((IDevice)diagProvider);
-               
-                _ = Task.Run(() => device.StartAsync(stoppingToken), stoppingToken);
-                 await RegisterDeviceSourceRoutes(device);
-            
             }
-            catch (Exception ex)
-            {
-                device.OnError("Manager Exec Async Error ", ex);
-                Logger.LogError(ex, "Failed to start device {Name}", config.Name);
-            }
-        }
+        });
 
         await Task.Delay(Timeout.Infinite, stoppingToken);
     }
@@ -274,5 +268,117 @@ public abstract class DeviceManagerBase<TDevice> : BackgroundService, IDeviceMan
         {
             await device.StopAsync(cancellationToken);
         }
+    }
+
+    private async Task ReconcileDevicesAsync()
+    {
+        await _reconciliationLock.WaitAsync();
+        try
+        {
+            var newConfigs = ConfigurationLoader.GetDeviceConfig(ManagerName);
+            var activeConfigNames = newConfigs.Where(c => c.Enable).Select(c => c.Name).ToHashSet();
+
+            // 1. Identify and Stop Removed or Disabled Devices
+            var devicesToRemove = DeviceInstances.Keys.Where(name => !activeConfigNames.Contains(name)).ToList();
+            foreach (var name in devicesToRemove)
+            {
+                if (DeviceInstances.TryRemove(name, out var device))
+                {
+                    Logger.Warning("[{Dev}] Configuration removed or disabled. Stopping device...", name);
+                    await StopAndUnwireDeviceAsync(device);
+                }
+            }
+
+            // 2. Identify Additions and Updates
+            foreach (var config in newConfigs.Where(c => c.Enable))
+            {
+                if (DeviceInstances.TryGetValue(config.Name, out var existingDevice))
+                {
+                    // Check if properties have changed
+                    if (ConfigHasChanged(existingDevice.Config, config))
+                    {
+                        Logger.Information("[{Dev}] Configuration updated. Restarting device...", config.Name);
+                        await StopAndUnwireDeviceAsync(existingDevice);
+                        await StartAndWireDeviceAsync(config);
+                    }
+                }
+                else
+                {
+                    // New Device
+                    Logger.Information("[{Dev}] New configuration detected. Starting device...", config.Name);
+                    await StartAndWireDeviceAsync(config);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.Error(ex, "Error during device reconciliation");
+        }
+        finally
+        {
+            _reconciliationLock.Release();
+        }
+    }
+
+    private async Task StartAndWireDeviceAsync(IDeviceConfig config)
+    {
+        try
+        {
+            var device = DeviceFactory(config, Logger);
+            DeviceInstances[device.Key.DeviceName] = device;
+
+            if (device is IMessageProvider provider)
+            {
+                provider.MessageReceived += OnDeviceMessageToMessageBusAsync;
+                Logger.LogDebug("[{Dev}] Messaging interface auto-wired.", config.Name);
+            }
+            device.StatusUpdated += OnDeviceStatusUpdated;
+
+            PrepareForRouteDestinations(device);
+            RegisterDeviceDestRoutes(device);
+            RegisterControlRoutes(device);
+
+            if (device is IDiagnosticProvider diagProvider)
+                await AnnouncePresenceAsync((IDevice)diagProvider);
+
+            _ = Task.Run(() => device.StartAsync(_stoppingToken), _stoppingToken);
+            await RegisterDeviceSourceRoutes(device);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to start device {Name}", config.Name);
+        }
+    }
+
+    private async Task StopAndUnwireDeviceAsync(TDevice device)
+    {
+        try
+        {
+            await device.StopAsync(CancellationToken.None);
+
+            if (device is IMessageProvider provider)
+            {
+                provider.MessageReceived -= OnDeviceMessageToMessageBusAsync;
+            }
+            device.StatusUpdated -= OnDeviceStatusUpdated;
+        }
+        catch (Exception ex)
+        {
+            Logger.Error(ex, "[{Dev}] Error during device shutdown", device.Config.Name);
+        }
+    }
+
+    private bool ConfigHasChanged(IDeviceConfig oldConfig, IDeviceConfig newConfig)
+    {
+        if (oldConfig.Properties.Count != newConfig.Properties.Count) return true;
+        foreach (var key in oldConfig.Properties.Keys)
+        {
+            if (!newConfig.Properties.TryGetValue(key, out var newValue) || 
+                !Equals(oldConfig.Properties[key]?.ToString(), newValue?.ToString()))
+            {
+                return true;
+            }
+        }
+        return false;
     }
 }

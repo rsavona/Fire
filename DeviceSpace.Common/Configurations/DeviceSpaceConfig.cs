@@ -12,7 +12,6 @@ namespace DeviceSpace.Common.Configurations
         public string Name { get; set; } = string.Empty;
         public string Type { get; set; } = string.Empty; 
         public bool Enable { get; set; } 
-        public int ScreenIndex { get; set; }
         // The list of routing rules
         public List<WorkflowRoute> Routes { get; set; } = new();
         public Dictionary<string, object> Properties { get; set; } = new ();
@@ -25,13 +24,13 @@ namespace DeviceSpace.Common.Configurations
         public int Mode { get; set; }
 
         // Topic to listen to (e.g. "MEDPLC.DReqM.Induct")
-        public required string Source { get; set; }
+        public string Source { get; set; } = string.Empty;
 
         // Topic to publish result to (e.g. "MEDBroker.LabelRequest")
-        public required  string Destination { get; set; }
+        public string Destination { get; set; } = string.Empty;
 
         // Method Name OR File Path
-        public required  string Handler { get; set; }
+        public string Handler { get; set; } = string.Empty;
     }
     
 
@@ -40,10 +39,9 @@ namespace DeviceSpace.Common.Configurations
     /// </summary>
     public class DeviceConfig : IDeviceConfig
     {
-        public required string Name { get; set; } 
-        public required string Manager { get; set; } 
+        public string Name { get; set; } = string.Empty;
+        public string Manager { get; set; } = string.Empty;
         public bool Enable { get; set; } 
-        public int ScreenIndex { get; set; }
         public Dictionary<string, object> Properties { get; set; } = new Dictionary<string, object>();
         
   
@@ -56,6 +54,7 @@ namespace DeviceSpace.Common.Configurations
     public class DeviceSpace : IDeviceSpace
     {
         public string Name { get; set; } = "Fire";
+        public bool ColorConsole { get; set; } = true;
         
         public int DiagnosticsPort { get; set; } = 9999;
         public List<WorkflowConfig> WorkflowList { get; set; } = new (); // Added

@@ -13,7 +13,6 @@ public record DeviceStatusMessage : DeviceMessageBase, IDeviceStatus
     public string State { get; init; }
     public DeviceHealth Health { get; init; }
     public string Comment { get; init; }
-    public int ScreenIndex { get; init; }
     
     // --- Standard Metrics (Keep for UI Compatibility) ---
     public int CountInbound { get; init; }
@@ -41,7 +40,6 @@ public record DeviceStatusMessage : DeviceMessageBase, IDeviceStatus
         string state, 
         DeviceHealth health, 
         string comment,
-        int screenIndex,
         int countInbound, 
         int countOutbound, 
         int countConnections, 
@@ -61,7 +59,6 @@ public record DeviceStatusMessage : DeviceMessageBase, IDeviceStatus
         State = state;
         Health = health;
         Comment = comment;
-        ScreenIndex = screenIndex;
         CountInbound = countInbound;
         CountOutbound = countOutbound;
         CountConnections = countConnections;
@@ -88,7 +85,7 @@ public record DeviceStatusMessage : DeviceMessageBase, IDeviceStatus
             deviceId = DeviceId.ToString(),
             health = Health.ToString(),
             state = State,
-            mainMetrics = new { In = CountInbound, InRate = InboundRate, Out = CountOutbound, OutRate = OutboundRate, Err = CountError, ScreenIndex = ScreenIndex },
+            mainMetrics = new { In = CountInbound, InRate = InboundRate, Out = CountOutbound, OutRate = OutboundRate, Err = CountError },
             resources = new { Tasks = ResourceTasks, Containers = ResourceContainers, DeepCount = ResourceDeepCount },
             customMetrics = Metrics // All your Enum-based metrics appear here!
         };

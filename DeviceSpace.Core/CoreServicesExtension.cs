@@ -19,11 +19,16 @@ namespace DeviceSpace.Core;
 
 public static class CoreServicesExtensions
 {
-    private static readonly LoggingLevelSwitch LevelSwitch = new LoggingLevelSwitch(LogEventLevel.Verbose);
-
     public static TBuilder AddCoreServices<TBuilder>(this TBuilder builder, string[]? args = null)
         where TBuilder : IHostApplicationBuilder
     {
+        // Set default global level to Verbose if you want, but LogControl.LevelSwitch is Information by default.
+        // Let's set it to Verbose here if that was the original intent.
+        LogControl.LevelSwitch.MinimumLevel = LogEventLevel.Verbose;
+
+        // Suppress insecure TLS warnings globally
+        AppContext.SetSwitch("System.Net.Security.Tls.DisableInsecureTlsWarnings", true);
+
         var baseFolderPath = AppContext.BaseDirectory;
         var isFire = false;
         
@@ -33,13 +38,16 @@ public static class CoreServicesExtensions
           
             var appconfig = ConfigurationLoader.InitConfig(args);
             var config = appconfig?.GetSection("AppSettings:DeviceSpace").Get<Common.Configurations.DeviceSpace>();
-            var appName = config?.Name is { Length: > 0 } ? config.Name : "DeviceSpace.json";
+            var appName = config?.Name is { Length: > 0 } ? config.Name : "Tura.chamber";
 
             if (config != null)
             {
                 appName ??= "FortnaFire";
                 SetupLogger(builder, appName);
-                Console.Title = appName;
+                if (Environment.UserInteractive)
+                {
+                    Console.Title = appName;
+                }
             }
             else
             {
@@ -51,10 +59,12 @@ public static class CoreServicesExtensions
             Log.Logger.Information("SYSTEM", "STARTUP", "CORE", "FIRE", "=== {AppName} Starting ===", appName);
 
             builder.Services.AddSingleton(Log.Logger);
-            builder.Services.AddSingleton(LevelSwitch);
+            builder.Services.AddSingleton(LogControl.LevelSwitch);
             builder.Services.AddSingleton<IMessageBus, MessageBus>();
             builder.Services.AddSingleton<DeviceManagerFactory>();
             builder.Services.AddSingleton<WorkflowFactory>();
+            builder.Services.AddSingleton<IWorkflowFactory>(p => p.GetRequiredService<WorkflowFactory>());
+            builder.Services.AddHostedService<WorkflowOrchestrator>();
             builder.Services.AddHostedService<DeviceSpaceCore>();
         }
         
@@ -64,7 +74,6 @@ public static class CoreServicesExtensions
         if (args != null)
         {
             LoadConfiguredDevices(builder);
-            LoadConfiguredWorkflow(builder);
         }
        
         return builder;
@@ -125,31 +134,6 @@ public static class CoreServicesExtensions
             Log.Logger.Fatal(ex, "HOSTED", "LOAD", "CRITICAL", "GLOBAL", "Critical failure loading device configurations.");
             throw; 
         }
-        return builder;
-    }
-
-   private static IHostApplicationBuilder LoadConfiguredWorkflow(IHostApplicationBuilder builder)
-    {
-        var allWorkflows = ConfigurationLoader.GetAllWorkflowConfig();
-        
-        foreach (var workflowConfig in allWorkflows)
-        {
-            var wfConfig = (WorkflowConfig)workflowConfig;
-            if (!wfConfig.Enable)
-            {
-                Log.Logger.Warning("HOSTED", "SKIP", "WORKFLOW", wfConfig.Name, "Disabled in config");
-                continue;
-            }
-
-            Log.Logger.Information("HOSTED", "CREATE", "WORKFLOW", wfConfig.Name, "Registering Workflow Service Definition");
-            
-            builder.Services.AddSingleton<IHostedService>(provider =>
-            {
-                var factory = provider.GetRequiredService<WorkflowFactory>();
-                return factory.CreateWorkflow(wfConfig);
-            });
-        }
-
         return builder;
     }
 
@@ -277,8 +261,11 @@ public static class CoreServicesExtensions
         builder.Services.AddTransient(typeof(IFireLogger<>), typeof(FireLogger<>));
 
         Log.Logger = new LoggerConfiguration()
-            .MinimumLevel.ControlledBy(LevelSwitch)
+            .MinimumLevel.ControlledBy(LogControl.LevelSwitch)
             .Enrich.FromLogContext()
+            .WriteTo.Async(a => a.Console(
+                levelSwitch: LogControl.ConsoleLevelSwitch,
+                outputTemplate: "[{Timestamp:HH:mm:ss.fff}][{Level:u3}][{DeviceName}] {MethodTag}{GinTag}{Message:lj}{NewLine}{Exception}"))
 
             // --- PIPELINE 1: Audit ---
             .WriteTo.Logger(lc => lc
@@ -296,7 +283,7 @@ public static class CoreServicesExtensions
                     LogControl.DynamicFilter(evt))
                 
                 .WriteTo.Sink(new BufferedLog())
-                .WriteTo.File(new CompactJsonFormatter(), $"../../logs/clef/{configName}_devices_.clef")
+                .WriteTo.Async(a => a.File(new CompactJsonFormatter(), $"../../logs/clef/{configName}_devices_.clef"))
                 .WriteTo.Map(
                     keyPropertyName: "DeviceName",
                     defaultKey: "System",

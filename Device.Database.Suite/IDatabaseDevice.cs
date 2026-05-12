@@ -8,6 +8,7 @@ namespace Device.Database.Suite;
 /// </summary>
 public interface IDatabaseDevice : IDevice
 {
-    Task<IEnumerable<T>> QueryAsync<T>(string sql, object? parameters = null, CommandType commandType = CommandType.Text);
-    Task<int> ExecuteAsync(string sql, object? parameters = null, CommandType commandType = CommandType.Text);
+    Task InitializeDatabaseAsync();
+    Task<IEnumerable<T>> QueryAsync<T>(string sql, object? parameters = null, CommandType commandType = CommandType.Text, bool track = true);
+    Task<int> ExecuteAsync(string sql, object? parameters = null, CommandType commandType = CommandType.Text, bool track = true);
 }

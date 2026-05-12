@@ -15,8 +15,9 @@ public class VirtualPlcManager : DeviceManagerBase<VirtualPlcDevice>
         IMessageBus bus,
         List<IDeviceConfig> configs,
         IFireLogger<DeviceManagerBase<VirtualPlcDevice>> logger,
-        Func<IDeviceConfig, IFireLogger, VirtualPlcDevice> deviceFactory)
-        : base(bus, configs, logger, deviceFactory)
+        Func<IDeviceConfig, IFireLogger, VirtualPlcDevice> deviceFactory,
+        string managerName)
+        : base(bus, configs, logger, deviceFactory, managerName)
     {
     }
 
@@ -27,6 +28,16 @@ public class VirtualPlcManager : DeviceManagerBase<VirtualPlcDevice>
     protected override Task RegisterDeviceSourceRoutes(IDevice device)
     {
         Logger.LogDebug("[{Dev}] Virtual PLC Manager initialized. Simulation ready.", device.Config.Name);
+        
+        // Listen for console commands to trigger manual actions
+        MessageBus.SubscribeAsync(MessageBusTopic.ConsoleCommand.ToString(), async (envelope, ct) =>
+        {
+            if (envelope.Payload.ToString() == "RELEASE_TOTE" && device is VirtualPlcDevice vDevice)
+            {
+                vDevice.TriggerManualRelease();
+            }
+        });
+
         return Task.CompletedTask;
     }
 

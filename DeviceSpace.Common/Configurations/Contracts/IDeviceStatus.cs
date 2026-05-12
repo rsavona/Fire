@@ -23,7 +23,6 @@ public interface IDeviceStatus : IDeviceMessage
     // WHY: A human-readable message
     string Comment { get; }
 
-    int ScreenIndex { get; }
     
     // These are required by DeviceStatusCollection.Summarize
     // The data comes *from* the tracker.

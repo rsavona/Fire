@@ -8,42 +8,36 @@
           "Name": "TBROKER",
           "Manager": "ActiveMQManager",
           "Enable": true,
-          "ScreenIndex": 3,
           "Properties": {
             "ConnectionString": "tcp://127.0.0.1:61616?useKeepAlive=true",
             "DoubleQueue": true
           }
         },
         {
-          "Name": "TPNA2",
+          "Name": "TNA2",
           "Manager": "VirtualPlcManager",
           "Enable": true,
-          "ScreenIndex": 2,
           "Properties": {
             "IPAddress": "127.0.0.1",
             "Port": 6999,
             "HeartbeatTimeoutMs": 0,
             "HeartbeatIntervalMs": 0,
-            "DecisionPoints": [ "SNC302:0",
-                                "SNC301:0",
-                                "SNC303:0"],
-            "TotalTotes": 1000,
-            "InductionFreq": 50
+            "DecisionPoints": "PNALINE-2:0;PNA2_151:1000|PNA2_152:2000;PNA2_Verify:3000",
+            "TotalTotes": 1,
+            "InductionFreq": 10000
           }
         },
         {
-          "Name": "PNA2 151",
+          "Name": "PNA2_151",
           "Manager": "VirtualPrinterManager",
-          "ScreenIndex":4,
           "Enable": true,
           "Properties": {
             "Port": 9100
           }
         },
         {
-          "Name": "PNA2 152",
+          "Name": "PNA2_152",
           "Manager": "VirtualPrinterManager",
-          "ScreenIndex":5,
           "Enable": true,
           "Properties": {
             "Port": "9101"
@@ -68,8 +62,7 @@
         {
           "Name": "DIAG_SERVER",
           "Manager": "DiagnosticDeviceManager",
-          "Enable": true,
-          "ScreenIndex": 6,
+          "Enable": false,
           "Properties": {
             "Port": 9999
           }
@@ -83,14 +76,13 @@
           "IsSimulation": true,
           "TotalTotes": 100,
           "InductionIntervalMs": 1000,
-           "ScreenIndex":1,
           "Routes": [
             {
               "Mode": 1,
               "Name": "Route1-LabelRequest",
-              "Source": "TBROKER.LabelRequestFrcMessage.AC.PNA.LABELREQUEST",
-              "Destination": "TBROKER.LabelDataFrcMessage.AC.PNA.LABELDATA",
-              "Handler": "HandleLabelRequest"
+              "Source": "TBROKER.LabelVerifyFrcMessage.AC.PNAX.LABELVERIFY",
+              "Destination": "TBROKER.LabelVerifyFrcMessage.AC.PNAX.LABELVERIFY",
+              "Handler": "HandleLabelVerify"
             }
           ]
         }
@@ -99,3 +91,6 @@
   }
 }
       
+
+
+

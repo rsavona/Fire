@@ -37,7 +37,6 @@ public sealed record DeviceStatusTracker<TState, TEvent> : IDeviceStatusTracker
     public double InboundRate => _inboundRate.GetRate();
     public double OutboundRate => _outboundRate.GetRate();
 
-    public int ScreenIndex { get; set; } = 0;
     public DeviceHealth Health { get; set; }
     public TState State { get; private set; }
     public TEvent Event { get; private set; }
@@ -188,7 +187,6 @@ public sealed record DeviceStatusTracker<TState, TEvent> : IDeviceStatusTracker
             state: State.ToString(),
             health: Health,
             comment: Comments,
-            screenIndex: ScreenIndex,
             countInbound: CountInbound,
             countOutbound: CountOutbound,
             countConnections: CountConnections,

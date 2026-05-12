@@ -16,10 +16,30 @@ public static class ConsoleHelper
 {
     private const int STD_OUTPUT_HANDLE = -11;
     private const int TMPF_TRUETYPE = 4;
+    private const uint ENABLE_VIRTUAL_TERMINAL_PROCESSING = 4;
     private const int LF_FACESIZE = 32;
     private static IntPtr INVALID_HANDLE_VALUE = new IntPtr(-1);
 
-    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Auto)]
+
+     
+    [ DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool GetConsoleMode(IntPtr hConsoleHandle, out uint lpMode);
+
+    [DllImport("kernel32.dll")]
+    private static extern bool SetConsoleMode(IntPtr hConsoleHandle, uint dwMode);
+
+    public static void EnableRender()
+    {
+        if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows)) return;
+
+        var handle = GetStdHandle(STD_OUTPUT_HANDLE);
+        if (GetConsoleMode(handle, out uint mode))
+        {
+            mode |= ENABLE_VIRTUAL_TERMINAL_PROCESSING;
+            SetConsoleMode(handle, mode);
+        }
+    }
+    
     internal struct CONSOLE_FONT_INFO_EX
     {
         internal uint cbSize;
@@ -61,6 +81,8 @@ public static class ConsoleHelper
     /// <param name="fontSize">Size in pixels (e.g., 16, 24).</param>
     public static void SetConsoleFont(string fontName = "Consolas", short fontSize = 16)
     {
+        if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows)) return;
+
         // 1. Get the handle to the console
         IntPtr hnd = GetStdHandle(STD_OUTPUT_HANDLE);
         if (hnd == INVALID_HANDLE_VALUE) return;

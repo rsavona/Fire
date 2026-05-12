@@ -1,9 +1,16 @@
 ﻿using Serilog.Events;
+using Serilog.Core;
 using System;
 using System.Collections.Concurrent;
 
 public static class LogControl
 {
+    // The global level switch for the entire application
+    public static readonly LoggingLevelSwitch LevelSwitch = new LoggingLevelSwitch(LogEventLevel.Information);
+
+    // Toggle for console logging. Start disabled (High level)
+    public static readonly LoggingLevelSwitch ConsoleLevelSwitch = new LoggingLevelSwitch(LogEventLevel.Fatal + 1);
+
     // A thread-safe dictionary mapping DeviceName -> LogEventLevel
     private static readonly ConcurrentDictionary<string, LogEventLevel> _deviceLogLevels = 
         new ConcurrentDictionary<string, LogEventLevel>(StringComparer.OrdinalIgnoreCase);
@@ -15,6 +22,19 @@ public static class LogControl
     public static void SetDeviceLevel(string deviceName, LogEventLevel level)
     {
         _deviceLogLevels[deviceName] = level;
+    }
+
+    /// <summary>
+    /// Returns true if the device (or the global system) is currently set to Verbose logging.
+    /// Used to disable "Smart Dump" when full tracing is already active.
+    /// </summary>
+    public static bool IsVerbose(string deviceName)
+    {
+        // 1. Check Global Level
+        if (LevelSwitch.MinimumLevel == LogEventLevel.Verbose) return true;
+
+        // 2. Check Device Level
+        return _deviceLogLevels.TryGetValue(deviceName, out var level) && level == LogEventLevel.Verbose;
     }
 
     /// <summary>

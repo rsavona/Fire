@@ -112,7 +112,6 @@ public abstract class DeviceBase<TState, TEvent, TMetric> : IDevice
         LogSwitch.MinimumLevel = LogEventLevel.Verbose;
         Key = new DeviceKey("SYS", config.Name);
         Tracker = new DeviceStatusTracker<TState, TEvent>(statDef, eventDef);
-        Tracker.ScreenIndex = config.ScreenIndex;
 
         Machine = new StateMachine<TState, TEvent>(statDef);
 
@@ -204,6 +203,11 @@ public abstract class DeviceBase<TState, TEvent, TMetric> : IDevice
         Logger.Information("[{Device}] Session cancellation requested.", Config.Name);
     }
 
+
+    public void RefreshStatus()
+    {
+        UpdateAndNotify("Manual status refresh requested.");
+    }
 
     /// <summary>
     /// Updates the device status and notifies subscribers if a status update occurs.

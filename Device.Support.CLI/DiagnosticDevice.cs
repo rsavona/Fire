@@ -7,6 +7,7 @@ using DeviceSpace.Common.BaseClasses;
 using DeviceSpace.Common.Configurations;
 using DeviceSpace.Common.Contracts;
 using DeviceSpace.Common.Enums;
+using DeviceSpace.Common.Messaging;
 using Serilog;
 using Serilog.Core;
 using Serilog.Events;
@@ -33,15 +34,25 @@ public class DiagnosticDevice : DeviceBase<DiagnosticDevice.State, DiagnosticDev
     private const string CURSOR_HOME = "\x1b[H";
     private const string HIDE_CURSOR = "\x1b[?25l";
     private const string SHOW_CURSOR = "\x1b[?25h";
+    private const string DISABLE_WRAP = "\x1b[?7l";
+    private const string ENABLE_WRAP = "\x1b[?7h";
+    
+    // SCO Save/Restore (More standard across various telnet clients)
+    private const string SAVE_CURSOR = "\x1b[s";
+    private const string RESTORE_CURSOR = "\x1b[u";
 
     public event Action<string, Guid>? OnCommandReceived;
     private readonly ConcurrentDictionary<Guid, StreamWriter> _clients = new();
+    private readonly ConcurrentDictionary<Guid, int> _clientPages = new();
     private readonly ConcurrentDictionary<string, string> _statusTable = new();
     private readonly ConcurrentDictionary<string, DeviceAnnouncement> _announcements = new();
     private readonly ConcurrentDictionary<string, int> _deviceRows = new();
     private int _nextAvailableRow = 4; // Start after header
 
     private readonly ConcurrentDictionary<string, ConcurrentDictionary<Guid, byte>> _activeTraces = new();
+    private readonly ConcurrentDictionary<Guid, bool> _clientLocked = new();
+    private readonly ConcurrentDictionary<Guid, string> _clientUnlockBuffers = new();
+    private readonly ConcurrentDictionary<Guid, DateTime> _clientLastActivity = new();
 
     public DiagnosticDevice(IDeviceConfig config, IFireLogger logger, LoggingLevelSwitch ls, IMessageBus mb) 
         : base(config, logger, ls, State.Offline, Event.Start)
@@ -98,6 +109,30 @@ public class DiagnosticDevice : DeviceBase<DiagnosticDevice.State, DiagnosticDev
             .Permit(Event.Stop, State.Offline);
     }
 
+    private async Task UptimeLoggingLoopAsync(CancellationToken ct)
+    {
+        while (!ct.IsCancellationRequested && _isRunning)
+        {
+            try
+            {
+                await Task.Delay(TimeSpan.FromMinutes(30), ct);
+            }
+            catch (OperationCanceledException)
+            {
+                break;
+            }
+
+            if (ct.IsCancellationRequested || !_isRunning) break;
+
+            var up = DateTime.Now - _startTime;
+            var process = System.Diagnostics.Process.GetCurrentProcess();
+            var ram = process.WorkingSet64 / 1024 / 1024; // MB
+
+            Logger.Information("[DiagServer] Periodic Uptime Report | Uptime: {Days}d {Hours}h {Minutes}m | RAM: {Ram}MB | Threads: {Threads}",
+                up.Days, up.Hours, up.Minutes, ram, process.Threads.Count);
+        }
+    }
+
     private void StartServer()
     {
         try 
@@ -106,6 +141,8 @@ public class DiagnosticDevice : DeviceBase<DiagnosticDevice.State, DiagnosticDev
             _listener.Start();
             _isRunning = true;
             RegisterTask(Task.Run(AcceptClientsAsync));
+            RegisterTask(Task.Run(() => UptimeLoggingLoopAsync(ConnectionToken)));
+            RegisterTask(Task.Run(() => InactivityMonitorLoopAsync(ConnectionToken)));
             Logger.Information("[DiagServer] Telnet Diagnostic Dashboard started on port {Port}", _port);
         }
         catch (Exception ex)
@@ -118,6 +155,7 @@ public class DiagnosticDevice : DeviceBase<DiagnosticDevice.State, DiagnosticDev
     {
         _isRunning = false;
         _listener?.Stop();
+        CancelSession();
         foreach (var client in _clients.Values)
         {
             try { client.Dispose(); } catch { }
@@ -132,12 +170,8 @@ public class DiagnosticDevice : DeviceBase<DiagnosticDevice.State, DiagnosticDev
         string name = msg.DeviceId.DeviceName.ToUpper();
         if (name.Contains("MANAGER", StringComparison.OrdinalIgnoreCase)) return;
 
-        // 1. Assign a row if new
-        if (!_deviceRows.TryGetValue(name, out int row))
-        {
-            row = _nextAvailableRow++;
-            _deviceRows[name] = row;
-        }
+        // 1. Assign a row if new (Thread-safe assignment)
+        int row = _deviceRows.GetOrAdd(name, _ => Interlocked.Increment(ref _nextAvailableRow));
 
         // 2. Format the line (ANSI)
         string formattedLine = FormatStatusLine(msg);
@@ -191,10 +225,9 @@ public class DiagnosticDevice : DeviceBase<DiagnosticDevice.State, DiagnosticDev
 
     private void BroadcastToRow(int row, string text)
     {
-        // \x1b[s = Save Cursor Position
-        // \x1b[u = Restore Cursor Position
-        // \x1b[K = Clear from cursor to end of line
-        string packet = $"\x1b[s\x1b[{row};1H\x1b[K{text}\x1b[u";
+        // Use SCO Save/Restore for better terminal compatibility
+        // Move to row, write text, then clear to end of line to avoid blanking start of line
+        string packet = $"{SAVE_CURSOR}\x1b[{row};1H{text}\x1b[K{RESTORE_CURSOR}";
         foreach (var client in _clients.Values)
         {
             try { client.Write(packet); } catch { /* Socket likely closed */ }
@@ -214,6 +247,37 @@ public class DiagnosticDevice : DeviceBase<DiagnosticDevice.State, DiagnosticDev
         }
     }
 
+    private async Task InactivityMonitorLoopAsync(CancellationToken ct)
+    {
+        while (!ct.IsCancellationRequested && _isRunning)
+        {
+            await Task.Delay(TimeSpan.FromSeconds(5), ct);
+            var now = DateTime.Now;
+            foreach (var id in _clientLastActivity.Keys)
+            {
+                if (_clientLastActivity.TryGetValue(id, out var last) && (now - last) > TimeSpan.FromSeconds(30))
+                {
+                    if (!_clientLocked.TryGetValue(id, out var isLocked) || !isLocked)
+                    {
+                        _clientLocked[id] = true;
+                        _clientUnlockBuffers[id] = "";
+                        UpdateClientHeader(id);
+                    }
+                }
+            }
+        }
+    }
+
+    private void UpdateClientHeader(Guid id)
+    {
+        if (_clients.TryGetValue(id, out var writer))
+        {
+            bool isLocked = _clientLocked.GetOrAdd(id, true);
+            string lockStatus = isLocked ? "\x1b[91mLOCKED" : "\x1b[92mUNLOCKED";
+            writer.Write($"{SAVE_CURSOR}\x1b[1;140H {lockStatus}\x1b[0m {RESTORE_CURSOR}");
+        }
+    }
+
     private async Task HandleNewConnection(TcpClient client)
     {
         Guid clientId = Guid.NewGuid();
@@ -226,11 +290,19 @@ public class DiagnosticDevice : DeviceBase<DiagnosticDevice.State, DiagnosticDev
 
             if (_clients.TryAdd(clientId, writer))
             {
-                // Initialize the terminal for the user (Reset and print header)
-                writer.Write(CLEAR_SCREEN + CURSOR_HOME + HIDE_CURSOR);
-                writer.Write($"\x1b[1;1H\x1b[48;2;0;90;190m\x1b[37m FORTNA FIRE REMOTE DASHBOARD - HOST: {Config.Name} | STARTED: {_startTime:HH:mm:ss} \x1b[0m");
-                writer.Write($"\x1b[2;1H\x1b[90m{"Device Name",-14} HB {"Status",-12} | Connect | PsTm ms | ↓IN /^OUT | Errors | Res:T/C/D | Time     | Comment\x1b[0m");
-                writer.Write($"\x1b[3;1H\x1b[90m{new string('-', 150)}\x1b[0m");
+                _clientLocked[clientId] = true;
+                _clientLastActivity[clientId] = DateTime.Now;
+                _clientUnlockBuffers[clientId] = "";
+
+                // Initialize the terminal: Clear, Home, Hide Cursor, Disable Wrap
+                writer.Write(CLEAR_SCREEN + CURSOR_HOME + HIDE_CURSOR + DISABLE_WRAP);
+                
+                string header = $"\x1b[1;1H\x1b[48;2;0;90;190m\x1b[37m FORTNA FIRE REMOTE DASHBOARD - HOST: {Config.Name} | STARTED: {_startTime:HH:mm:ss} \x1b[0m";
+                string subHeader = $"\x1b[2;1H\x1b[90m{"Device Name",-14} HB {"Status",-12} | Connect | PsTm ms | ↓IN /^OUT | Errors | Res:T/C/D | Time     | Comment\x1b[0m";
+                string divLine = $"\x1b[3;1H\x1b[90m{new string('-', 160)}\x1b[0m";
+
+                writer.Write(header + subHeader + divLine);
+                UpdateClientHeader(clientId);
                 
                 // Send current snapshot immediately so they don't wait for updates
                 foreach (var entry in _deviceRows)
@@ -251,19 +323,41 @@ public class DiagnosticDevice : DeviceBase<DiagnosticDevice.State, DiagnosticDev
     {
         try
         {
+            _clientPages[id] = 1;
             while (_isRunning)
             {
-                // Position prompt 2 lines below the last device
-                int promptRow = _nextAvailableRow + 1;
-                Reply(id, "Command (HELP for list) > ", promptRow);
+                // Position prompt below the last device. Use SAVE_CURSOR so background updates restore correctly.
+                int promptRow = Math.Max(_nextAvailableRow + 1, 6);
+                Reply(id, "Command (HELP for list) > ", promptRow, true);
 
                 var cmd = await reader.ReadLineAsync();
                 if (cmd == null) break;
-                if (string.IsNullOrWhiteSpace(cmd)) continue;
+                
+                _clientLastActivity[id] = DateTime.Now;
 
                 string input = cmd.Trim();
                 if (input.ToUpper() == "EXIT" || input.ToUpper() == "QUIT") break;
                 
+                if (_clientLocked.TryGetValue(id, out var isLocked) && isLocked)
+                {
+                    var buffer = _clientUnlockBuffers.GetOrAdd(id, "") + input.ToLower();
+                    if (buffer.Contains("fortna"))
+                    {
+                        _clientLocked[id] = false;
+                        _clientUnlockBuffers[id] = "";
+                        UpdateClientHeader(id);
+                        Reply(id, "Console UNLOCKED.", promptRow + 1);
+                    }
+                    else
+                    {
+                        // Maintain a small buffer
+                        if (buffer.Length > 20) buffer = buffer.Substring(buffer.Length - 10);
+                        _clientUnlockBuffers[id] = buffer;
+                        Reply(id, "Console LOCKED. Type 'fortna' to unlock.", promptRow + 1);
+                    }
+                    continue;
+                }
+
                 if (!HandleInternalCommand(id, input))
                 {
                     OnCommandReceived?.Invoke(input, id);
@@ -272,9 +366,13 @@ public class DiagnosticDevice : DeviceBase<DiagnosticDevice.State, DiagnosticDev
         }
         finally
         {
+            _clientPages.TryRemove(id, out _);
+            _clientLocked.TryRemove(id, out _);
+            _clientUnlockBuffers.TryRemove(id, out _);
+            _clientLastActivity.TryRemove(id, out _);
             if (_clients.TryRemove(id, out var writer))
             {
-                try { writer.Write(SHOW_CURSOR); } catch { }
+                try { writer.Write(SHOW_CURSOR + ENABLE_WRAP); } catch { }
             }
             client.Close();
         }
@@ -290,7 +388,42 @@ public class DiagnosticDevice : DeviceBase<DiagnosticDevice.State, DiagnosticDev
 
         switch (verb)
         {
+            case "1":
+                LogControl.LevelSwitch.MinimumLevel = LogEventLevel.Information;
+                Reply(clientId, "Global Log Level set to INFORMATION", replyRow);
+                return true;
+
+            case "2":
+                LogControl.LevelSwitch.MinimumLevel = LogEventLevel.Debug;
+                Reply(clientId, "Global Log Level set to DEBUG", replyRow);
+                return true;
+
+            case "3":
+                LogControl.LevelSwitch.MinimumLevel = LogEventLevel.Verbose;
+                Reply(clientId, "Global Log Level set to VERBOSE", replyRow);
+                return true;
+
+            case "T":
+                var topicT = MessageBusTopic.ConsoleCommand.ToString();
+                _ = _messageBus.PublishAsync(topicT, new MessageEnvelope(MessageBusTopic.ConsoleCommand, "RELEASE_TOTE"));
+                Reply(clientId, "Sent RELEASE_TOTE command to bus", replyRow);
+                return true;
+
+            case "L":
+                RefreshClient(clientId);
+                var topicRefresh = MessageBusTopic.SystemControl.ToString();
+                var msgRefresh = new SystemControlMessage(SystemCommand.RefreshStatus);
+                _ = _messageBus.PublishAsync(topicRefresh, new MessageEnvelope(MessageBusTopic.SystemControl, msgRefresh));
+                Reply(clientId, "Triggered Global Status Refresh", replyRow);
+                return true;
+
             case "HELP":
+                ShowHelp(clientId, replyRow);
+                return true;
+
+            case "NEXT":
+                int currentPage = _clientPages.GetOrAdd(clientId, 1);
+                _clientPages[clientId] = currentPage == 1 ? 2 : 1;
                 ShowHelp(clientId, replyRow);
                 return true;
 
@@ -475,19 +608,34 @@ public class DiagnosticDevice : DeviceBase<DiagnosticDevice.State, DiagnosticDev
 
     private void ShowHelp(Guid clientId, int startRow)
     {
+        int page = _clientPages.GetOrAdd(clientId, 1);
         StringBuilder sb = new StringBuilder();
-        sb.AppendLine("--- AVAILABLE COMMANDS ---");
-        sb.AppendLine("LOG [Device] [Level] - Set log level (e.g. LOG TPNA2 Debug)");
-        sb.AppendLine("DESC [Device]        - Show device metadata & supported commands");
-        sb.AppendLine("RESTART [Device]     - Cycle a device offline then online");
-        sb.AppendLine("TRACE [Topic]        - Stream messages from a topic (e.g. TRACE TPNA2.DREQM.SNC302)");
-        sb.AppendLine("UNTRACE [Topic]      - Stop streaming a topic (or all if omitted)");
-        sb.AppendLine("PUB [Topic] [Msg]    - Manually inject a message into the bus");
-        sb.AppendLine("UPTIME               - Show system resource stats");
-        sb.AppendLine("CLS                  - Clear and refresh the dashboard");
-        sb.AppendLine("HELP                 - Show this help");
-        sb.AppendLine("EXIT/QUIT            - Disconnect");
-        sb.AppendLine("--------------------------");
+        
+        if (page == 1)
+        {
+            sb.AppendLine("--- AVAILABLE COMMANDS (PAGE 1/2) ---");
+            sb.AppendLine("LOG [Device] [Level] - Set log level (e.g. LOG TPNA2 Debug)");
+            sb.AppendLine("DESC [Device]        - Show device metadata & supported commands");
+            sb.AppendLine("RESTART [Device]     - Cycle a device offline then online");
+            sb.AppendLine("ONLINE [Device]      - Set device state to ONLINE");
+            sb.AppendLine("OFFLINE [Device]     - Set device state to OFFLINE");
+            sb.AppendLine("NEXT                 - Show next page of commands");
+            sb.AppendLine("HELP                 - Show this help");
+            sb.AppendLine("-------------------------------------");
+        }
+        else
+        {
+            sb.AppendLine("--- AVAILABLE COMMANDS (PAGE 2/2) ---");
+            sb.AppendLine("TRACE [Topic]        - Stream messages from a topic");
+            sb.AppendLine("UNTRACE [Topic]      - Stop streaming a topic");
+            sb.AppendLine("PUB [Topic] [Msg]    - Manually inject a message into the bus");
+            sb.AppendLine("UPTIME               - Show system resource stats");
+            sb.AppendLine("CLS                  - Clear and refresh the dashboard");
+            sb.AppendLine("NEXT                 - Show previous page of commands");
+            sb.AppendLine("EXIT/QUIT            - Disconnect");
+            sb.AppendLine("-------------------------------------");
+        }
+
         Reply(clientId, sb.ToString(), startRow);
     }
 
@@ -495,10 +643,13 @@ public class DiagnosticDevice : DeviceBase<DiagnosticDevice.State, DiagnosticDev
     {
         if (_clients.TryGetValue(clientId, out var writer))
         {
-            writer.Write(CLEAR_SCREEN + CURSOR_HOME + HIDE_CURSOR);
-            writer.Write($"\x1b[1;1H\x1b[48;2;0;90;190m\x1b[37m FORTNA FIRE REMOTE DASHBOARD - HOST: {Config.Name} | STARTED: {_startTime:HH:mm:ss} \x1b[0m");
-            writer.Write($"\x1b[2;1H\x1b[90m{"Device Name",-14} HB {"Status",-12} | Connect | PsTm ms | ↓IN /^OUT | Errors | Time     | Comment\x1b[0m");
-            writer.Write($"\x1b[3;1H\x1b[90m{new string('-', 140)}\x1b[0m");
+            writer.Write(CLEAR_SCREEN + CURSOR_HOME + HIDE_CURSOR + DISABLE_WRAP);
+            
+            string header = $"\x1b[1;1H\x1b[48;2;0;90;190m\x1b[37m FORTNA FIRE REMOTE DASHBOARD - HOST: {Config.Name} | STARTED: {_startTime:HH:mm:ss} \x1b[0m";
+            string subHeader = $"\x1b[2;1H\x1b[90m{"Device Name",-14} HB {"Status",-12} | Connect | PsTm ms | ↓IN /^OUT | Errors | Res:T/C/D | Time     | Comment\x1b[0m";
+            string divLine = $"\x1b[3;1H\x1b[90m{new string('-', 160)}\x1b[0m";
+
+            writer.Write(header + subHeader + divLine);
 
             foreach (var entry in _deviceRows)
             {
@@ -510,26 +661,32 @@ public class DiagnosticDevice : DeviceBase<DiagnosticDevice.State, DiagnosticDev
         }
     }
 
-    public void Reply(Guid clientId, string message, int startRow = 45)
+    public void Reply(Guid clientId, string message, int startRow = 45, bool saveCursor = false)
     {
         if (_clients.TryGetValue(clientId, out var writer))
         {
-            // Use \x1b[K to clear each line before writing to prevent ghosting
             try 
             { 
                 var lines = message.Split('\n');
                 foreach(var line in lines)
                 {
-                    writer.Write($"\x1b[{startRow++};1H\x1b[K{line.TrimEnd('\r')}");
+                    writer.Write($"\x1b[{startRow++};1H{line.TrimEnd('\r')}\x1b[K");
                 }
                 // Also clear a few lines below to keep the prompt area tidy
                 writer.Write($"\x1b[{startRow};1H\x1b[K");
+
+                // If this is a persistent prompt, save the cursor position here
+                if (saveCursor) writer.Write(SAVE_CURSOR);
             } 
             catch { }
         }
     }
 
-    public override async Task StartAsync(CancellationToken token) => await Machine.FireAsync(Event.Start);
+    public override async Task StartAsync(CancellationToken token)
+    {
+        PrepareSessionToken(token);
+        await Machine.FireAsync(Event.Start);
+    }
     public override async Task StopAsync(CancellationToken token)
     {
         Logger.Information("[{Dev}] Shutting down gracefully...", Config.Name);

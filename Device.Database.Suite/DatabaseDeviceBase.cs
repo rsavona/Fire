@@ -10,15 +10,18 @@ namespace Device.Database.Suite;
 public abstract class DatabaseDeviceBase : ClientDeviceBase, IDatabaseDevice
 {
     protected string ConnectionString { get; } = string.Empty;
+    public bool Initialize { get; private set; }
 
     protected DatabaseDeviceBase(IDeviceConfig config, IFireLogger logger) 
         : base(config, logger, new LoggingLevelSwitch(), needsHb: true)
     {
         ConnectionString = ConfigurationLoader.GetOptionalConfig(config.Properties, "ConnectionString", string.Empty);
+        Initialize = ConfigurationLoader.GetOptionalConfig(config.Properties, "Initialize", false);
     }
 
-    public abstract Task<IEnumerable<T>> QueryAsync<T>(string sql, object? parameters = null, CommandType commandType = CommandType.Text);
-    public abstract Task<int> ExecuteAsync(string sql, object? parameters = null, CommandType commandType = CommandType.Text);
+    public abstract Task InitializeDatabaseAsync();
+    public abstract Task<IEnumerable<T>> QueryAsync<T>(string sql, object? parameters = null, CommandType commandType = CommandType.Text, bool track = true);
+    public abstract Task<int> ExecuteAsync(string sql, object? parameters = null, CommandType commandType = CommandType.Text, bool track = true);
 
     // ClientDeviceBase Requirements
     public override Task SendAsync(string message, CancellationToken token, bool fireEvent = true)
