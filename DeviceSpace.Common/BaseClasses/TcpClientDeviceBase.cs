@@ -16,8 +16,8 @@ public abstract class TcpClientDeviceBase : ClientDeviceBase
     private readonly int _port;
     private NetworkStream? TransportStream { get; set; }
 
-    public TcpClientDeviceBase(IDeviceConfig config, IFireLogger logger, LoggingLevelSwitch ls, bool needsHb = false)
-        : base(config, logger, ls, needsHb)
+    public TcpClientDeviceBase(IMessageBus bus, IDeviceConfig config, IFireLogger logger, LoggingLevelSwitch ls, bool needsHb = false)
+        : base(bus, config, logger, ls, needsHb)
     {
         _host = ConfigurationLoader.GetRequiredConfig<string>(config.Properties, "IPAddress");
         _port = ConfigurationLoader.GetRequiredConfig<int>(config.Properties, "Port");
@@ -123,7 +123,6 @@ public abstract class TcpClientDeviceBase : ClientDeviceBase
     {
         if (client == null || !client.Connected)
         {
-            Tracker.SetConnectionCount(0);
             return false;
         }
 
@@ -136,7 +135,6 @@ public abstract class TcpClientDeviceBase : ClientDeviceBase
                 if (client.Client.Receive(buff, SocketFlags.Peek) == 0)
                 {
                     Logger.Warning("[{Dev}] Peer closed the connection (Zero-byte receive).", Config.Name);
-                    Tracker.SetConnectionCount(0);
                     return false;
                 }
             }
@@ -144,13 +142,9 @@ public abstract class TcpClientDeviceBase : ClientDeviceBase
         catch (SocketException ex)
         {
             Logger.Debug("[{Dev}] Socket health check failed: {Msg}", Config.Name, ex.Message);
-            Tracker.SetConnectionCount(0);
             return false;
         }
 
-        if (Machine.State == State.Connected)
-            Tracker.SetConnectionCount(1);
-            
         return true;
     }
 
@@ -163,6 +157,9 @@ public abstract class TcpClientDeviceBase : ClientDeviceBase
         {
             bool stateIsActive = Machine.State is State.Connected;
             bool socketIsActive = CheckTcpConnection(this._tcpClient);
+
+            // Update the connection count based on both state and socket health
+            Tracker.SetConnectionCount(stateIsActive && socketIsActive ? 1 : 0);
 
             return stateIsActive && socketIsActive;
         }

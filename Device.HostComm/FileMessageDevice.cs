@@ -23,8 +23,8 @@ public class FileMessageDevice : DeviceBase<FileMessageDevice.State, FileMessage
     private FileSystemWatcher? _watcher;
     private CancellationTokenSource? _workerCts;
 
-    public FileMessageDevice(IDeviceConfig config, IFireLogger logger, LoggingLevelSwitch swtch)
-        : base(config, logger, swtch, State.Offline, Event.Start)
+    public FileMessageDevice(IMessageBus bus, IDeviceConfig config, IFireLogger logger, LoggingLevelSwitch swtch)
+        : base(bus, config, logger, swtch, State.Offline, Event.Start)
     {
         _payloadParser = PayloadParserFactory.Create(config);
         

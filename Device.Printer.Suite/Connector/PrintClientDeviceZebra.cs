@@ -51,10 +51,11 @@ public class PrintClientDeviceZebra : TcpClientDeviceBase, IMessageProvider, ITc
     /// <param name="zebraLogger"></param>
     /// <param name="ls"></param>
     public PrintClientDeviceZebra(
+        IMessageBus bus,
         IDeviceConfig config,
         IFireLogger zebraLogger,
         LoggingLevelSwitch ls)
-        : base(config, zebraLogger, ls, true)
+        : base(bus, config, zebraLogger, ls, true)
     {
         // Initialize ZplString default if needed
         ErrorLabel = ZplString.CreateErrorLabel("Zebra Connection Error");

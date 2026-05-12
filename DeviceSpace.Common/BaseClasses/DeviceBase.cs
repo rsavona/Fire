@@ -16,6 +16,7 @@ public abstract class DeviceBase<TState, TEvent, TMetric> : IDevice
 {
     // --- Core Dependencies ---
     protected readonly StateMachine<TState, TEvent> Machine;
+    protected readonly IMessageBus MessageBus;
     public IDeviceConfig Config { get; }
     public readonly DeviceStatusTracker<TState, TEvent> Tracker;
     protected readonly IFireLogger Logger;
@@ -98,9 +99,10 @@ public abstract class DeviceBase<TState, TEvent, TMetric> : IDevice
     /// <param name="logLvl"></param>
     /// <param name="statDef"></param>
     /// <param name="eventDef"></param>
-    protected DeviceBase(IDeviceConfig config, IFireLogger logger, LoggingLevelSwitch logLvl, TState statDef,
+    protected DeviceBase(IMessageBus bus, IDeviceConfig config, IFireLogger logger, LoggingLevelSwitch logLvl, TState statDef,
         TEvent eventDef)
     {
+        MessageBus = bus;
         Config = config;
         _lastError = "";
         Logger = logger.WithContext("DeviceName", config.Name);
@@ -110,7 +112,7 @@ public abstract class DeviceBase<TState, TEvent, TMetric> : IDevice
 
     
         LogSwitch.MinimumLevel = LogEventLevel.Verbose;
-        Key = new DeviceKey("SYS", config.Name);
+        Key = new DeviceKey("SYS", config.Name, config.CoreName);
         Tracker = new DeviceStatusTracker<TState, TEvent>(statDef, eventDef);
 
         Machine = new StateMachine<TState, TEvent>(statDef);

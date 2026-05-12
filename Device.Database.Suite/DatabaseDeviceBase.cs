@@ -12,8 +12,8 @@ public abstract class DatabaseDeviceBase : ClientDeviceBase, IDatabaseDevice
     protected string ConnectionString { get; } = string.Empty;
     public bool Initialize { get; private set; }
 
-    protected DatabaseDeviceBase(IDeviceConfig config, IFireLogger logger) 
-        : base(config, logger, new LoggingLevelSwitch(), needsHb: true)
+    protected DatabaseDeviceBase(IMessageBus bus, IDeviceConfig config, IFireLogger logger) 
+        : base(bus, config, logger, new LoggingLevelSwitch(), needsHb: true)
     {
         ConnectionString = ConfigurationLoader.GetOptionalConfig(config.Properties, "ConnectionString", string.Empty);
         Initialize = ConfigurationLoader.GetOptionalConfig(config.Properties, "Initialize", false);

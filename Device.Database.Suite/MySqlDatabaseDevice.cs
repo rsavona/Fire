@@ -5,8 +5,8 @@ using MySqlConnector;
 
 namespace Device.Database.Suite;
 
-public class MySqlDatabaseDevice(IDeviceConfig config, IFireLogger logger) 
-    : DatabaseDeviceBase(config, logger)
+public class MySqlDatabaseDevice(IMessageBus bus, IDeviceConfig config, IFireLogger logger) 
+    : DatabaseDeviceBase(bus, config, logger)
 {
     public override async Task InitializeDatabaseAsync()
     {

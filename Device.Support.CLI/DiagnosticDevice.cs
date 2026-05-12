@@ -26,7 +26,6 @@ public class DiagnosticDevice : DeviceBase<DiagnosticDevice.State, DiagnosticDev
     private TcpListener? _listener;
     private bool _isRunning;
     private readonly int _port;
-    private readonly IMessageBus _messageBus;
     private readonly DateTime _startTime;
 
     // ANSI Escape Sequences for Terminal Control
@@ -55,17 +54,16 @@ public class DiagnosticDevice : DeviceBase<DiagnosticDevice.State, DiagnosticDev
     private readonly ConcurrentDictionary<Guid, DateTime> _clientLastActivity = new();
 
     public DiagnosticDevice(IDeviceConfig config, IFireLogger logger, LoggingLevelSwitch ls, IMessageBus mb) 
-        : base(config, logger, ls, State.Offline, Event.Start)
+        : base(mb, config, logger, ls, State.Offline, Event.Start)
     {
         _startTime = DateTime.Now;
         _port = config.Properties.TryGetValue("Port", out var p) ? Convert.ToInt32(p) : 9999;
-        _messageBus = mb;
         
         ConfigureStateMachine();
 
         // Subscribe to status updates to keep our internal table fresh
-        _messageBus.SubscribeAsync(MessageBusTopic.DeviceStatus.ToString(), HandleStatusMessageAsync);
-        _messageBus.SubscribeAsync(MessageBusTopic.Discovery.ToString(), HandleDiscoveryMessageAsync);
+        MessageBus.SubscribeAsync(MessageBusTopic.DeviceStatus.ToString(), HandleStatusMessageAsync);
+        MessageBus.SubscribeAsync(MessageBusTopic.Discovery.ToString(), HandleDiscoveryMessageAsync);
     }
 
     private async Task HandleDiscoveryMessageAsync(MessageEnvelope? envelope, CancellationToken ct)
@@ -405,7 +403,7 @@ public class DiagnosticDevice : DeviceBase<DiagnosticDevice.State, DiagnosticDev
 
             case "T":
                 var topicT = MessageBusTopic.ConsoleCommand.ToString();
-                _ = _messageBus.PublishAsync(topicT, new MessageEnvelope(MessageBusTopic.ConsoleCommand, "RELEASE_TOTE"));
+                _ = MessageBus.PublishAsync(topicT, new MessageEnvelope(MessageBusTopic.ConsoleCommand, "RELEASE_TOTE"));
                 Reply(clientId, "Sent RELEASE_TOTE command to bus", replyRow);
                 return true;
 
@@ -413,7 +411,7 @@ public class DiagnosticDevice : DeviceBase<DiagnosticDevice.State, DiagnosticDev
                 RefreshClient(clientId);
                 var topicRefresh = MessageBusTopic.SystemControl.ToString();
                 var msgRefresh = new SystemControlMessage(SystemCommand.RefreshStatus);
-                _ = _messageBus.PublishAsync(topicRefresh, new MessageEnvelope(MessageBusTopic.SystemControl, msgRefresh));
+                _ = MessageBus.PublishAsync(topicRefresh, new MessageEnvelope(MessageBusTopic.SystemControl, msgRefresh));
                 Reply(clientId, "Triggered Global Status Refresh", replyRow);
                 return true;
 
@@ -512,7 +510,7 @@ public class DiagnosticDevice : DeviceBase<DiagnosticDevice.State, DiagnosticDev
                     string topic = parts[1].ToUpper();
                     var clients = _activeTraces.GetOrAdd(topic, _ => 
                     {
-                        _messageBus.SubscribeAsync(topic, (Func<MessageEnvelope, CancellationToken, Task>)HandleTraceMessageAsync);
+                        MessageBus.SubscribeAsync(topic, (Func<MessageEnvelope, CancellationToken, Task>)HandleTraceMessageAsync);
                         return new ConcurrentDictionary<Guid, byte>();
                     });
                     clients.TryAdd(clientId, 0);
@@ -550,7 +548,7 @@ public class DiagnosticDevice : DeviceBase<DiagnosticDevice.State, DiagnosticDev
                     string topicStr = parts[1].ToUpper();
                     string payload = string.Join(" ", parts.Skip(2));
                     var topic = new MessageBusTopic(topicStr);
-                    _ = _messageBus.PublishAsync(topicStr, new MessageEnvelope(topic, payload));
+                    _ = MessageBus.PublishAsync(topicStr, new MessageEnvelope(topic, payload));
                     Reply(clientId, $"Published message to {topicStr}", replyRow);
                 }
                 else
@@ -584,7 +582,7 @@ public class DiagnosticDevice : DeviceBase<DiagnosticDevice.State, DiagnosticDev
         // Topic: SYS.CONTROL.DEVICE_NAME
         var topic = new MessageBusTopic("SYS", "CONTROL", deviceName);
         var payload = new { Command = command, Timestamp = DateTime.UtcNow };
-        await _messageBus.PublishAsync(topic.ToString(), new MessageEnvelope(topic, payload));
+        await MessageBus.PublishAsync(topic.ToString(), new MessageEnvelope(topic, payload));
     }
 
     private void ShowDeviceDescription(Guid clientId, string deviceName, int startRow)

@@ -5,8 +5,8 @@ using Microsoft.Data.SqlClient;
 
 namespace Device.Database.Suite;
 
-public class MsSqlDatabaseDevice(IDeviceConfig config, IFireLogger logger) 
-    : DatabaseDeviceBase(config, logger)
+public class MsSqlDatabaseDevice(IMessageBus bus, IDeviceConfig config, IFireLogger logger) 
+    : DatabaseDeviceBase(bus, config, logger)
 {
     public override async Task InitializeDatabaseAsync()
     {

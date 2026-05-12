@@ -67,9 +67,9 @@ public abstract class TcpServerDeviceBase<TProcessor>
         
     }
 
-    protected TcpServerDeviceBase(IDeviceConfig config, IFireLogger logger, TProcessor processor,
+    protected TcpServerDeviceBase(IMessageBus bus, IDeviceConfig config, IFireLogger logger, TProcessor processor,
         LoggingLevelSwitch swtch, int port, ITerminationStrategy terminalStr, int maxClients = 1)
-        : base(config, logger, swtch, State.Offline, Event.Start)
+        : base(bus, config, logger, swtch, State.Offline, Event.Start)
     {
         Processor = processor;
         Port = port;
@@ -348,6 +348,7 @@ public abstract class TcpServerDeviceBase<TProcessor>
 
     private State ClientDisconnected(string clientId)
     {
+        Logger.Information("[{Dev}] Client Disconnected: {ClientId}", Config.Name, clientId);
         ConnectedClients.TryRemove(clientId, out _);
         
         Tracker.IncrementDisconnects();

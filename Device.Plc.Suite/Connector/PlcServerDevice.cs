@@ -37,8 +37,9 @@ public class PlcServerDevice : TcpServerDeviceBase<PlcMessageProcessor>, IMessag
     /// <param name="deviceLogger">
     /// An instance of ILogger used for logging messages and diagnostic information for the device.
     /// </param>
-    public PlcServerDevice(IDeviceConfig config, IFireLogger deviceLogger, LoggingLevelSwitch ls)
+    public PlcServerDevice(IMessageBus bus, IDeviceConfig config, IFireLogger deviceLogger, LoggingLevelSwitch ls)
         : base(
+            bus,
             config,
             deviceLogger,
             new PlcMessageProcessor(new PlcMessageParser(), config.Name, deviceLogger), ls,
@@ -156,9 +157,9 @@ public class PlcServerDevice : TcpServerDeviceBase<PlcMessageProcessor>, IMessag
     /// An instance of <see cref="MessageEnvelope"/> containing details about the received
     /// message, including client information, payload, and destination.
     /// </param>
-    private void OnProcessorMessageReceived(object message)
+    private async  Task OnProcessorMessageReceived(object message)
     {
-        if (message is not MessageEnvelope msg) return;
+        if (message is not MessageEnvelope msg)  return;
 
         Machine.Fire(Event.MessageReceived);
 

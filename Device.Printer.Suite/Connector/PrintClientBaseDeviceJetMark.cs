@@ -14,8 +14,8 @@ namespace Device.Printer.Suite.Connector
         /// <param name="config"></param>
         /// <param name="zebraLogger"></param>
         /// <param name="ls"></param>
-        public PrintClientBaseDeviceJetMark(IDeviceConfig config, IFireLogger zebraLogger, LoggingLevelSwitch ls) : base(
-            config, zebraLogger, ls)
+        public PrintClientBaseDeviceJetMark(IMessageBus bus, IDeviceConfig config, IFireLogger zebraLogger, LoggingLevelSwitch ls) : base(
+            bus, config, zebraLogger, ls)
         {
         }
         

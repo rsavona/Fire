@@ -52,9 +52,9 @@ public abstract class ClientDeviceBase : DeviceBase<ClientDeviceBase.State, Clie
     private int _timeout;
 
 
-    protected ClientDeviceBase(IDeviceConfig config, IFireLogger logger, LoggingLevelSwitch ls, bool
+    protected ClientDeviceBase(IMessageBus bus, IDeviceConfig config, IFireLogger logger, LoggingLevelSwitch ls, bool
         needsHb = false)
-        : base(config, logger, ls, State.Offline, Event.Start)
+        : base(bus, config, logger, ls, State.Offline, Event.Start)
     {
         _interval = ConfigurationLoader.GetOptionalConfig(Config.Properties, "HeartbeatIntervalMs", 5000);
         
@@ -369,7 +369,6 @@ public abstract class ClientDeviceBase : DeviceBase<ClientDeviceBase.State, Clie
         // 2. Only log and fire the event if we are actually starting from a dead state
         Logger.LogInfo("WCS Service Starting...");
         await Machine.FireAsync(Event.Start);
-        await OnStartAsync(cancellationToken);
     }
 
     public override async Task StopAsync(CancellationToken token)

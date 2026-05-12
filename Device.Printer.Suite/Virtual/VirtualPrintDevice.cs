@@ -18,8 +18,8 @@ public class VirtualPrintDevice : TcpServerDeviceBase<PrintMessageProcessor>
     private bool _isPaused = false;
     private bool _isHeadOpen = false;
 
-    public VirtualPrintDevice(IDeviceConfig config, IFireLogger logger, LoggingLevelSwitch ls)
-        : base(config, logger, new PrintMessageProcessor(logger), ls,
+    public VirtualPrintDevice(IMessageBus bus, IDeviceConfig config, IFireLogger logger, LoggingLevelSwitch ls)
+        : base(bus, config, logger, new PrintMessageProcessor(logger), ls,
             config.Properties.TryGetValue("Port", out var p) ? Convert.ToInt32(p) : 9100,
             terminalStr: new SequenceTerminationStrategy(
                 Encoding.ASCII.GetBytes("~HS"),
@@ -32,7 +32,12 @@ public class VirtualPrintDevice : TcpServerDeviceBase<PrintMessageProcessor>
         Processor.OnMessageError += OnProcessorMessageError;
     }
 
-       private void OnProcessorHBReceived(string client)
+    private Task OnProcessorMessageReceived(object arg)
+    {
+        throw new NotImplementedException();
+    }
+
+    private void OnProcessorHBReceived(string client)
     {
          Tracker.HeartBeat();
         UpdateAndNotify();
@@ -43,10 +48,7 @@ public class VirtualPrintDevice : TcpServerDeviceBase<PrintMessageProcessor>
     {
         OnError("Protocol", new Exception(errorMessage));
     }
-
-    private void OnProcessorMessageReceived(object message)
-    {
-    }
+    
 
     public void SetPaperStatus(bool isOut)
     {

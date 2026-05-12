@@ -9,7 +9,7 @@ using Serilog.Core;
 namespace Device.HostComm;
 
 /// <summary>
-/// A TCP Client Device that expects ETX-terminated messages and parses them 
+/// A TCP Client Device that expects CR-terminated messages and parses them 
 /// using a configurable strategy (Delimited, FixedLength, JSON, XML).
 /// </summary>
 public class TcpMessageClientDevice : TcpClientDeviceBase, IMessageProvider
@@ -17,21 +17,20 @@ public class TcpMessageClientDevice : TcpClientDeviceBase, IMessageProvider
     public event Func<object, object, Task>? MessageReceived;
     private readonly IPayloadParser _payloadParser;
 
-    public TcpMessageClientDevice(IDeviceConfig config, IFireLogger logger, LoggingLevelSwitch swtch)
-        : base(config, logger, swtch, config.Properties.ContainsKey("HeartbeatIntervalMs"))
+    public TcpMessageClientDevice(IMessageBus bus, IDeviceConfig config, IFireLogger logger, LoggingLevelSwitch swtch)
+        : base(bus, config, logger, swtch, config.Properties.ContainsKey("HeartbeatIntervalMs"))
     {
         _payloadParser = PayloadParserFactory.Create(config);
     }
 
     protected override async Task HandleReceivedDataAsync(string incomingData)
     {
-        // Strip ETX if present at the end
-        string sanitized = incomingData.TrimEnd('\u0003');
+        // Strip CR if present at the end
+        string sanitized = incomingData.TrimEnd('\r');
         
-        var parsedPayload = _payloadParser.Parse(sanitized);
-        
-        var topic = new MessageBusTopic(Config.Name, "Inbound", "Server");
-        var envelope = new MessageEnvelope(topic, parsedPayload, 0, "Server");
+        // Use a generic topic that matches the chamber route source
+        var topic = new MessageBusTopic(Config.Name, "Inbound");
+        var envelope = new MessageEnvelope(topic, sanitized, 0, "Server");
 
         if (MessageReceived != null)
         {

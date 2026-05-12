@@ -42,10 +42,11 @@ public class VirtualPlcDevice : TcpClientDeviceBase, IMessageProvider
     public event Func<object, object, Task>? MessageReceived;
 
     public VirtualPlcDevice(
+        IMessageBus bus,
         IDeviceConfig config,
         IFireLogger logger,
         LoggingLevelSwitch levelSwitch)
-        : base(config, logger, levelSwitch, true)
+        : base(bus, config, logger, levelSwitch, true)
     {
         // Robustly load DecisionPoints (support string, string list, or JsonElement array)
         string? rawChainString = null;

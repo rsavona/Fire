@@ -41,8 +41,8 @@ namespace Device.ActiveMQ
         public event Func<object, object, Task> MessageReceived;
 
         // --- Constructor ---
-        public ActiveMqDevice(IDeviceConfig config, IFireLogger deviceLogger, LoggingLevelSwitch ls)
-            : base(config, deviceLogger, ls, true)
+        public ActiveMqDevice(IMessageBus bus, IDeviceConfig config, IFireLogger deviceLogger, LoggingLevelSwitch ls)
+            : base(bus, config, deviceLogger, ls, true)
         {
             // Load queues from config with fallbacks
             _defaultReadQueue = ConfigurationLoader.GetOptionalConfig(config.Properties, "DefaultReadQueue", "");
@@ -347,8 +347,8 @@ namespace Device.ActiveMQ
         {
             if (Machine.State != State.Connected)
             {
-                Logger.Warning("[{Dev}] Write blocked: Device in {State}", Config.Name, Machine.State);
-                throw new InvalidOperationException($"Port '{Key}' not connected.");
+                Logger.Warning("[{Dev}] Write blocked: Device in {State}. Message to {Queue} dropped.", Config.Name, Machine.State, queue);
+                return;
             }
 
             if (fireEvent)
@@ -395,6 +395,51 @@ namespace Device.ActiveMQ
         }
 
         /// <summary>
+        /// Writes a byte array to a queue.
+        /// </summary>
+        /// <param name="message">The byte array to be written.</param>
+        /// <param name="queue">The destination queue for the message.</param>
+        /// <param name="fireEvent">Specifies whether an event should be fired after writing the message. Defaults to true.</param>
+        public void Write(byte[] message, string queue, bool fireEvent = true)
+        {
+            if (Machine.State != State.Connected)
+            {
+                Logger.Warning("[{Dev}] Write blocked: Device in {State}. Byte message to {Queue} dropped.", Config.Name, Machine.State, queue);
+                return;
+            }
+
+            if (fireEvent)
+            {
+                Logger.Information("[{device}] TX (Bytes) >> {Queue}: {Len} bytes", Config.Name, queue, message.Length);
+            }
+
+            try
+            {
+                using var session = _connection?.CreateSession();
+                using var producer = session?.CreateProducer(session.GetQueue(queue));
+                var bytesMessage = session?.CreateBytesMessage(message);
+                producer?.Send(bytesMessage);
+                if (fireEvent)
+                {
+                    if (DoubleQueue)
+                    {
+                        using var producer2 = session?.CreateProducer(session.GetQueue(queue + "2"));
+                        var bytesMessage2 = session?.CreateBytesMessage(message);
+                        producer2?.Send(bytesMessage2);
+                    }
+
+                    Machine.Fire(Event.MessageSent);
+                }
+            }
+            catch (NMSException ex)
+            {
+                Logger.Error(ex, "[{method}] failure on {Queue}", "Write (Bytes)", queue);
+                var trigger = new StateMachine<State, Event>.TriggerWithParameters<string>(Event.ConnectionLost);
+                Machine.Fire(trigger, $"Write Error: {ex.Message}");
+            }
+        }
+
+        /// <summary>
         /// Writes a message to the default write queue.
         /// </summary>
         /// <param name="message">The message to be written to the default queue.</param>
@@ -415,6 +460,18 @@ namespace Device.ActiveMQ
         /// <param name="fireEvent">Specifies whether an event should be fired after writing the message. Defaults to true.</param>
         /// <returns>A task representing the asynchronous write operation.</returns>
         public async Task WriteAsync(string? message, string queue, bool fireEvent = true)
+        {
+            if (message != null) await Task.Run(() => Write(message, queue, fireEvent));
+        }
+
+        /// <summary>
+        /// Writes a byte array asynchronously to the specified queue, with an option to fire an event.
+        /// </summary>
+        /// <param name="message">The byte array to be written.</param>
+        /// <param name="queue">The destination queue for the message.</param>
+        /// <param name="fireEvent">Specifies whether an event should be fired after writing the message. Defaults to true.</param>
+        /// <returns>A task representing the asynchronous write operation.</returns>
+        public async Task WriteAsync(byte[]? message, string queue, bool fireEvent = true)
         {
             if (message != null) await Task.Run(() => Write(message, queue, fireEvent));
         }
@@ -443,6 +500,37 @@ namespace Device.ActiveMQ
             catch (NMSException ex)
             {
                 Logger.Error(ex, "[{Dev}] Read error on {Queue}", Config.Name, queue);
+                HandleConnectionError();
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// Reads a byte array synchronously from the specified message queue.
+        /// If no message is available within the timeout period, it returns null.
+        /// </summary>
+        /// <param name="queue">The name of the queue to read the message from.</param>
+        /// <returns>The byte array retrieved from the specified queue, or null if no message is received within the timeout period.</returns>
+        public byte[]? ReadBytes(string queue)
+        {
+            Logger.Verbose("[{Dev}] Synchronous ReadBytes requested from {Queue}", Config.Name, queue);
+            try
+            {
+                using ISession? session = _connection?.CreateSession();
+                using IMessageConsumer? consumer = session?.CreateConsumer(session.GetQueue(queue));
+
+                if (consumer?.Receive(TimeSpan.FromSeconds(2)) is IBytesMessage msg)
+                {
+                    byte[] payload = new byte[(int)msg.BodyLength];
+                    msg.ReadBytes(payload);
+                    return payload;
+                }
+
+                return null;
+            }
+            catch (NMSException ex)
+            {
+                Logger.Error(ex, "[{Dev}] ReadBytes error on {Queue}", Config.Name, queue);
                 HandleConnectionError();
                 throw;
             }
@@ -564,6 +652,20 @@ namespace Device.ActiveMQ
                         if (queue != _heartbeatQueue)
                         {
                             Logger.Information("[{Dev}] RX << {Queue}: {Data}", Config.Name, queue, payload);
+                            Machine.Fire(Event.MessageReceived);
+                        }
+
+                        messageReceivedCallback(payload, queue);
+                    }
+                    else if (message is IBytesMessage bytesMessage)
+                    {
+                        byte[] payload = new byte[(int)bytesMessage.BodyLength];
+                        bytesMessage.ReadBytes(payload);
+
+                        if (queue != _heartbeatQueue)
+                        {
+                            Logger.Information("[{Dev}] RX (Bytes) << {Queue}: {Len} bytes", Config.Name, queue,
+                                payload.Length);
                             Machine.Fire(Event.MessageReceived);
                         }
 
