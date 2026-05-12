@@ -19,16 +19,16 @@ public static class ConfigurationLoader
             _initCalled = true;
             string? fileName = args is { Length: > 0 } ? args[0] : null;
 
-            // If no file was provided via args, try to discover a Chamber file
+            // If no file was provided via args, try to discover a Fusion file
             if (string.IsNullOrEmpty(fileName))
             {
                 var directory = Directory.GetCurrentDirectory();
-                var chamberFiles = Directory.GetFiles(directory, "Chamber-*.json");
+                var fusionFiles = Directory.GetFiles(directory, "*.fusion");
 
-                if (chamberFiles.Length > 0)
+                if (fusionFiles.Length > 0)
                 {
-                    // Pick the most recently modified Chamber file
-                    fileName = chamberFiles
+                    // Pick the most recently modified Fusion file
+                    fileName = fusionFiles
                         .Select(f => new FileInfo(f))
                         .OrderByDescending(fi => fi.LastWriteTime)
                         .First()
@@ -36,8 +36,8 @@ public static class ConfigurationLoader
                 }
                 else
                 {
-                    // Fallback to the default .chamber name
-                    fileName = ".chamber";
+                    // Fallback to the default .fusion name
+                    fileName = ".fusion";
                 }
             }
 
@@ -67,19 +67,27 @@ public static class ConfigurationLoader
             var json = await File.ReadAllTextAsync(_loadedFilePath);
             var root = System.Text.Json.Nodes.JsonNode.Parse(json);
             
-            var devices = root?["AppSettings"]?["DeviceSpace"]?["DeviceList"]?.AsArray();
-            if (devices == null) return;
+            var cores = root?["AppSettings"]?["DeviceSpace"]?["Cores"]?.AsArray();
+            if (cores == null) return;
 
-            var device = devices.FirstOrDefault(d => d?["Name"]?.GetValue<string>() == deviceName);
-            if (device == null) return;
+            foreach (var core in cores)
+            {
+                var elements = core?["Elements"]?.AsArray();
+                if (elements == null) continue;
 
-            var properties = device["Properties"]?.AsObject();
-            if (properties == null) return;
+                var device = elements.FirstOrDefault(d => d?["Name"]?.GetValue<string>() == deviceName);
+                if (device != null)
+                {
+                    var properties = device["Properties"]?.AsObject();
+                    if (properties == null) continue;
 
-            properties[propertyName] = System.Text.Json.Nodes.JsonValue.Create(value);
+                    properties[propertyName] = System.Text.Json.Nodes.JsonValue.Create(value);
 
-            var options = new System.Text.Json.JsonSerializerOptions { WriteIndented = true };
-            await File.WriteAllTextAsync(_loadedFilePath, root.ToJsonString(options));
+                    var options = new System.Text.Json.JsonSerializerOptions { WriteIndented = true };
+                    await File.WriteAllTextAsync(_loadedFilePath, root.ToJsonString(options));
+                    return;
+                }
+            }
         }
         catch (Exception ex)
         {
@@ -89,29 +97,81 @@ public static class ConfigurationLoader
 
     public static IDeviceSpace? GetSpaceConfig()
     {
-        return _configuration?.GetSection("AppSettings:DeviceSpace").Get<DeviceSpace>();
+        var space = _configuration?.GetSection("AppSettings:DeviceSpace").Get<DeviceSpace>();
+        
+        if (space is { IsTestEnvironment: true })
+        {
+            InjectSimulationCore(space);
+        }
+
+        return space;
+    }
+
+    private static void InjectSimulationCore(DeviceSpace space)
+    {
+        // Don't inject twice if already present
+        if (space.Cores.Any(c => c.Name == "SIMULATION_CORE")) return;
+
+        var simCore = new CoreConfig { Name = "SIMULATION_CORE" };
+
+        // 1. Injected Verifier
+        simCore.Elements.Add(new DeviceConfig
+        {
+            Name = "TEST_VERIFIER",
+            Manager = "BlueprintVerifierManager",
+            Enable = true,
+            CoreName = "SIMULATION_CORE",
+            Properties = new Dictionary<string, object>
+            {
+                { "LogPath", "logs/fusion-bugs.md" },
+                { "TimeoutMs", 5000 }
+            }
+        });
+
+        // 2. Injected Virtual PLC (Stimulator)
+        // Find existing PLC configuration to mirror its endpoints if possible
+        var firstPlc = space.Cores.SelectMany(c => c.Elements).FirstOrDefault(e => e.Manager.Contains("Plc"));
+        var decisionPoints = firstPlc?.Properties.ContainsKey("DecisionPoints") == true 
+            ? firstPlc.Properties["DecisionPoints"] 
+            : "TEST_POINT:0";
+
+        simCore.Elements.Add(new DeviceConfig
+        {
+            Name = "TEST_STIMULATOR",
+            Manager = "VirtualPlcManager",
+            Enable = true,
+            CoreName = "SIMULATION_CORE",
+            Properties = new Dictionary<string, object>
+            {
+                { "IPAddress", "127.0.0.1" },
+                { "Port", 7999 },
+                { "DecisionPoints", decisionPoints },
+                { "TotalTotes", 999999 },
+                { "InductionFreq", 2000 } // Stimulate every 2 seconds
+            }
+        });
+
+        space.Cores.Add(simCore);
+        Serilog.Log.Information("[Configuration] Dynamic SIMULATION_CORE injected into Fusion Blueprint.");
     }
 
     public static List<IDeviceConfig> GetAllDeviceConfig()
     {
-        var deviceSpaceConfig = _configuration?.GetSection("AppSettings:DeviceSpace").Get<DeviceSpace>();
+        var deviceSpaceConfig = GetSpaceConfig();
         var allDevices = new List<IDeviceConfig>();
-        // Iterate the configuration file getting all devices
-        bool? any = false;
-        if (deviceSpaceConfig?.DeviceList != null)
+        
+        if (deviceSpaceConfig?.Cores != null)
         {
-            foreach (var unused in deviceSpaceConfig.DeviceList)
+            foreach (var core in deviceSpaceConfig.Cores)
             {
-                any = true;
-                break;
-            }
-
-            if (any != true) return allDevices;
-            foreach (var dev in deviceSpaceConfig.DeviceList)
-            {
-                if (dev.Enable)
+                if (core.Elements == null) continue;
+                foreach (var dev in core.Elements)
                 {
-                    allDevices.Add(dev);
+                    if (dev.Enable)
+                    {
+                        dev.CoreName = core.Name;
+                        allDevices.Add(dev);
+                    }
                 }
             }
         }
@@ -188,20 +248,21 @@ public static T? GetRequiredConfig<T>(Dictionary<string, object> properties, str
     /// </summary>
     public static List<WorkflowConfig> GetAllWorkflowConfig()
     {
-        // Get the root object
-        var deviceSpaceConfig = _configuration?.GetSection("AppSettings:DeviceSpace").Get<DeviceSpace>();
-
+        var deviceSpaceConfig = GetSpaceConfig();
         var activeWorkflows = new List<WorkflowConfig>();
 
-
-        if (deviceSpaceConfig?.WorkflowList.Any() == true)
+        if (deviceSpaceConfig?.Cores != null)
         {
-            foreach (var wf in deviceSpaceConfig.WorkflowList)
+            foreach (var core in deviceSpaceConfig.Cores)
             {
-                // Only return workflows that are explicitly enabled
-                if (wf.Enable)
+                if (core.Forces == null) continue;
+                foreach (var wf in core.Forces)
                 {
-                    activeWorkflows.Add(wf);
+                    if (wf.Enable && wf is WorkflowConfig wfc)
+                    {
+                        wfc.CoreName = core.Name;
+                        activeWorkflows.Add(wfc);
+                    }
                 }
             }
         }
@@ -214,23 +275,21 @@ public static T? GetRequiredConfig<T>(Dictionary<string, object> properties, str
     /// </summary>
     public static List<IDeviceConfig> GetDeviceConfig(string type)
     {
-        // Get the current snapshot of the config
-        var deviceSpaceConfig = _configuration?.GetSection("AppSettings:DeviceSpace").Get<DeviceSpace>();
+        var deviceSpaceConfig = GetSpaceConfig();
         var matchingDevices = new List<IDeviceConfig>();
 
-        if (deviceSpaceConfig?.DeviceList.Any() == true)
+        if (deviceSpaceConfig?.Cores != null)
         {
-            foreach (var dev in deviceSpaceConfig.DeviceList)
+            foreach (var core in deviceSpaceConfig.Cores)
             {
-                // Check if the Manager matches the requested type
-                // We use OrdinalIgnoreCase to be safe (e.g. "plcmanager" vs "PlcManager")
-                if (string.Equals(dev.Manager, type, StringComparison.OrdinalIgnoreCase))
+                if (core.Elements == null) continue;
+                foreach (var dev in core.Elements)
                 {
-                    // Ensure Scope is set, consistent with GetAllDeviceConfig
-
-                    // Optional: You might want to check 'if (dev.Enable)' here too 
-                    // if you only want enabled devices for this specific manager.
-                    matchingDevices.Add(dev);
+                    if (string.Equals(dev.Manager, type, StringComparison.OrdinalIgnoreCase))
+                    {
+                        dev.CoreName = core.Name;
+                        matchingDevices.Add(dev);
+                    }
                 }
             }
         }

@@ -38,6 +38,8 @@ Under "DeviceList" in the 'YOURSPACE'.json add a new device with
             }
         },
 ````
+
+ 
 ### Add a route
 Under the appropriate Workflow Element add a route to the "Routes" List. 
 The configuration for a route is
@@ -73,3 +75,18 @@ ActiveMQ Devices are responsible for any leg of a route that starts with its Dev
   * All messages to that queue are sent to the MessageQueue topic <i>"Destination"</i>. 
   * Message from the external MQ are placed in an envelope before they are sent to the MessageBus.
 
+** Other Devices avail
+A queue peeker is also available.
+````
+ {
+       "Name": "QueuePeeker",
+       "Manager": "ActiveMqQueuePeekManager",
+       "Enable": true,
+       "Properties": {
+         "ConnectionString": "activemq:tcp://localhost:61616",
+         "QueueName": "LOG.QUEUE",
+         "LogCount": 5,
+        "PeekIntervalMs": 10000
+        }
+       } 
+ ````

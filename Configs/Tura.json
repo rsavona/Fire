@@ -1,0 +1,47 @@
+{
+  "AppSettings": {
+    "DeviceSpace": {
+      "Name": "TuraSort",
+      "ColorConsole": true,
+      "DiagnosticPort": 9999,
+      "WorkflowList": [
+        {
+          "Name": "StandardSort",
+          "Type": "StandardSort",
+          "Enable": true,
+          "Routes": [
+            {
+              "Mode": 1,
+              "Name": "Route1-InductRequestToResponse",
+              "Source": "TPNA2.DReqM.PNALINE-2",
+              "Handler": "HandleInductionRoundRobinSort",
+              "Destination": "TPNA2.DRespM.PNALINE-2"
+            }
+          ]
+        }
+      ],
+      "DeviceList": [
+        {
+          "Name": "PLC1",
+          "Manager": "PlcDeviceManager",
+          "Enable": true,
+          "Properties": {
+            "DevicePort": "6999",
+            "DeviceTimeout": "15000"
+          }
+        },
+        {
+          "Name": "SQLServer",
+          "Manager": "DatabaseDeviceManager",
+          "Enable": true,
+          "Properties": {
+            "ConnectionString": "15000"
+          }
+        }
+      ]
+    }
+  }
+}
+ 
+
+

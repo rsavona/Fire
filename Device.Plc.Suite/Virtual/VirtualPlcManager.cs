@@ -25,7 +25,7 @@ public class VirtualPlcManager : DeviceManagerBase<VirtualPlcDevice>
     /// Simulation-specific setup.
     /// The base class already handles MessageReceived wiring if VirtualPlcDevice implements IMessageProvider.
     /// </summary>
-    protected override Task RegisterDeviceSourceRoutes(IDevice device)
+    protected override Task RegisterDeviceSourceBonds(IDevice device)
     {
         Logger.LogDebug("[{Dev}] Virtual PLC Manager initialized. Simulation ready.", device.Config.Name);
         

@@ -11,6 +11,7 @@ public class DatabaseDeviceRegistrar : IDeviceRegistrar
         services.AddTransient<MySqlDatabaseDevice>();
         services.AddTransient<MsSqlDatabaseDevice>();
         services.AddTransient<PostgreSqlDatabaseDevice>();
+        services.AddTransient<DatabasePruningDevice>();
 
         // Register the factory for IDatabaseDevice
         services.AddTransient<Func<IDeviceConfig, IFireLogger, IDatabaseDevice>>(provider => 
@@ -20,6 +21,7 @@ public class DatabaseDeviceRegistrar : IDeviceRegistrar
 
                 return dbType.ToUpper() switch
                 {
+                    "PRUNING" => ActivatorUtilities.CreateInstance<DatabasePruningDevice>(provider, config, logger),
                     "MYSQL" => ActivatorUtilities.CreateInstance<MySqlDatabaseDevice>(provider, config, logger),
                     "POSTGRESQL" => ActivatorUtilities.CreateInstance<PostgreSqlDatabaseDevice>(provider, config, logger),
                     _ => ActivatorUtilities.CreateInstance<MsSqlDatabaseDevice>(provider, config, logger)

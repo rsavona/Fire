@@ -22,8 +22,9 @@ public class  PlcDeviceManager : DeviceManagerBase<PlcServerDevice>
 
     public PlcDeviceManager(IMessageBus bus, List<IDeviceConfig> configs,
         IFireLogger<DeviceManagerBase<PlcServerDevice>> logger,
-        Func<IDeviceConfig, IFireLogger, PlcServerDevice> deviceFactory)
-        : base(bus, configs, logger, deviceFactory)
+        Func<IDeviceConfig, IFireLogger, PlcServerDevice> deviceFactory,
+        string managerName)
+        : base(bus, configs, logger, deviceFactory, managerName)
     {
     }
 
@@ -88,8 +89,16 @@ public class  PlcDeviceManager : DeviceManagerBase<PlcServerDevice>
             ct.ThrowIfCancellationRequested();
            
             var node = JsonNode.Parse(envelope.Payload?.ToString() ?? "{}");
-            var dp = node?["DecisionPoint"]?.GetValue<string>();
-            var gin = node?["GIN"]?.GetValue<int>();
+            if (node == null || node is not JsonObject obj) return;
+
+            // Helper to get property case-insensitively
+            JsonNode? GetProp(JsonObject o, string key) => 
+                o.FirstOrDefault(kvp => kvp.Key.Equals(key, StringComparison.OrdinalIgnoreCase)).Value;
+
+            var dp = GetProp(obj, "DecisionPoint")?.GetValue<string>() 
+                     ?? GetProp(obj, "decisionPoint")?.GetValue<string>();
+            var ginNode = GetProp(obj, "GIN") ?? GetProp(obj, "gin");
+            var gin = ginNode?.GetValue<int>();
 
             if (device == null || dp == null || gin == null) return;
             var key = new ResponseKey(dp, gin.Value);
@@ -97,16 +106,18 @@ public class  PlcDeviceManager : DeviceManagerBase<PlcServerDevice>
             // 2. Locate the original PLC requester
             if (_pendingResponses.TryRemove(key, out var request))
             {
+                var actionsNode = GetProp(obj, "Actions") ?? GetProp(obj, "actions");
+                var decisionPointsNode = GetProp(obj, "DecisionPoints") ?? GetProp(obj, "decisionPoints");
+
                 var responsePayload = new DecisionResponsePayload(dp, gin.Value,
-                    node!["Actions"]?.AsArray().Select(a => a?.ToString() ?? "").ToList() ?? new());
+                    actionsNode?.AsArray().Select(a => a?.ToString().Trim('"') ?? "").ToList() ?? 
+                    decisionPointsNode?.AsArray().Select(a => a?.ToString().Trim('"') ?? "").ToList() ?? new());
                 var responseMsg = PlcMessageParser.FrameResponse(responsePayload,topic.DeviceName );
-                
-                Logger.LogConveyableEvent(device.Key.DeviceName,$"Response from {envelope.Destination} to {request.Client}: {responseMsg}", 
-                    gin.ToString(), responsePayload.Actions, responsePayload.DecisionPoint);
-                    
-                var success = await request.MultiClientDevice.SendResponseAsync(responseMsg, request.Client); 
-                
-                
+
+                Logger.LogConveyableEvent(device.Key.DeviceName,$"Response from {envelope.Destination} to {request.Client}: {responseMsg}",
+                    gin.ToString(), responsePayload.DecisionPoints, responsePayload.DecisionPoint);
+
+                var success = await request.MultiClientDevice.SendResponseAsync(responseMsg, request.Client);
             }else
             { device.GetLogger().LogWarning("UNEXPECTED Message from the Message bus");}
         }

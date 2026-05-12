@@ -9,8 +9,9 @@ namespace Device.Printer.Suite.Virtual;
 public class VirtualPrinterManager : DeviceManagerBase<VirtualPrintDevice>
 {
     public VirtualPrinterManager(IMessageBus bus, List<IDeviceConfig> configs, IFireLogger<DeviceManagerBase<VirtualPrintDevice>> logger, 
-            Func<IDeviceConfig, IFireLogger, VirtualPrintDevice> deviceFactory)
-        : base(bus, configs, logger,deviceFactory) { }
+            Func<IDeviceConfig, IFireLogger, VirtualPrintDevice> deviceFactory,
+            string managerName)
+        : base(bus, configs, logger, deviceFactory, managerName) { }
     
     protected override Task OnDeviceMessageToMessageBusAsync(object? sender, object messageEnv) { return Task.CompletedTask;}
 

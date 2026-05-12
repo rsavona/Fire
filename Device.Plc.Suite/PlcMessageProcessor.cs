@@ -17,7 +17,7 @@ namespace Device.Plc.Suite
         private const char ETX = '\u0003';
 
         public event Action<string>? HeartbeatReceived;
-        public event Action<object>? MessageReceived;
+        public event Func<object, Task>? MessageReceived;
         public event Action<string>? OnMessageError;
 
         public PlcMessageProcessor(PlcMessageParser parser, string deviceName, IFireLogger logger)
@@ -132,7 +132,10 @@ namespace Device.Plc.Suite
                 var topic = new MessageBusTopic(_deviceName, topicType, decisionPoint);
                 var envelope = new MessageEnvelope(topic, plcMessage.Payload, gin, clientKey);
 
-                MessageReceived?.Invoke(envelope);
+                if (MessageReceived != null)
+                {
+                    await MessageReceived.Invoke(envelope);
+                }
                 anySucceeded = true;
             }
 

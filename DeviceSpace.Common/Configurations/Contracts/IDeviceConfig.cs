@@ -7,14 +7,25 @@ public interface IDeviceSpace
     {
         string Name { get; set;}
         bool ColorConsole { get; set; }
-        List<IDeviceConfig> DeviceList { get; set; }
-        List<IWorkflowConfig> WorkflowList { get; set; }
+        bool IsTestEnvironment { get; set; }
+        TimeSpan SimulationRuntime { get; set; }
+        TimeSpan StabilityDuration { get; set; }
+        List<ICoreConfig> Cores { get; set; }
     }
+
+    public interface ICoreConfig
+    {
+        string Name { get; set; }
+        List<IDeviceConfig> Elements { get; set; }
+        List<IWorkflowConfig> Forces { get; set; }
+    }
+
  public interface IDeviceConfig
     {
         string Name { get; set; }
         string Manager { get; set; }
         bool Enable { get; set; } // Added based on JSON
+        string CoreName { get; set; } // Parent Core
         Dictionary<string, object> Properties { get; set; }
 
     }
@@ -26,8 +37,9 @@ public interface IDeviceSpace
         string Name { get; set; } 
         string Type { get; set; }
         public bool Enable { get; set; } 
+        string CoreName { get; set; } // Parent Core
         // The list of routing rules
-        public List<WorkflowRoute> Routes { get; set; } 
+        public List<ForceBond> Bonds { get; set; } 
         Dictionary<string, object> Properties { get; set; }
     }
 

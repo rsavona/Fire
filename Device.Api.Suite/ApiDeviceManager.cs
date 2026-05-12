@@ -14,6 +14,7 @@ public class WcsMessageListener : BackgroundService //,  IDeviceManager
     
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        await Task.Yield();
         Debug.WriteLine("INFO: WCS Message Listener is booting up...");
 
         // 1. Connect to your message bus (ActiveMQ, RabbitMQ, etc.)

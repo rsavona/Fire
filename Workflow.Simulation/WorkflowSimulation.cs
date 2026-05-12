@@ -30,4 +30,17 @@ public class WorkflowSimulation : WorkflowBase
 
             return ld; // MessageEnvelope(new MessageBusTopic(route.Destination), response);
     }
+    private async Task<object?>? HandleLabelVerify(MessageEnvelope messageEnvelope, CancellationToken ct)
+    {
+            var t = messageEnvelope.Payload?.GetType().Name;
+            Logger.Debug("[{Workflow}] Received message from Message Bus {msg}", WorkflowKey.DeviceName,
+                messageEnvelope.Payload);
+          
+            
+
+            Logger.Debug("[{Workflow}] Generated response {msg}", WorkflowKey.DeviceName, messageEnvelope.Payload);
+            
+
+            return messageEnvelope.Payload; // MessageEnvelope(new MessageBusTopic(route.Destination), response);
+    }
 }

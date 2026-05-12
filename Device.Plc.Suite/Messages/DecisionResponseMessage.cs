@@ -18,7 +18,7 @@ public record DecisionResponsePayload(
     [property: JsonPropertyName("GIN")] 
     int Gin,
     [property: JsonPropertyName("Actions")]
-    List<string> Actions
+    List<string> DecisionPoints
 ) : PlcPayloadBase
 {
     [JsonIgnore] public override PlcMessageHeaders Header => PlcMessageHeaders.DRespM;

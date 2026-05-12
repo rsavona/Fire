@@ -13,11 +13,14 @@
     {
         // Synchronous Methods
         void Write(string message, string newQueue, bool fireEvent );
+        void Write(byte[] message, string newQueue, bool fireEvent);
    
         string Read(string newQueue);
+        byte[]? ReadBytes(string newQueue);
 
         // Asynchronous Methods
         Task WriteAsync(string message, string newQueue , bool fireEvent);
+        Task WriteAsync(byte[] message, string newQueue, bool fireEvent);
         //void ReadAsync(string newQueue);
         //void ReadAsync(Func<string> function);
 

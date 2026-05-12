@@ -20,3 +20,11 @@ public class SystemControlMessage
         Command = command;
     }
 }
+
+public class FlowEvent
+{
+    public string Source { get; set; } = string.Empty;
+    public string Force { get; set; } = string.Empty;
+    public string Destination { get; set; } = string.Empty;
+    public DateTime Timestamp { get; set; } = DateTime.UtcNow;
+}

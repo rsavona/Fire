@@ -10,13 +10,12 @@ public static class TestDataGenerator
     // --- EXISTING LABEL GENERATOR (Kept for reference) ---
     public static LabelDataFrcMessage? GenerateMockResponse(object request)
     {
-        var random = new Random();
+       
         List<string> bcs = MessageParser.GetBarcodes(request);
 
         string barcode = bcs.FirstOrDefault() ?? "9999999999";
 
-        string mockExpectedScan = "92384" + random.Next(100000, 999999).ToString() +
-                                  random.Next(100000, 999999).ToString();
+        string mockExpectedScan = RandomBarcode(barcode);
 
         // 2. Generate a mock ZPL string for the printerData field
         string mockZpl = $@"<?xml version=""1.0"" encoding=""UTF-8""?>
@@ -24,7 +23,7 @@ public static class TestDataGenerator
                                     <label>
                                         <variable name=""LPN"">{barcode}</variable>
                                         <variable name=""printedBarcode"">{mockExpectedScan}</variable>
-                                        <variable name=""printerName"">MOCK_PRINTER_{random.Next(1, 5)}</variable>
+                                        <variable name=""printerName"">MOCK_PRINTER</variable>
                                     </label>
                                 </labels>";
 
@@ -43,5 +42,22 @@ public static class TestDataGenerator
         };
         var g = Guid.NewGuid();
         return new LabelDataFrcMessage(g, controllerId, lineId, bcs, statusCode, statusMessage, labels);
+    }
+    public static string RandomBarcode(string barcode)
+    {
+        var random = new Random();
+        // .Next(10) generates a random integer from 0 up to 9.
+        int roll = random.Next(10); 
+
+        // 1 out of 10 chance (10%)
+        if (roll == 0) 
+        {
+            return "999" + barcode;
+        }
+        // 9 out of 10 chance (90%)
+        else 
+        {
+            return "123" + barcode;
+        }
     }
 }

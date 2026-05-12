@@ -144,10 +144,12 @@ namespace DeviceSpace.Common.TcpSocket
 
                     if (bytesRead == 0)
                     {
-                        _logger.Warning("[{ClientKey}] Remote host closed connection.", clientKey);
+                        _logger.Warning("[{ClientKey}] Remote host closed connection (Read returned 0 bytes).", clientKey);
                         DisconnectClient(clientKey);
                         break;
                     }
+
+                    _logger.Verbose("[{ClientKey}] Received {Count} bytes from socket.", clientKey, bytesRead);
 
                     if (_connectedClients.TryGetValue(clientKey, out var conn))
                     {
@@ -163,26 +165,34 @@ namespace DeviceSpace.Common.TcpSocket
                         // 2. Create a lightweight span of the current message state
                         var currentSpan = new ReadOnlySpan<byte>(messageBuffer, 0, messageLength);
 
-                        if (TerminationStrategy != null && TerminationStrategy.IsMessageComplete(currentSpan, b))
+                        if (TerminationStrategy != null)
                         {
-                            _logger.Debug("[{ClientKey}] ETX detected. Processing {Size} bytes.", clientKey,
-                                messageLength);
+                            bool isComplete = TerminationStrategy.IsMessageComplete(currentSpan, b);
 
-                            // 3. Pass the rented array directly. No more .ToArray()!
-                            var success = await _messageProcessor.ProcessMessageAsync(
-                                stream,
-                                messageBuffer,
-                                messageLength,
-                                clientKey,
-                                token);
+                            if (isComplete)
+                            {
+                                _logger.Information("[{ClientKey}] Message Terminator Detected (0x{Byte:X2}). Processing {Size} bytes.", clientKey, b,
+                                    messageLength);
 
-                            if (success)
-                            {
-                                messageLength = 0; // Reset index for the next message
-                            }
-                            else
-                            {
-                                _logger.Warning("[{ClientKey}] Processor returned failure. Disconnecting.", clientKey);
+                                // 3. Pass the rented array directly. No more .ToArray()!
+                                var success = await _messageProcessor.ProcessMessageAsync(
+                                    stream,
+                                    messageBuffer,
+                                    messageLength,
+                                    clientKey,
+                                    token);
+
+                                if (success)
+                                {
+                                    _logger.Debug("[{ClientKey}] Message processor successfully completed.", clientKey);
+                                    messageLength = 0; // Reset index for the next message
+                                }
+                                else
+                                {
+                                    _logger.Warning("[{ClientKey}] Processor returned failure. Disconnecting.", clientKey);
+                                    DisconnectClient(clientKey);
+                                    break;
+                                }
                             }
                         }
 
@@ -234,6 +244,7 @@ namespace DeviceSpace.Common.TcpSocket
             }
             if (!_connectedClients.TryGetValue(clientKey, out var connection))
             {
+                NotifyError($"Client Not Found ");
                 _logger.Warning("[{ClientKey}] Send failed: Client not found.", clientKey);
                 return false;
             }

@@ -67,7 +67,7 @@ public class DeviceManagerFactory : IDeviceManagerFactory
 
         var config = ConfigurationLoader.GetSpaceConfig();
 
-        List<IDeviceConfig> deviceList = ConfigurationLoader.GetDeviceConfig(managerType);
+        List<IDeviceConfig> elementList = ConfigurationLoader.GetDeviceConfig(managerType);
         //  Use ActivatorUtilities to create an instance. It can inject services
         //    from the DI container and also pass your 'config' section as a parameter
         //    to the device's constructor.
@@ -75,14 +75,14 @@ public class DeviceManagerFactory : IDeviceManagerFactory
         {
             var manager = (IDeviceManager)ActivatorUtilities.CreateInstance(
                 _serviceProvider,
-                deviceType, deviceList);
+                deviceType, elementList, managerType);
 
             return manager;
         }
         catch (Exception ex)
         {
             Log.Logger.Debug(  ex.Message, ex.StackTrace); 
-            Log.Logger.Error("DeviceManagerFactory", "exception", managerType, deviceType.Name, ex.Message);
+            Log.Logger.Error("ElementManagerFactory", "exception", managerType, deviceType.Name, ex.Message);
         }
 
         return null;

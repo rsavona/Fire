@@ -8,8 +8,9 @@ public class FileMessageDeviceManager : DeviceManagerBase<FileMessageDevice>
 {
     public FileMessageDeviceManager(IMessageBus bus, List<IDeviceConfig> configs,
         IFireLogger<DeviceManagerBase<FileMessageDevice>> logger,
-        Func<IDeviceConfig, IFireLogger, FileMessageDevice> deviceFactory)
-        : base(bus, configs, logger, deviceFactory)
+        Func<IDeviceConfig, IFireLogger, FileMessageDevice> deviceFactory,
+        string managerName)
+        : base(bus, configs, logger, deviceFactory, managerName)
     {
     }
 

@@ -5,7 +5,7 @@ namespace DeviceSpace.Common.Contracts;
 public interface IMessageProcessor
 {
     
-    public event Action<object>? MessageReceived;
+    public event Func<object, Task>? MessageReceived;
     
      public event Action<string>? OnMessageError;
      Task<bool> ProcessMessageAsync(

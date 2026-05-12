@@ -26,8 +26,9 @@ public class ActiveMqManager : DeviceManagerBase<ActiveMqDevice>
         IMessageBus bus,
         List<IDeviceConfig> config,
         IFireLogger<ActiveMqManager> logger, // Change to the specific manager type
-        Func<IDeviceConfig, IFireLogger, ActiveMqDevice> deviceFactory)
-        : base(bus, config, logger, deviceFactory)
+        Func<IDeviceConfig, IFireLogger, ActiveMqDevice> deviceFactory,
+        string managerName)
+        : base(bus, config, logger, deviceFactory, managerName)
     {
     }
 
@@ -35,7 +36,7 @@ public class ActiveMqManager : DeviceManagerBase<ActiveMqDevice>
     /// Registers the destination routes for the specified device if it is of type ActiveMqDevice.
     /// </summary>
     /// <param name="device">The device for which destination routes will be registered, expected to be an ActiveMqDevice.</param>
-    protected override void RegisterDeviceDestRoutes(IDevice device)
+    protected override void RegisterDeviceDestBonds(IDevice device)
     {
         var deviceLogger = Logger.WithContext("DeviceName", device.Key.DeviceName);
         if (device is not ActiveMqDevice mqdev)
@@ -45,14 +46,14 @@ public class ActiveMqManager : DeviceManagerBase<ActiveMqDevice>
         }
 
         var routes = ConfigurationLoader.GetAllWorkflowConfig()
-            .SelectMany(w => w.Routes)
+            .SelectMany(w => w.Bonds)
             .Where(r => r.Destination.StartsWith(device.Config.Name)).ToList();
         
-        deviceLogger.Information("[{device}] Manager initializing destination {count} Routes", device.Key.DeviceName,
+        deviceLogger.Information("[{device}] Manager initializing destination {count} Bonds", device.Key.DeviceName,
             routes.Count());
         foreach (var route in routes)
         {
-            mqdev.GetLogger().Information($"[{device.Config.Name}] Manager initializing Route: {route.Name}");
+            mqdev.GetLogger().Information($"[{device.Config.Name}] Manager initializing Bond: {route.Name}");
             MessageBus.SubscribeAsync(route.Destination, HandleBusMessageAsync);
         }
     }
@@ -61,20 +62,20 @@ public class ActiveMqManager : DeviceManagerBase<ActiveMqDevice>
     /// Finds routes whose source starts with the device name and registers them with the ActiveMQ device.
     /// </summary>
     /// <param name="device"></param>
-    protected override async Task RegisterDeviceSourceRoutes(IDevice device)
+    protected override async Task RegisterDeviceSourceBonds(IDevice device)
     {
         var deviceLogger = Logger.WithContext("DeviceName", device.Key.DeviceName);
         var routes = ConfigurationLoader.GetAllWorkflowConfig()
-            .SelectMany(w => w.Routes)
+            .SelectMany(w => w.Bonds)
             .Where(r => r.Source.StartsWith(device.Config.Name) && r.Mode > 0)
             .ToList();
 
-        deviceLogger.Information("[{device}] Manager initializing Source {count} Routes", device.Key.DeviceName,
+        deviceLogger.Information("[{device}] Manager initializing Source {count} Bonds", device.Key.DeviceName,
             routes.Count());
 
         foreach (var route in routes)
         {
-            deviceLogger.Information($"[{device.Config.Name}] Manager initializing Routes: {route.Name}");
+            deviceLogger.Information($"[{device.Config.Name}] Manager initializing Bonds: {route.Name}");
             var queueName = new MessageBusTopic(route.Source).Discriminator;
             if (device is not ActiveMqDevice dev) {
                 deviceLogger.Error("Wrong Device type");
@@ -83,7 +84,7 @@ public class ActiveMqManager : DeviceManagerBase<ActiveMqDevice>
             var result = await dev.ReadNotifyAsync(queueName); // Will notify the device when messages come in
             if (result)
             {
-                Logger.LogDebug($"[{device.Config.Name}] ActiveMQ Manager initialized Route: {route}");
+                Logger.LogDebug($"[{device.Config.Name}] ActiveMQ Manager initialized Bond: {route}");
 
                 if (_queueToBusMap.TryGetValue(queueName, out var list))
                 {
@@ -111,16 +112,20 @@ public class ActiveMqManager : DeviceManagerBase<ActiveMqDevice>
     /// <param name="message"></param>
     protected override Task OnDeviceMessageToMessageBusAsync(object? message, object sender)
     {
-        if (sender is not string devQue || message is not string msg) return Task.CompletedTask;
+        if (sender is not string devQue || message == null) return Task.CompletedTask;
 
-        var topicNameList = _queueToBusMap[devQue];
+        if (!_queueToBusMap.TryGetValue(devQue, out var topicNameList))
+        {
+            Logger.LogWarning("No mapping found for queue {Queue}", devQue);
+            return Task.CompletedTask;
+        }
+
         foreach (var path in topicNameList)
         {
             var topic = new MessageBusTopic(path);
 
-            Logger.LogDebug("[{Dev}] ActiveMQ Manager forwarding message to {topic}: {Msg}", devQue,
-                topic, msg);
-            MessageBus.PublishAsync(topic.ToString(), new MessageEnvelope(topic, msg));
+            Logger.LogDebug("[{Dev}] ActiveMQ Manager forwarding message to {topic}", devQue, topic);
+            MessageBus.PublishAsync(topic.ToString(), new MessageEnvelope(topic, message));
         }
 
         return Task.CompletedTask;
@@ -140,9 +145,17 @@ public class ActiveMqManager : DeviceManagerBase<ActiveMqDevice>
                 var queue = env.Destination.Discriminator;
                 var device = DeviceInstances[deviceName];
                 var deviceLogger = Logger.WithContext("DeviceName", deviceName);
-                deviceLogger.LogDebug($"[{device.Config.Name}] ActiveMQ Manager received {env.Payload}");
-                await device.WriteAsync(env.Payload.ToJson(), queue);
                 
+                deviceLogger.LogDebug($"[{device.Config.Name}] ActiveMQ Manager received message for {queue}");
+
+                if (env.Payload is byte[] bytes)
+                {
+                    await device.WriteAsync(bytes, queue);
+                }
+                else
+                {
+                    await device.WriteAsync(env.Payload.ToJson(), queue);
+                }
             }
             catch (Exception ex)
             {

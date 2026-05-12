@@ -11,8 +11,9 @@ public class TcpMessageServerDeviceManager : DeviceManagerBase<TcpMessageServerD
 {
     public TcpMessageServerDeviceManager(IMessageBus bus, List<IDeviceConfig> configs,
         IFireLogger<DeviceManagerBase<TcpMessageServerDevice>> logger,
-        Func<IDeviceConfig, IFireLogger, TcpMessageServerDevice> deviceFactory)
-        : base(bus, configs, logger, deviceFactory)
+        Func<IDeviceConfig, IFireLogger, TcpMessageServerDevice> deviceFactory,
+        string managerName)
+        : base(bus, configs, logger, deviceFactory, managerName)
     {
     }
 
@@ -36,8 +37,10 @@ public class TcpMessageServerDeviceManager : DeviceManagerBase<TcpMessageServerD
     protected override async Task HandleBusMessageAsync(MessageEnvelope envelope, CancellationToken ct)
     {
         var topic = envelope.Destination;
+        
         if (DeviceInstances.TryGetValue(topic.DeviceName, out var device))
         {
+            device.GetLogger().LogDebug("[{Dev}] Received bus message for topic: {Topic}", device.Config.Name,envelope.Payload?.ToString() ?? string.Empty );
             try
             {
                 ct.ThrowIfCancellationRequested();
@@ -50,8 +53,10 @@ public class TcpMessageServerDeviceManager : DeviceManagerBase<TcpMessageServerD
                 }
                 else
                 {
-                    await device.SendAsync(payload, ct);
+                    if ( await device.SendAsync(payload, ct))
+                        device.Tracker.IncrementOutbound();
                 }
+                device.GetLogger().LogDebug("[{Dev}] Sent bus message to client: {Client}", device.Config.Name, envelope.Client);
             }
             catch (Exception ex)
             {

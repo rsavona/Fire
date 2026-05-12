@@ -11,8 +11,9 @@ public class DiagnosticDeviceManager : DeviceManagerBase<DiagnosticDevice>, IDev
 {
     public DiagnosticDeviceManager(IMessageBus bus, List<IDeviceConfig> configs,
         IFireLogger<DeviceManagerBase<DiagnosticDevice>> logger,
-        Func<IDeviceConfig, IFireLogger, DiagnosticDevice> deviceFactory)
-        : base(bus, configs, logger, deviceFactory)
+        Func<IDeviceConfig, IFireLogger, DiagnosticDevice> deviceFactory,
+        string managerName)
+        : base(bus, configs, logger, deviceFactory, managerName)
     {
     }
 

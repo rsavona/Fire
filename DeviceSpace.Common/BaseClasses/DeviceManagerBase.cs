@@ -27,19 +27,19 @@ public abstract class DeviceManagerBase<TDevice> : BackgroundService, IDeviceMan
     private CancellationToken _stoppingToken;
 
     /// abstract methods
-    protected virtual void RegisterDeviceDestRoutes(IDevice device)
+    protected virtual void RegisterDeviceDestBonds(IDevice device)
     {
   
         var devLogger = device.GetLogger();
         var routes = ConfigurationLoader.GetAllWorkflowConfig()
-            .SelectMany(w => w.Routes)
+            .SelectMany(w => w.Bonds)
             .Where(r => r.Destination.StartsWith(device.Config.Name));
 
-        var workflowRoutes = routes as WorkflowRoute[] ?? routes.ToArray();
-        if (workflowRoutes.Length == 0) devLogger.Information("[{dec}] No Routes found with a destination for this Device", device.Config.Name);
-        foreach (var route in workflowRoutes)
+        var workflowBonds = routes as ForceBond[] ?? routes.ToArray();
+        if (workflowBonds.Length == 0) devLogger.Information("[{dec}] No Bonds found with a destination for this Device", device.Config.Name);
+        foreach (var route in workflowBonds)
         {
-            devLogger.Information("{method} [{Dev}]  Manager initializing Route: {route}","RegisterDeviceDestRoutes", device.Config.Name, route.Name);
+            devLogger.Information("{method} [{Dev}]  Manager initializing Bond: {route}","RegisterDeviceDestBonds", device.Config.Name, route.Name);
             MessageBus.SubscribeAsync(route.Destination, HandleBusMessageAsync);
         }
 
@@ -51,7 +51,7 @@ public abstract class DeviceManagerBase<TDevice> : BackgroundService, IDeviceMan
     {
     }
 
-    protected virtual void RegisterControlRoutes(IDevice device)
+    protected virtual void RegisterControlBonds(IDevice device)
     {
         var controlTopic = $"SYS.CONTROL.{device.Config.Name.ToUpper()}";
         MessageBus.SubscribeAsync(controlTopic, async (envelope, ct) =>
@@ -84,7 +84,7 @@ public abstract class DeviceManagerBase<TDevice> : BackgroundService, IDeviceMan
 
     protected virtual Task OnDeviceMessageToMessageBusAsync(object? sender, object messageEnv) {  return Task.CompletedTask; }
 
-    protected virtual Task RegisterDeviceSourceRoutes(IDevice device){ return Task.CompletedTask;}
+    protected virtual Task RegisterDeviceSourceBonds(IDevice device){ return Task.CompletedTask;}
     
     
     protected virtual Task HandleBusMessageAsync(MessageEnvelope envelope, CancellationToken ct){ return Task.CompletedTask;}
@@ -335,14 +335,14 @@ public abstract class DeviceManagerBase<TDevice> : BackgroundService, IDeviceMan
             device.StatusUpdated += OnDeviceStatusUpdated;
 
             PrepareForRouteDestinations(device);
-            RegisterDeviceDestRoutes(device);
-            RegisterControlRoutes(device);
+            RegisterDeviceDestBonds(device);
+            RegisterControlBonds(device);
 
             if (device is IDiagnosticProvider diagProvider)
                 await AnnouncePresenceAsync((IDevice)diagProvider);
 
             _ = Task.Run(() => device.StartAsync(_stoppingToken), _stoppingToken);
-            await RegisterDeviceSourceRoutes(device);
+            await RegisterDeviceSourceBonds(device);
         }
         catch (Exception ex)
         {

@@ -15,14 +15,14 @@ public class PrintAndApplyFrcSimulationRegistrar : IDeviceRegistrar // Or IWorkf
         // 1. Register the concrete workflow type as Transient
         // This allows the factory to create a new instance for each workflow configuration
         services.AddTransient<ConveyorTrackingPipeline>();
-        services.AddTransient<PrintAndApplyFrcSimulation>();
+        services.AddTransient<WorkflowSimulation>();
         // 2. Register the Factory Delegate
         // This is what the WorkflowManager will invoke when it needs to spin up a new instance.
         // ActivatorUtilities handles the "IMessageBus" injection from the container automatically.
-        services.AddTransient<Func<WorkflowConfig, IFireLogger, PrintAndApplyFrcSimulation>>(provider => 
+        services.AddTransient<Func<WorkflowConfig, IFireLogger, WorkflowSimulation>>(provider => 
             (config, logger) => 
             {
-                return ActivatorUtilities.CreateInstance<PrintAndApplyFrcSimulation>(provider, config, logger);
+                return ActivatorUtilities.CreateInstance<WorkflowSimulation>(provider, config, logger);
             });
     }
 }

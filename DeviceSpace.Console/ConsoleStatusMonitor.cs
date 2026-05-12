@@ -3,6 +3,7 @@ using System.Diagnostics.Metrics;
 using DeviceSpace.Common;
 using DeviceSpace.Common.Contracts;
 using DeviceSpace.Common.Enums;
+using DeviceSpace.Common.Messaging;
 using Microsoft.Extensions.Logging;
 
 namespace DeviceSpaceConsole;
@@ -15,7 +16,8 @@ public class ConsoleStatusMonitor
 
     // Thread-safe dictionary to store the row index for each unique device/workflow
     private readonly ConcurrentDictionary<string, int> _deviceRowMap = new();
-    private readonly ConcurrentDictionary<string, int> _devicePriorityMap = new();
+    private readonly ConcurrentDictionary<string, (int priority, string core)> _deviceMetadata = new();
+    private readonly ConcurrentDictionary<string, DateTime> _flowEvents = new(); // Key: "Src->Force->Dest"
     private int _lines;
     private int _errorLine;
 
@@ -24,7 +26,7 @@ public class ConsoleStatusMonitor
         var scope = msg.DeviceId.ScopeName.ToUpperInvariant();
         var name = msg.DeviceId.DeviceName.ToUpperInvariant();
 
-        if (scope == "SYSTEM") return 10; // Workflows first
+        if (scope == "SYSTEM") return 10; // Forces (Workflows) first
         if (name.Contains("PLC")) return 20;
         if (name.Contains("PRINTER") || name.Contains("JETMARK") || name.Contains("ZEBRA")) return 30;
         if (name.Contains("HOST") || name.Contains("TCP") || name.Contains("CLIENT")) return 40;
@@ -36,24 +38,40 @@ public class ConsoleStatusMonitor
     private int GetRowIndex(DeviceStatusMessage msg)
     {
         var name = msg.DeviceId.DeviceName.ToUpper().Trim();
+        var core = msg.DeviceId.CoreName.ToUpper().Trim();
         if (_deviceRowMap.TryGetValue(name, out int existingIndex)) return existingIndex;
 
-        // New device! Re-calculate all row indexes based on priority and name
+        // New device! Re-calculate all row indexes based on core, priority and name
         lock (_deviceRowMap)
         {
             if (_deviceRowMap.TryGetValue(name, out existingIndex)) return existingIndex;
 
-            _devicePriorityMap[name] = GetDevicePriority(msg);
+            _deviceMetadata[name] = (GetDevicePriority(msg), core);
             
-            var sortedNames = _devicePriorityMap
-                .OrderBy(kvp => kvp.Value)           // Primary: Priority
-                .ThenBy(kvp => kvp.Key)              // Secondary: Alphabetical
+            var sortedNames = _deviceMetadata
+                .OrderBy(kvp => kvp.Value.core)      // Primary: Core
+                .ThenBy(kvp => kvp.Value.priority)   // Secondary: Priority
+                .ThenBy(kvp => kvp.Key)              // Tertiary: Alphabetical
                 .Select(kvp => kvp.Key)
                 .ToList();
 
+            // We need to account for Core separators and Flow Lines in the index calculation
+            int currentLine = 0;
+            string lastCore = "";
+
             for (int i = 0; i < sortedNames.Count; i++)
             {
-                _deviceRowMap[sortedNames[i]] = i;
+                var currentName = sortedNames[i];
+                var currentCore = _deviceMetadata[currentName].core;
+
+                if (currentCore != lastCore)
+                {
+                    currentLine += 2; // Room for Core Header and Flow Line
+                    lastCore = currentCore;
+                }
+
+                _deviceRowMap[currentName] = currentLine;
+                currentLine++;
             }
 
             return _deviceRowMap[name];
@@ -120,6 +138,19 @@ public class ConsoleStatusMonitor
 
         // Subscribe to all status messages.
         messageBus.SubscribeAsync(MessageBusTopic.DeviceStatus.ToString(), HandleStatusMessageAsync);
+        messageBus.SubscribeAsync(MessageBusTopic.DataFlow.ToString(), async (envelope, ct) =>
+        {
+            if (envelope.Payload is FlowEvent flow)
+            {
+                string key = $"{flow.Source}->{flow.Force}->{flow.Destination}";
+                _flowEvents[key] = DateTime.Now;
+                
+                // Also track simplified segments for highlighting
+                _flowEvents[$"ELEMENT:{flow.Source}"] = DateTime.Now;
+                _flowEvents[$"FORCE:{flow.Force}"] = DateTime.Now;
+                _flowEvents[$"ELEMENT:{flow.Destination}"] = DateTime.Now;
+            }
+        });
         if (OperatingSystem.IsWindows())
         {
             try
@@ -281,11 +312,11 @@ public class ConsoleStatusMonitor
                             if (startingLine >= 0 && startingLine < Console.BufferHeight)
                             {
                                 Console.SetCursorPosition(0, startingLine);
-                                // line 12,12,3,10,10,
+                                // main header
                                 if (_useColor)
                                 {
                                     Console.WriteLine(
-                                        $"\e[48;2;220;220;220m\e[38;2;0;90;190m {"Device Name",-10} \e[38;2;0;0;0m│" +
+                                        $"\e[48;2;220;220;220m\e[38;2;0;90;190m {"Element Name",-10} \e[38;2;0;0;0m│" +
                                         $"\e[38;2;0;90;190mHB\e[38;2;0;0;0m│" +
                                         $"\e[38;2;0;90;190m {"Status",-9} \e[38;2;0;0;0m│" +
                                         $"\e[38;2;0;90;190mConnect\e[38;2;0;0;0m│" +
@@ -298,7 +329,7 @@ public class ConsoleStatusMonitor
                                 else
                                 {
                                     Console.WriteLine(
-                                        $" {"Device Name",-10} |" +
+                                        $" {"Element Name",-10} |" +
                                         $"HB|" +
                                         $" {"Status",-9} |" +
                                         $"Connect|" +
@@ -309,6 +340,44 @@ public class ConsoleStatusMonitor
                                         $" Started:{_startTime:HH:mm:ss}      Now:{DateTime.Now:HH:mm:ss}    {(_isLocked ? "LOCKED" : "UNLOCKED")}        ");
                                     
                                     Console.WriteLine(new string('-', 120));
+                                }
+
+                                // Simulation Header
+                                var spaceConfig = DeviceSpace.Common.Configurations.ConfigurationLoader.GetSpaceConfig();
+                                if (spaceConfig is { IsTestEnvironment: true })
+                                {
+                                    string simHeader = $" [SIMULATION MODE]  Runtime: {spaceConfig.SimulationRuntime:hh\\:mm\\:ss}  |  Stability: {spaceConfig.StabilityDuration:hh\\:mm\\:ss} ";
+                                    if (_useColor) simHeader = $"\e[48;2;200;50;50m\e[37m\e[1m{simHeader}\e[0m";
+                                    Console.WriteLine(simHeader.PadRight(Console.WindowWidth));
+                                }
+                                if (spaceConfig?.Cores != null)
+                                {
+                                    int headerHeight = _useColor ? 1 : 2;
+                                    int coreRowOffset = 0;
+                                    foreach (var core in spaceConfig.Cores.OrderBy(c => c.Name))
+                                    {
+                                        int row = startingLine + headerHeight + coreRowOffset;
+                                        if (row < Console.BufferHeight)
+                                        {
+                                            Console.SetCursorPosition(0, row);
+                                            string coreHeader = $" CORE: {core.Name.ToUpper()} ";
+                                            if (_useColor) coreHeader = $"\e[48;2;0;60;120m\e[37m\e[1m{coreHeader}\e[0m";
+                                            Console.Write(coreHeader.PadRight(Console.WindowWidth));
+
+                                            // Flow Line (Simplified)
+                                            row++;
+                                            if (row < Console.BufferHeight)
+                                            {
+                                                Console.SetCursorPosition(0, row);
+                                                string flowLine = BuildFlowLine(core);
+                                                Console.Write(flowLine.PadRight(Console.WindowWidth));
+                                            }
+                                        }
+
+                                        // Skip past the elements in this core
+                                        int elementCount = (core.Elements?.Count ?? 0) + (core.Forces?.Count ?? 0);
+                                        coreRowOffset += 2 + elementCount;
+                                    }
                                 }
                             }
                             if (_lines == 0)
@@ -335,6 +404,53 @@ public class ConsoleStatusMonitor
                 Console.CursorVisible = true;
             }
         }, cancellationToken);
+    }
+
+    private void PruneFlowEvents()
+    {
+        var now = DateTime.Now;
+        foreach (var kvp in _flowEvents)
+        {
+            if ((now - kvp.Value).TotalMilliseconds > 800)
+            {
+                _flowEvents.TryRemove(kvp.Key, out _);
+            }
+        }
+    }
+
+    private string BuildFlowLine(ICoreConfig core)
+    {
+        PruneFlowEvents();
+        if (core.Forces == null || !core.Forces.Any()) return "  (No Forces Defined)";
+
+        var segments = new List<string>();
+        var seenBonds = new HashSet<string>();
+
+        foreach (var force in core.Forces)
+        {
+            if (force.Bonds == null) continue;
+            foreach (var bond in force.Bonds)
+            {
+                var src = new MessageBusTopic(bond.Source).DeviceName;
+                var dst = new MessageBusTopic(bond.Destination).DeviceName;
+                
+                string bondKey = $"{src}->{force.Name}->{dst}";
+                if (seenBonds.Contains(bondKey)) continue;
+                seenBonds.Add(bondKey);
+
+                bool isSrcActive = _flowEvents.ContainsKey($"ELEMENT:{src}");
+                bool isForceActive = _flowEvents.ContainsKey($"FORCE:{force.Name}");
+                bool isDstActive = _flowEvents.ContainsKey($"ELEMENT:{dst}");
+
+                string srcPart = isSrcActive ? $"\e[92m({src})\e[0m" : $"({src})";
+                string forcePart = isForceActive ? $"\e[92m[{force.Name}]\e[0m" : $"[{force.Name}]";
+                string dstPart = isDstActive ? $"\e[92m({dst})\e[0m" : $"({dst})";
+
+                segments.Add($"{srcPart} ─> {forcePart} ─> {dstPart}");
+            }
+        }
+
+        return "  FLOW: " + string.Join("  |  ", segments);
     }
 
     private void WriteStatusLines(int index, string status)

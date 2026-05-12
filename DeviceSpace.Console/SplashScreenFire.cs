@@ -55,8 +55,9 @@ public static class SplashScreenFire
 
             // Print the FIRE line
             Console.WriteLine(fireLines[i]);
+            
         }
-
+       
         Console.WriteLine(reset);
 
         // Optional Divider below them both
@@ -64,6 +65,8 @@ public static class SplashScreenFire
         Console.WriteLine(
             "  --------------------------------------------------------------------------------------------------");
         Console.ResetColor();
+         Thread.Sleep(2000);
+        Console.Write("\x1b[2J\x1b[H");
     }
 
     static void SmoothScrollUp(int lines, int delay)
@@ -95,6 +98,6 @@ public static class SplashScreenFire
     /// </summary>
     public static int Length()
     {
-        return 8;
+        return 0;
     }
 }

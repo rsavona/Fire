@@ -15,7 +15,7 @@ public class PrintMessageProcessor : IMessageProcessor
 {
     private readonly IFireLogger _logger;
 
-    public event Action<object>? MessageReceived;
+    public event Func<object, Task>? MessageReceived;
     public event Action<string>? OnMessageError;
     public event Action<string> HeartbeatReceived;
 
@@ -47,7 +47,10 @@ public class PrintMessageProcessor : IMessageProcessor
             if (data.Contains("^XA"))
             {
                 _logger.Information("Label received from {ClientId}", clientKey);
-                MessageReceived?.Invoke( data);
+                if (MessageReceived != null)
+                {
+                    await MessageReceived.Invoke(data);
+                }
             }
             return true;
         }

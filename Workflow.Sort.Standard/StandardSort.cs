@@ -1,11 +1,12 @@
-using System.Data;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using DeviceSpace.Common;
 using DeviceSpace.Common.BaseClasses;
 using DeviceSpace.Common.Configurations;
 using DeviceSpace.Common.Contracts;
+using Device.Plc.Suite.Messages;
 using Serilog;
+using System.Data;
 
 namespace Workflow.Sort.Standard;
 
@@ -55,23 +56,14 @@ public class StandardSort : WorkflowBase
             }
 
             // Perform Round Robin
-            // Use Interlocked for thread safety
             int nextIndex = Interlocked.Increment(ref _roundRobinIndex);
-            // Ensure positive index
             int index = (nextIndex & int.MaxValue) % _diverts.Count;
             string selectedExit = _diverts[index];
 
             Logger.Information("[{Workflow}] RoundRobin: GIN {Gin} at {DP} -> Selected Exit: {Exit}", 
                 Config.Name, gin, dp, selectedExit);
 
-            var response = new
-            {
-                DecisionPoint = dp,
-                GIN = gin,
-                Actions = new List<string> { selectedExit }
-            };
-
-            return JsonSerializer.Serialize(response);
+            return new DecisionResponsePayload(dp, gin.Value, [selectedExit]);
         }
         catch (Exception ex)
         {
@@ -81,6 +73,9 @@ public class StandardSort : WorkflowBase
     }
 
 
+    /// <summary>
+    /// ASYNCHRONOUS: Creates a SQL request to be handled by the DatabaseDeviceManager.
+    /// </summary>
     public async Task<object?> HandleInductionSqlSort(MessageEnvelope envelope, CancellationToken ct)
     {
         string payloadStr = envelope.Payload?.ToString() ?? string.Empty;
@@ -89,27 +84,31 @@ public class StandardSort : WorkflowBase
         try
         {
             var node = JsonNode.Parse(payloadStr);
-            if (node == null) return null;
+            if (node == null || node is not JsonObject obj) return null;
 
-            var dp = node["DecisionPoint"]?.GetValue<string>();
-            var gin = node["GIN"]?.GetValue<int>();
+            // Helper to get property case-insensitively
+            JsonNode? GetProp(JsonObject o, string key) => 
+                o.FirstOrDefault(kvp => kvp.Key.Equals(key, StringComparison.OrdinalIgnoreCase)).Value;
+
+            var dp = GetProp(obj, "DecisionPoint")?.GetValue<string>();
+            var gin = GetProp(obj, "GIN")?.GetValue<int>();
             
-            // Extract Barcode
-            var barcodesArray = node["Barcodes"]?.AsArray();
+            // Extract Barcode - Check both Barcodes and barcodes
+            var barcodesArray = GetProp(obj, "Barcodes")?.AsArray() ?? GetProp(obj, "barcodes")?.AsArray();
             string firstBarcode = (barcodesArray != null && barcodesArray.Count > 0)
-                ? barcodesArray[0]?.ToString() ?? string.Empty
+                ? barcodesArray[0]?.GetValue<string>() ?? string.Empty
                 : string.Empty;
 
             if (dp == null || gin == null)
             {
-                Logger.Warning("[{Workflow}] Invalid payload for SqlSort: Missing DecisionPoint or GIN.", Config.Name);
+                Logger.Warning("[{Workflow}] Invalid payload for SqlSort: Missing DecisionPoint or GIN. Payload: {Payload}", Config.Name, payloadStr);
                 return null;
             }
 
-            string spName = "[SorterAssignment]";
+            string spName = "[usp_GetSorterAssignment]";
 
-            Logger.Information("[{Workflow}] SQL Sort SP Request: {SP} for Sorter: {Sorter}, Barcode: {BC}, GIN: {Gin}", 
-                Config.Name, spName, Config.Name, firstBarcode, gin);
+            Logger.Information("[{Workflow}] SQL Sort SP Request: {SP} for Barcode: {BC}, GIN: {Gin}", 
+                Config.Name, spName, firstBarcode, gin);
 
             var sqlRequest = new
             {
@@ -118,9 +117,9 @@ public class StandardSort : WorkflowBase
                 CommandType = nameof(CommandType.StoredProcedure),
                 Parameters = new Dictionary<string, object>
                 {
-                    { "SorterName",dp  },
+                    { "sorterid", 1 },
                     { "barcode", firstBarcode },
-                    { "GIN", gin }
+                    { "gin", gin }
                 },
                 DecisionPoint = dp,
                 GIN = gin
@@ -130,13 +129,13 @@ public class StandardSort : WorkflowBase
         }
         catch (Exception ex)
         {
-            Logger.Error(ex, "[{Workflow}] Error in HandleInductionSqlSort for GIN {Gin}", Config.Name, envelope.Gin);
+            Logger.Error(ex, "[{Workflow}] Error in HandleInductionSqlSort for GIN {Gin}. Payload: {Payload}", Config.Name, envelope.Gin, payloadStr);
             return null;
         }
     }
 
 
-    public async Task<object?> HandleDestinastionResult(MessageEnvelope envelope, CancellationToken ct)
+    public async Task<object?> HandleDestinationResult(MessageEnvelope envelope, CancellationToken ct)
     {
         string payloadStr = envelope.Payload?.ToString() ?? string.Empty;
         if (string.IsNullOrEmpty(payloadStr)) return null;
@@ -144,50 +143,103 @@ public class StandardSort : WorkflowBase
         try
         {
             var node = JsonNode.Parse(payloadStr);
-            if (node == null) return null;
+            if (node == null || node is not JsonObject topObj) return null;
 
-            var results = node["Results"]?.AsArray();
-            var dp = node["DecisionPoint"]?.GetValue<string>();
-            var gin = node["GIN"]?.GetValue<int>();
+            // Helper to get property case-insensitively
+            JsonNode? GetProp(JsonObject obj, string key) => 
+                obj.FirstOrDefault(kvp => kvp.Key.Equals(key, StringComparison.OrdinalIgnoreCase)).Value;
+
+            var results = GetProp(topObj, "Results")?.AsArray();
+            var dp = GetProp(topObj, "DecisionPoint")?.GetValue<string>();
+            var ginNode = GetProp(topObj, "GIN");
+            var gin = ginNode?.GetValue<int>();
 
             if (dp == null || gin == null)
             {
-                Logger.Warning("[{Workflow}] Invalid Database response: Missing DecisionPoint or GIN.", Config.Name);
+                Logger.Warning("[{Workflow}] Invalid Database response: Missing DecisionPoint or GIN. Payload: {Payload}", Config.Name, payloadStr);
                 return null;
             }
 
             List<string> actions = new();
             if (results != null && results.Count > 0)
             {
-                foreach (var row in results)
+                foreach (var rowNode in results)
                 {
-                    // Dapper results as dynamic/object often serialize as JSON objects with properties
-                    var exit = row?["ExitName"]?.GetValue<string>();
-                    if (exit != null) actions.Add(exit);
+                    if (rowNode == null) continue;
+                    if (rowNode is not JsonObject row)
+                    {
+                        Logger.Warning("[{Workflow}] Unexpected result format in SQL row: {Kind}. Row Data: {Data}", 
+                            Config.Name, rowNode.GetValueKind(), rowNode.ToJsonString());
+                        continue;
+                    }
+
+                    // Check for multiple possible column names (Case-Insensitive lookup)
+                    string? exit = null;
+                    var keys = row.Select(kvp => kvp.Key).ToList();
+                    var targetKeys = new[] 
+                    { 
+                        "Result", "ExitName", "Assignment", "Exit", "TargetLane", "LaneId", "Lane", "@TargetLane", 
+                        "Target_Lane", "Dest", "Destination", "DestLane", "Dest_Lane", "Target", "Exit_Lane", "ExitLane",
+                        "SortedLane", "AssignedLane", "Target_Exit", "TargetExit", "Lane_No", "LaneNo", "Exit_No", "ExitNo",
+                        "Destination_Lane", "DestinationLane"
+                    };
+                    
+                    // 1. Try named lookup (Case-insensitive + Trimmed)
+                    var matchingKey = keys.FirstOrDefault(k => targetKeys.Contains(k.Trim(), StringComparer.OrdinalIgnoreCase));
+                    
+                    if (matchingKey != null)
+                    {
+                        var exitNode = row[matchingKey];
+                        if (exitNode != null)
+                        {
+                            exit = exitNode.GetValueKind() == JsonValueKind.String 
+                                ? exitNode.GetValue<string>() 
+                                : exitNode.ToString().Trim('"');
+                        }
+                    }
+                    
+                    // 2. Fallback: If no recognized name, but there is at least one column, take the FIRST column
+                    if (string.IsNullOrWhiteSpace(exit) && keys.Count > 0)
+                    {
+                        var firstKey = keys[0];
+                        var firstNode = row[firstKey];
+                        if (firstNode != null)
+                        {
+                            exit = firstNode.GetValueKind() == JsonValueKind.String 
+                                ? firstNode.GetValue<string>() 
+                                : firstNode.ToString().Trim('"');
+                            
+                            Logger.Information("[{Workflow}] No named column matched. Falling back to first column '{Key}': {Value}", 
+                                Config.Name, firstKey, exit);
+                        }
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(exit))
+                    {
+                        actions.Add(exit);
+                    }
+                    else
+                    {
+                        Logger.Warning("[{Workflow}] SQL Row found but could not extract exit. GIN: {Gin}, Available Keys: {Keys}, Row: {Row}", 
+                            Config.Name, gin, string.Join(", ", keys), row.ToJsonString());
+                    }
                 }
             }
-
             if (actions.Count == 0)
             {
-                Logger.Warning("[{Workflow}] No exits found in DB for GIN {Gin}. Defaulting to REJECT.", Config.Name, gin);
-                actions.Add("REJECT");
+                Logger.Warning("[{Workflow}] No exits found in DB for GIN {Gin}. Results Count: {Count}. Payload: {Payload}", 
+                    Config.Name, gin, results?.Count ?? 0, payloadStr);
+                actions.Add("15");
             }
 
-            Logger.Information("[{Workflow}] SQL Result: GIN {Gin} at {DP} -> Actions: {Actions}", 
+            Logger.Information("[{Workflow}] SQL Async Result: GIN {Gin} at {DP} -> Actions: {Actions}", 
                 Config.Name, gin, dp, string.Join(", ", actions));
 
-            var response = new
-            {
-                DecisionPoint = dp,
-                GIN = gin,
-                Actions = actions
-            };
-
-            return JsonSerializer.Serialize(response);
+            return new DecisionResponsePayload(dp, gin.Value, actions);
         }
         catch (Exception ex)
         {
-            Logger.Error(ex, "[{Workflow}] Error in HandleDestinastionResult", Config.Name);
+            Logger.Error(ex, "[{Workflow}] Error in HandleDestinationResult. Payload: {Payload}", Config.Name, payloadStr);
             return null;
         }
     }

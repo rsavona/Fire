@@ -231,7 +231,7 @@ public class MessageBus : IMessageBus
     // ---------------------------------------------------------------------
 
 
-    private Task DispatchMessageInternal(string topic, MessageEnvelope envelope, CancellationToken token = default)
+    private async Task DispatchMessageInternal(string topic, MessageEnvelope envelope, CancellationToken token = default)
     {
         var allTasks = new List<Task>();
 
@@ -310,12 +310,15 @@ public class MessageBus : IMessageBus
                 }
                 catch (Exception ex)
                 {
-                    PublishErrorInternal(topic, envelope, ex);
+                    await PublishErrorInternal(topic, envelope, ex);
                 }
             }
         }
 
-        return Task.CompletedTask;
+        if (allTasks.Count > 0)
+        {
+            await Task.WhenAll(allTasks);
+        }
     }
 
     // ---------------------------------------------------------------------

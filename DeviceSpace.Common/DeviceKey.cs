@@ -8,9 +8,10 @@ public class DeviceKey : IEquatable<DeviceKey>, IDeviceKey
 
     public string ScopeName { get; init; }
     public string DeviceName { get; init; }
+    public string CoreName { get; init; }
     private readonly string _key;
 
-    public DeviceKey(string scope, string name) 
+    public DeviceKey(string scope, string name, string core = "Fusion") 
     {
         // basic validation for constructor arguments
         if (string.IsNullOrWhiteSpace(scope))
@@ -25,9 +26,10 @@ public class DeviceKey : IEquatable<DeviceKey>, IDeviceKey
         // --- Initialize the public properties ---
         ScopeName = scope.ToUpperInvariant();
         DeviceName = name.ToUpperInvariant();
+        CoreName = (string.IsNullOrEmpty(core) ? "Fusion" : core).ToUpperInvariant();
 
         // --- Initialize the readonly key field ---
-        _key = $"{ScopeName}-{DeviceName}";
+        _key = $"{CoreName}-{ScopeName}-{DeviceName}";
     }
 
     /// <summary>

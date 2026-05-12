@@ -12,12 +12,13 @@ namespace DeviceSpace.Common.Configurations
         public string Name { get; set; } = string.Empty;
         public string Type { get; set; } = string.Empty; 
         public bool Enable { get; set; } 
+        public string CoreName { get; set; } = string.Empty;
         // The list of routing rules
-        public List<WorkflowRoute> Routes { get; set; } = new();
+        public List<ForceBond> Bonds { get; set; } = new();
         public Dictionary<string, object> Properties { get; set; } = new ();
     }
 
-    public class WorkflowRoute
+    public class ForceBond
     {
         public string Name { get; set; } = string.Empty;
         // 0 = Disabled, 1 = Method, 2 = Script
@@ -32,7 +33,7 @@ namespace DeviceSpace.Common.Configurations
         // Method Name OR File Path
         public string Handler { get; set; } = string.Empty;
     }
-    
+
 
     /// <summary>
     /// Represents a specific device configuration.
@@ -42,35 +43,51 @@ namespace DeviceSpace.Common.Configurations
         public string Name { get; set; } = string.Empty;
         public string Manager { get; set; } = string.Empty;
         public bool Enable { get; set; } 
+        public string CoreName { get; set; } = string.Empty;
         public Dictionary<string, object> Properties { get; set; } = new Dictionary<string, object>();
-        
-  
+
+
     }
-    
+
+    public class CoreConfig : ICoreConfig
+    {
+        public string Name { get; set; } = string.Empty;
+        public List<DeviceConfig> Elements { get; set; } = new();
+        public List<WorkflowConfig> Forces { get; set; } = new();
+
+        List<IDeviceConfig> ICoreConfig.Elements
+        {
+            get => Elements.Cast<IDeviceConfig>().ToList();
+            set => Elements = value.Cast<DeviceConfig>().ToList();
+        }
+
+        List<IWorkflowConfig> ICoreConfig.Forces
+        {
+            get => Forces.Cast<IWorkflowConfig>().ToList();
+            set => Forces = value.Cast<WorkflowConfig>().ToList();
+        }
+    }
+
 
     /// <summary>
     /// Represents the top-level configuration structure.
     /// </summary>
     public class DeviceSpace : IDeviceSpace
     {
-        public string Name { get; set; } = "Fire";
+        public string Name { get; set; } = "Fusion";
         public bool ColorConsole { get; set; } = true;
-        
-        public int DiagnosticsPort { get; set; } = 9999;
-        public List<WorkflowConfig> WorkflowList { get; set; } = new (); // Added
-        public List<DeviceConfig> DeviceList { get; set; } = new ();
-   
-        // Explicitly implement interface properties
-        List<IDeviceConfig> IDeviceSpace.DeviceList
-        {
-            get => DeviceList.Cast<IDeviceConfig>().ToList();
-            set => DeviceList = value.Cast<DeviceConfig>().ToList();
-        }
+        public bool IsTestEnvironment { get; set; } = false;
+        public TimeSpan SimulationRuntime { get; set; } = TimeSpan.Zero;
+        public TimeSpan StabilityDuration { get; set; } = TimeSpan.Zero;
 
-        List<IWorkflowConfig> IDeviceSpace.WorkflowList
+        public int DiagnosticsPort { get; set; } = 9999;
+        public List<CoreConfig> Cores { get; set; } = new ();
+        // Explicitly implement interface properties
+        List<ICoreConfig> IDeviceSpace.Cores
         {
-            get => WorkflowList.Cast<IWorkflowConfig>().ToList();
-            set => WorkflowList = value.Cast<WorkflowConfig>().ToList();
+            get => Cores.Cast<ICoreConfig>().ToList();
+            set => Cores = value.Cast<CoreConfig>().ToList();
         }
     }
+
 }

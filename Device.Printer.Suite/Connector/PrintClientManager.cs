@@ -19,8 +19,9 @@ public class PrintClientManager : DeviceManagerBase<ITcpPrintClientBase>
         IMessageBus bus,
         List<IDeviceConfig> configs,
         IFireLogger<PrintClientManager> logger, // Updated to match this specific manager class
-        Func<IDeviceConfig, IFireLogger, ITcpPrintClientBase> deviceFactory)
-        : base(bus, configs, logger, deviceFactory)
+        Func<IDeviceConfig, IFireLogger, ITcpPrintClientBase> deviceFactory,
+        string managerName)
+        : base(bus, configs, logger, deviceFactory, managerName)
     {
         DeviceFactory = deviceFactory;
     }
@@ -37,10 +38,11 @@ public class PrintClientManager : DeviceManagerBase<ITcpPrintClientBase>
         return Task.FromResult(printer);
     }
 
-    protected override Task RegisterDeviceSourceRoutes(IDevice device)
+    protected override async Task RegisterDeviceSourceBonds(IDevice device)
+
     {
         /* Printers are passive listeners */
-        return Task.CompletedTask;
+        return;
     }
 
     protected override Task OnDeviceMessageToMessageBusAsync(object? sender, object messageEnv)

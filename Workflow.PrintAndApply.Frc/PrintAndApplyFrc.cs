@@ -174,7 +174,7 @@ public class PrintAndApplyFrc : WorkflowBase
             MessageType = "DRespM", // Explicitly named for the PLC
             DecisionPoint = descPoint, 
             GIN = parsedGin, 
-            Actions = printers 
+            DecisionPoints = printers 
         };
 
         var serializedPayload = JsonSerializer.Serialize(payload, _jsonOptions);

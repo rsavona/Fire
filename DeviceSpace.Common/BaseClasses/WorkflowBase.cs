@@ -65,7 +65,7 @@ public abstract class WorkflowBase : BackgroundService
 
         // Enrich the logger with the specific workflow name for better filtering in Rider/Logs
         Logger = logger.ForContext("DeviceName", Config.Name);
-        WorkflowKey = new DeviceKey("SYSTEM", Config.Name);
+        WorkflowKey = new DeviceKey("SYSTEM", Config.Name, Config.CoreName);
         Tracker = new DeviceStatusTracker<WorkflowState, WorkflowEvent>(WorkflowState.Initializing,
             WorkflowEvent.Started);
 
@@ -147,23 +147,23 @@ public abstract class WorkflowBase : BackgroundService
     }
 
     /// <summary>
-    /// Initializes all configured routes.
+    /// Initializes all configured bonds.
     /// </summary>
     /// <exception cref="InvalidOperationException"></exception>
     public async Task InitializeRoutesAsync()
     {
-        Logger.Debug("[{Workflow}] Initializing {Count} defined routes.", "Base-InitializeRoutesAsync",
-            Config.Routes.Count);
+        Logger.Debug("[{Workflow}] Initializing {Count} defined bonds.", "Base-InitializeRoutesAsync",
+            Config.Bonds.Count);
         int successfulRoutes = 0;
         int disabledRoutes = 0;
 
-        foreach (var route in Config.Routes)
+        foreach (var route in Config.Bonds)
         {
             try
             {
                 Func<MessageEnvelope, CancellationToken, Task<object?>> executor;
 
-                Logger.Debug("[{Workflow}] Configuring route: {Source} -> {Destination} (Mode: {Mode})",
+                Logger.Debug("[{Workflow}] Configuring bond: {Source} -> {Destination} (Mode: {Mode})",
                     "Base-InitializeRoutesAsync", route.Source, route.Destination, route.Mode);
 
                 switch (route.Mode)
@@ -175,12 +175,12 @@ public abstract class WorkflowBase : BackgroundService
                         executor = await CreateScriptDelegateAsync(route.Handler);
                         break;
                     case 0: // Disabled
-                        Logger.Warning("[{Workflow}] Route {Source} is DISABLED. Skipping.",
+                        Logger.Warning("[{Workflow}] Bond {Source} is DISABLED. Skipping.",
                             "Base-InitializeRoutesAsync", route.Source);
                         disabledRoutes++;
                         continue;
                     default:
-                        throw new InvalidOperationException($"Unknown route mode: {route.Mode}");
+                        throw new InvalidOperationException($"Unknown bond mode: {route.Mode}");
                 }
 
                 var key = new RouteKey(route.Source, route.Destination);
@@ -196,25 +196,25 @@ public abstract class WorkflowBase : BackgroundService
             }
             catch (Exception ex)
             {
-                Logger.Error(ex, "[{Workflow}] Failed to initialize {route} route '{Source}' with handler '{Handler}'",
+                Logger.Error(ex, "[{Workflow}] Failed to initialize {route} bond '{Source}' with handler '{Handler}'",
                     "Base-InitializeRoutesAsync", route.Name, route.Source, route.Handler);
 
                 Tracker.IncrementError(ex.Message);
                 UpdateStatus(WorkflowState.Faulted, WorkflowEvent.Error, DeviceHealth.Critical,
-                    $"Route Setup Failed: {ex.Message}");
+                    $"Bond Setup Failed: {ex.Message}");
             }
         }
 
 
-        if (successfulRoutes + disabledRoutes == Config.Routes.Count)
+        if (successfulRoutes + disabledRoutes == Config.Bonds.Count)
         {
-            Logger.Information("[{Workflow}] {successfulRoutes} initialized routes; {disabledRoutes} disabled.",
+            Logger.Information("[{Workflow}] {successfulRoutes} initialized bonds; {disabledRoutes} disabled.",
                 "Base-InitializeRoutesAsync", successfulRoutes, disabledRoutes);
-            UpdateStatus(WorkflowState.Active, WorkflowEvent.Started, DeviceHealth.Normal, $"Route Setup Complete");
+            UpdateStatus(WorkflowState.Active, WorkflowEvent.Started, DeviceHealth.Normal, $"Bond Setup Complete");
         }
         else
         {
-            Logger.Fatal("[{Workflow}] Not all routes initialized. Successful: {successfulRoutes} Check configuration ",
+            Logger.Fatal("[{Workflow}] Not all bonds initialized. Successful: {successfulRoutes} Check configuration ",
                 "Base-InitializeRoutesAsync", successfulRoutes);
         }
     }
@@ -288,6 +288,13 @@ public abstract class WorkflowBase : BackgroundService
                     {
                         Tracker.IncrementOutbound();
                         await MessageBus.PublishAsync(rte.Key.Destination, resultPayload, ct);
+                        
+                        // Publish Flow Event
+                        _ = MessageBus.PublishAsync(MessageBusTopic.DataFlow.ToString(), new MessageEnvelope(MessageBusTopic.DataFlow, new FlowEvent { 
+                            Source = new MessageBusTopic(rte.Key.Source).DeviceName, 
+                            Force = Config.Name, 
+                            Destination = new MessageBusTopic(rte.Key.Destination).DeviceName 
+                        }));
                         Logger.Information("[{Workflow}] Message Out: {msg}  published to {Destination}",
                             "Base-HandleIncomingMessageAsync", resultPayload, rte.Key.Destination);
                     }

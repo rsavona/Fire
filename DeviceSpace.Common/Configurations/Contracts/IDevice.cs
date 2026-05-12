@@ -58,6 +58,8 @@ namespace DeviceSpace.Common.Contracts // Or your preferred core namespace
         IEnumerable<DiagCommand> GetAvailableCommands();
         
         void OnError(string context, Exception? ex = null);
+
+        void RefreshStatus();
         
         public event Action<IDevice>? DeviceReady;
         

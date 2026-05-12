@@ -17,6 +17,19 @@ public class BufferedLog : ILogEventSink
         // Avoid re-buffering events that are being dumped
         if (logEvent.Properties.ContainsKey("BufferedDump")) return;
 
+        // 0. Disable Smart Dump if loglevel is Verbose (vrb)
+        // If we are already logging everything, the forensic dump is redundant.
+        if (logEvent.Properties.TryGetValue("DeviceName", out var propertyValue) &&
+            propertyValue is ScalarValue scalarValue &&
+            scalarValue.Value is string deviceName)
+        {
+            if (LogControl.IsVerbose(deviceName))
+            {
+                if (!_buffer.IsEmpty) _buffer.Clear();
+                return;
+            }
+        }
+
         // 1. If it's an Error, "Dump" the buffer to the real log immediately
         if (logEvent.Level >= LogEventLevel.Error)
         {
@@ -43,13 +56,11 @@ public class BufferedLog : ILogEventSink
 
         Log.Logger.Warning("!!! [SMART DUMP] Error detected. Dumping last {Count} trace events for forensics:", _buffer.Count);
         
-        using (LogContext.PushProperty("BufferedDump", true))
+        while (_buffer.TryDequeue(out var e))
         {
-            while (_buffer.TryDequeue(out var e))
-            {
-                // We write these out so they hit your file-based sinks
-                Log.Logger.Write(e);
-            }
+            // Add the property so this sink ignores it when re-emitted
+            e.AddOrUpdateProperty(new LogEventProperty("BufferedDump", new ScalarValue(true)));
+            Log.Logger.Write(e);
         }
         
         Log.Logger.Warning("!!! [SMART DUMP] End of forensic dump.");

@@ -1,0 +1,87 @@
+{
+  "Stats": {
+    "SCN302": {
+      "DecisionPoint": "SCN302",
+      "Pattern": 3,
+      "LastGin": 53,
+      "MaxGinDetected": 100,
+      "RolloverValue": 100,
+      "DetectedIncrement": 1,
+      "SampleCount": 2500,
+      "RecentGins": [
+        44,
+        41,
+        45,
+        39,
+        40,
+        46,
+        38,
+        47,
+        48,
+        44,
+        43,
+        45,
+        49,
+        47,
+        42,
+        50,
+        51,
+        48,
+        52,
+        53
+      ]
+    },
+    "SNC302": {
+      "DecisionPoint": "SNC302",
+      "Pattern": 3,
+      "LastGin": 1,
+      "MaxGinDetected": 8,
+      "RolloverValue": 8,
+      "DetectedIncrement": 1,
+      "SampleCount": 10,
+      "RecentGins": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        5,
+        8,
+        1
+      ]
+    },
+    "System.Object": {
+      "DecisionPoint": "System.Object",
+      "Pattern": 1,
+      "LastGin": 1000,
+      "MaxGinDetected": 1000,
+      "RolloverValue": 1000,
+      "DetectedIncrement": 1,
+      "SampleCount": 3700,
+      "RecentGins": [
+        981,
+        982,
+        983,
+        984,
+        985,
+        986,
+        987,
+        988,
+        989,
+        990,
+        991,
+        992,
+        993,
+        994,
+        995,
+        996,
+        997,
+        998,
+        999,
+        1000
+      ]
+    }
+  }
+}

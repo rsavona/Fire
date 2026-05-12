@@ -11,8 +11,9 @@ public class TcpMessageClientDeviceManager : DeviceManagerBase<TcpMessageClientD
 {
     public TcpMessageClientDeviceManager(IMessageBus bus, List<IDeviceConfig> configs,
         IFireLogger<DeviceManagerBase<TcpMessageClientDevice>> logger,
-        Func<IDeviceConfig, IFireLogger, TcpMessageClientDevice> deviceFactory)
-        : base(bus, configs, logger, deviceFactory)
+        Func<IDeviceConfig, IFireLogger, TcpMessageClientDevice> deviceFactory,
+        string managerName)
+        : base(bus, configs, logger, deviceFactory, managerName)
     {
     }
 

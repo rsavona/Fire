@@ -39,10 +39,9 @@ public class WorkflowFactory : IWorkflowFactory
 
         if (workflowType == null)
         {
-            
-            Console.WriteLine($"Could not find a workflow implementation for type '{config.Type}'.");
+            Serilog.Log.Error("Could not find a force implementation for type '{WorkflowType}'. Ensure the DLL is loaded and the class inherits from WorkflowBase.", config.Type);
             throw new InvalidOperationException(
-                $"Could not find a workflow implementation for type '{config.Type}'. " +
+                $"Could not find a force implementation for type '{config.Type}'. " +
                 $"Ensure the DLL is loaded and the class inherits from WorkflowBase.");
         }
 
@@ -64,7 +63,7 @@ public class WorkflowFactory : IWorkflowFactory
         catch (Exception ex)
         {
             throw new InvalidOperationException(
-                $"Failed to create workflow '{config.Name}' of type '{config.Type}': {ex.Message}", ex);
+                $"Failed to create force '{config.Name}' of type '{config.Type}': {ex.Message}", ex);
         }
     }
 }

@@ -39,3 +39,4 @@ The system is typically initialized by providing a list of device configurations
 1.  **Inbound**: The `PlcMessageProcessor` receives a byte array from a `NetworkStream`, extracts frames between `STX` and `ETX`, and passes them to the parser.
 2.  **Bus Integration**: Validated business messages are wrapped in a `MessageEnvelope` and published to the `IMessageBus` on specific topics based on their decision point.
 3.  **Outbound**: The `PlcDeviceManager` subscribes to response topics. When a decision is published to the bus, the manager correlates it with the pending request and sends the framed response to the PLC.
+

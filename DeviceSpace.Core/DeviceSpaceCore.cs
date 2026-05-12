@@ -47,7 +47,8 @@ public class DeviceSpaceCore : BackgroundService
     /// </summary>
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-       _logger.LogInformation("Orchestrator: Monitoring {Count} devices for system ready.", _expectedDeviceCount);
+       await Task.Yield();
+       _logger.LogInformation("Orchestrator: Monitoring {Count} elements for system ready.", _expectedDeviceCount);
        
        // Subscribe to device status to track system readiness
        await _messageBus.SubscribeAsync(MessageBusTopic.DeviceStatus.ToString(), HandleStatusUpdateAsync);
@@ -58,7 +59,7 @@ public class DeviceSpaceCore : BackgroundService
             {
                 if (!_systemStarted && CheckSystemReadiness())
                 {
-                    _logger.LogInformation("Orchestrator: ALL DEVICES READY. Releasing System START signal.");
+                    _logger.LogInformation("Orchestrator: ALL ELEMENTS READY. Releasing System START signal.");
                     _systemStarted = true;
                     var startMsg = new SystemControlMessage(SystemCommand.Start);
                     await _messageBus.PublishAsync(MessageBusTopic.SystemControl.ToString(), 

@@ -13,6 +13,7 @@ namespace Device.Plc.Suite;
 public class PlcMessageParser : IMessageParser
 {
     private static int _sequenceNumber = 0;
+    private static int _barcodeCounter = 0;
     private static JsonSerializerOptions _jsonOptions;
     private static readonly Random _rand = new();
 
@@ -33,7 +34,11 @@ public class PlcMessageParser : IMessageParser
     public static DecisionRequestMessage CreateDecisionRequest(string device, string decisionPoint = "DP_SORTER_01",
         int? specificGin = null, string? bc = null)
     {
-        if (bc == null) bc = $"1D{Random.Shared.Next(10000, 99999)}";
+        if (bc == null)
+        {
+            int nextBc = Interlocked.Increment(ref _barcodeCounter);
+            bc = $"LPN-{nextBc:D4}";
+        }
         var bcList = new List<string> { bc };
         var payload = new DecisionRequestPayload(
             DecisionPoint: decisionPoint,
