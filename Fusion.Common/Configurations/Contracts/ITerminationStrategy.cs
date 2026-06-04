@@ -1,6 +1,8 @@
-﻿namespace Fusion.Common.Contracts;
+﻿using System.Buffers;
+
+namespace Fusion.Common.Contracts;
 
 public interface ITerminationStrategy
 {
-    bool IsMessageComplete(ReadOnlySpan<byte> buffer, byte lastByte);
+    SequencePosition? FindTerminator(ReadOnlySequence<byte> buffer);
 }

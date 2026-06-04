@@ -1,0 +1,80 @@
+@using FusionLab.Services
+@inject AiBlueprintService AiService
+
+<div class="modal-backdrop-custom">
+    <div class="modal-content-fire" style="max-width: 600px;">
+        <div class="modal-header-fire">
+            <h6><i class="bi bi-robot"></i> Tokamak AI Builder</h6>
+            <button class="btn-close btn-close-white" @onclick="OnClose"></button>
+        </div>
+        <div class="modal-body p-4">
+            <div class="mb-3">
+                <label class="form-label text-muted small fw-bold">CUSTOMER NAME</label>
+                <input class="form-control border-warning" @bind="_customerName" placeholder="e.g. Acme Corp" />
+            </div>
+            
+            <div class="mb-3">
+                <label class="form-label text-muted small fw-bold">SYSTEM DESCRIPTION</label>
+                <textarea class="form-control border-warning" @bind="_description" rows="5" 
+                          placeholder="Describe your system... e.g. Create a system with an ActiveMQ broker, 2 Zebra printers, and a standard sort reaction."></textarea>
+            </div>
+
+            @if (_isProcessing)
+            {
+                <div class="text-center p-3">
+                    <div class="spinner-border text-warning" role="status"></div>
+                    <p class="mt-2 text-muted italic small">AI is crafting your blueprint...</p>
+                </div>
+            }
+
+            @if (!string.IsNullOrEmpty(_errorMessage))
+            {
+                <div class="alert alert-danger small mt-2">
+                    <i class="bi bi-exclamation-triangle"></i> @_errorMessage
+                </div>
+            }
+        </div>
+        <div class="modal-footer p-2 bg-dark-subtle">
+            <button class="btn btn-sm btn-outline-secondary" @onclick="OnClose">Cancel</button>
+            <button class="btn btn-sm btn-warning px-4" @onclick="BuildBlueprint" disabled="@_isProcessing">
+                <i class="bi bi-magic"></i> Generate Blueprint
+            </button>
+        </div>
+    </div>
+</div>
+
+@code {
+    [Parameter] public EventCallback<string> OnBlueprintGenerated { get; set; }
+    [Parameter] public EventCallback OnClose { get; set; }
+
+    private string _customerName = "";
+    private string _description = "";
+    private bool _isProcessing = false;
+    private string _errorMessage = "";
+
+    private async Task BuildBlueprint()
+    {
+        if (string.IsNullOrWhiteSpace(_customerName) || string.IsNullOrWhiteSpace(_description))
+        {
+            _errorMessage = "Please provide both a customer name and a description.";
+            return;
+        }
+
+        _isProcessing = true;
+        _errorMessage = "";
+
+        try
+        {
+            var json = await AiService.GenerateBlueprintAsync(_customerName, _description);
+            await OnBlueprintGenerated.InvokeAsync(json);
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"AI Processing failed: {ex.Message}";
+        }
+        finally
+        {
+            _isProcessing = false;
+        }
+    }
+}

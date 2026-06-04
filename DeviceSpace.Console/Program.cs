@@ -1,14 +1,15 @@
-﻿using DeviceSpaceConsole;
-using DeviceSpace.Core;
-using DeviceSpace.Common;
-using DeviceSpace.Common.Contracts;
-using DeviceSpace.Common.Messaging;
+﻿using FusionConsole;
+using Fusion.Core;
+using Fusion.Common;
+using Fusion.Common.Contracts;
+using Fusion.Common.Messaging;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Serilog;
 using Serilog.Events;
 using System.Net;
+using Fusion.Common.Configurations;
 
 // Initialize a bootstrap logger to catch very early errors before the full host is built
 Log.Logger = new LoggerConfiguration()
@@ -49,8 +50,8 @@ try
     {
         builder.Services.AddWindowsService(options =>
         {
-            var config = DeviceSpace.Common.Configurations.ConfigurationLoader.GetSpaceConfig();
-            options.ServiceName = config?.Name ?? "FortnaFire";
+            var config = ConfigurationLoader.GetSpaceConfig();
+            options.ServiceName = config?.CustomerName ?? "FortnaFire";
         });
     }
 
@@ -61,7 +62,7 @@ try
     // Check if we should run the interactive console
     if (Environment.UserInteractive && !args.Contains("--service"))
     {
-        var config = DeviceSpace.Common.Configurations.ConfigurationLoader.GetSpaceConfig();
+        var config = ConfigurationLoader.GetSpaceConfig();
         bool showSplash = config?.ColorConsole ?? true;
 
         if (showSplash)
@@ -168,7 +169,7 @@ static void RunInteractiveConsole(ConsoleStatusMonitor monitor, IMessageBus bus)
                     monitor.IsActive = true;
                     LogControl.ConsoleLevelSwitch.MinimumLevel = LogEventLevel.Fatal + 1;
                     
-                    // Force all devices and workflows to broadcast their status immediately
+                    // Force all elements and reactions to broadcast their status immediately
                     var topic = MessageBusTopic.SystemControl.ToString();
                     var msg = new SystemControlMessage(SystemCommand.RefreshStatus);
                     _ = bus.PublishAsync(topic, new MessageEnvelope(MessageBusTopic.SystemControl, msg));
@@ -200,8 +201,14 @@ static void RunInteractiveConsole(ConsoleStatusMonitor monitor, IMessageBus bus)
 
             if (key.Key == ConsoleKey.T)
             {
-                var topic = DeviceSpace.Common.MessageBusTopic.ConsoleCommand.ToString();
-                _ = bus.PublishAsync(topic, new MessageEnvelope(DeviceSpace.Common.MessageBusTopic.ConsoleCommand, "RELEASE_TOTE"));
+                var topic = Fusion.Common.MessageBusTopic.ConsoleCommand.ToString();
+                _ = bus.PublishAsync(topic, new MessageEnvelope(Fusion.Common.MessageBusTopic.ConsoleCommand, "RELEASE_TOTE"));
+                continue;
+            }
+
+            if (key.Key == ConsoleKey.H)
+            {
+                monitor.ToggleHeaders();
                 continue;
             }
         }

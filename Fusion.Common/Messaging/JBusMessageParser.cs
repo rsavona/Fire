@@ -20,7 +20,7 @@ public interface IJBusMessageParser
 }
 
 /// <summary>
-/// A specialized implementation of a parser for JBUS-based Device Managers.
+/// A specialized implementation of a parser for JBUS-based Element Managers.
 /// </summary>
 public class DefaultJbusMessageParser : IJBusMessageParser
 {
@@ -56,7 +56,7 @@ public class DefaultJbusMessageParser : IJBusMessageParser
         }
     }
 
-    private object? ExtractLabelRequest(JsonObject payload, string deviceName)
+    private object? ExtractLabelRequest(JsonObject payload, string elementName)
     {
         var barcodes = new List<string>();
         if (payload["Barcodes"] is JsonArray array)
@@ -71,7 +71,7 @@ public class DefaultJbusMessageParser : IJBusMessageParser
         // while utilizing the new JbusMessage envelope structure.
         return new 
         {
-            Device = deviceName,
+            Element = elementName,
             Barcodes = barcodes,
             Timestamp = DateTime.UtcNow,
             RawData = payload

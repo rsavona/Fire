@@ -1,7 +1,7 @@
 ﻿using System;
 using System.Threading;
 
-namespace DeviceSpaceConsole
+namespace FusionConsole
 {
     public static class SplashScreenFusion
     {

@@ -1,17 +1,15 @@
 using System.Collections.Concurrent;
 using Fusion.Common;
 using Fusion.Common.BaseClasses;
-using Blueprints;
+using Fusion.Common.Configurations;
 using Fusion.Common.Contracts;
-using Fusion.Common.Logging;
-using Microsoft.Extensions.Logging;
 using CancellationToken = System.Threading.CancellationToken;
 using Task = System.Threading.Tasks.Task;
 
 
-namespace Device.ActiveMQ;
+namespace Fusion.Element.ActiveMQ;
 
-public class ActiveMqManager : DeviceManagerBase<ActiveMqDevice>
+public class ActiveMqManager : ElementManagerBase<ActiveMqElement>
 {
     private readonly ConcurrentDictionary<string, List<string>> _queueToBusMap = new();
 
@@ -21,96 +19,96 @@ public class ActiveMqManager : DeviceManagerBase<ActiveMqDevice>
     /// <param name="bus"></param>
     /// <param name="config"></param>
     /// <param name="logger"></param>
-    /// <param name="deviceFactory"></param>
+    /// <param name="elementFactory"></param>
     public ActiveMqManager(
         IMessageBus bus,
-        List<IDeviceConfig> config,
+        List<IElementBlueprint> config,
         IFireLogger<ActiveMqManager> logger, // Change to the specific manager type
-        Func<IDeviceConfig, IFireLogger, ActiveMqDevice> deviceFactory,
+        Func<IElementBlueprint, IFireLogger, ActiveMqElement> elementFactory,
         string managerName)
-        : base(bus, config, logger, deviceFactory, managerName)
+        : base(bus, config, logger, elementFactory, managerName)
     {
     }
 
     /// <summary>
-    /// Registers the destination routes for the specified device if it is of type ActiveMqDevice.
+    /// Registers the destination bonds for the specified element if it is of type ActiveMqElement.
     /// </summary>
-    /// <param name="device">The device for which destination routes will be registered, expected to be an ActiveMqDevice.</param>
-    protected override void RegisterDeviceDestBonds(IDevice device)
+    /// <param name="element">The element for which destination bonds will be registered, expected to be an ActiveMqElement.</param>
+    protected override void RegisterElementDestBonds(IElement element)
     {
-        var deviceLogger = Logger.WithContext("DeviceName", device.Key.DeviceName);
-        if (device is not ActiveMqDevice mqdev)
+        var elementLogger = Logger.WithContext("ElementName", element.Key.ElementName);
+        if (element is not ActiveMqElement mqdev)
         {
-            deviceLogger.Error("Wrong Device type");
+            elementLogger.Error("Wrong Element type");
             return;
         }
 
-        var routes = ConfigurationLoader.GetAllWorkflowConfig()
+        var bonds = ConfigurationLoader.GetAllReactionConfig()
             .SelectMany(w => w.Bonds)
-            .Where(r => r.Destination.StartsWith(device.Config.Name)).ToList();
+            .Where(r => r.Destination.StartsWith(element.Config.Name)).ToList();
         
-        deviceLogger.Information("[{device}] Manager initializing destination {count} Bonds", device.Key.DeviceName,
-            routes.Count());
-        foreach (var route in routes)
+        elementLogger.Information("[{element}] Manager initializing destination {count} Bonds", element.Key.ElementName,
+            bonds.Count());
+        foreach (var bond in bonds)
         {
-            mqdev.GetLogger().Information($"[{device.Config.Name}] Manager initializing Bond: {route.Name}");
-            MessageBus.SubscribeAsync(route.Destination, HandleBusMessageAsync);
+            mqdev.GetLogger().Information($"[{element.Config.Name}] Manager initializing Bond: {bond.Name}");
+            MessageBus.SubscribeAsync(bond.Destination, HandleBusMessageAsync);
         }
     }
 
     /// <summary>
-    /// Finds routes whose source starts with the device name and registers them with the ActiveMQ device.
+    /// Finds bonds whose source starts with the element name and registers them with the ActiveMQ element.
     /// </summary>
-    /// <param name="device"></param>
-    protected override async Task RegisterDeviceSourceBonds(IDevice device)
+    /// <param name="element"></param>
+    protected override async Task RegisterElementSourceBonds(IElement element)
     {
-        var deviceLogger = Logger.WithContext("DeviceName", device.Key.DeviceName);
-        var routes = ConfigurationLoader.GetAllWorkflowConfig()
+        var elementLogger = Logger.WithContext("ElementName", element.Key.ElementName);
+        var bonds = ConfigurationLoader.GetAllReactionConfig()
             .SelectMany(w => w.Bonds)
-            .Where(r => r.Source.StartsWith(device.Config.Name) && r.Mode > 0)
+            .Where(r => r.Source.StartsWith(element.Config.Name) && r.Mode > 0)
             .ToList();
 
-        deviceLogger.Information("[{device}] Manager initializing Source {count} Bonds", device.Key.DeviceName,
-            routes.Count());
+        elementLogger.Information("[{element}] Manager initializing Source {count} Bonds", element.Key.ElementName,
+            bonds.Count());
 
-        foreach (var route in routes)
+        foreach (var bond in bonds)
         {
-            deviceLogger.Information($"[{device.Config.Name}] Manager initializing Bonds: {route.Name}");
-            var queueName = new MessageBusTopic(route.Source).Discriminator;
-            if (device is not ActiveMqDevice dev) {
-                deviceLogger.Error("Wrong Device type");
+            elementLogger.Information($"[{element.Config.Name}] Manager initializing Bonds: {bond.Name}");
+            var queueName = new MessageBusTopic(bond.Source).Discriminator;
+            if (element is not ActiveMqElement dev) {
+                elementLogger.Error("Wrong Element type");
                 continue;
             }   
-            var result = await dev.ReadNotifyAsync(queueName); // Will notify the device when messages come in
+            var result = await dev.ReadNotifyAsync(queueName); // Will notify the element when messages come in
             if (result)
             {
-                Logger.LogDebug($"[{device.Config.Name}] ActiveMQ Manager initialized Bond: {route}");
+                Logger.LogDebug($"[{element.Config.Name}] ActiveMQ Manager initialized Bond: {bond}");
 
                 if (_queueToBusMap.TryGetValue(queueName, out var list))
                 {
-                    list.Add(route.Source);
+                    list.Add(bond.Source);
                 }
                 else
                 {
-                    _queueToBusMap[queueName] = new List<string> { route.Source };
+                    _queueToBusMap[queueName] = new List<string> { bond.Source };
                 }
             }
             else
             {
-                var errorMsg = $"[{device.Config.Name}] Could not read route: {route}";
+                var errorMsg = $"[{element.Config.Name}] Could not read bond: {bond}";
                 Logger.LogError(null, errorMsg);
-                device.OnError(errorMsg);
+                element.OnError(errorMsg);
             }
         }
     }
 
     /// <summary>
-    /// Handle incoming messages from the external MQ. The ActiveMQ device and managers job is to get these
+    /// Handle incoming messages from the external MQ. The ActiveMQ element and managers job is to get these
     /// messages and forward them to the internal message bus topic
     /// </summary>
     /// <param name="sender"></param>
     /// <param name="message"></param>
-    protected override Task OnDeviceMessageToMessageBusAsync(object? message, object sender)
+    protected override Task OnElementMessageToMessageBusAsync(object? message, object sender)
     {
         if (sender is not string devQue || message == null) return Task.CompletedTask;
 
@@ -141,20 +139,20 @@ public class ActiveMqManager : DeviceManagerBase<ActiveMqDevice>
         {
             try
             {
-                var deviceName = env.Destination.DeviceName;
+                var elementName = env.Destination.ElementName;
                 var queue = env.Destination.Discriminator;
-                var device = DeviceInstances[deviceName];
-                var deviceLogger = Logger.WithContext("DeviceName", deviceName);
+                var element = ElementInstances[elementName];
+                var elementLogger = Logger.WithContext("ElementName", elementName);
                 
-                deviceLogger.LogDebug($"[{device.Config.Name}] ActiveMQ Manager received message for {queue}");
+                elementLogger.LogDebug($"[{element.Config.Name}] ActiveMQ Manager received message for {queue}");
 
                 if (env.Payload is byte[] bytes)
                 {
-                    await device.WriteAsync(bytes, queue);
+                    await element.WriteAsync(bytes, queue);
                 }
                 else
                 {
-                    await device.WriteAsync(env.Payload.ToJson(), queue);
+                    await element.WriteAsync(env.Payload.ToJson(), queue);
                 }
             }
             catch (Exception ex)

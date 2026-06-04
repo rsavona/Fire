@@ -2,7 +2,7 @@
 using Apache.NMS;
 using Microsoft.Extensions.Logging;
 
-namespace Device.ActiveMQ
+namespace Fusion.Element.ActiveMQ
 {
     internal class SessionConsumerManager
     {

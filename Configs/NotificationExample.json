@@ -1,0 +1,37 @@
+{
+  "AppSettings": {
+    "Fusion": {
+      "Name": "NotificationExample",
+      "ElementList": [
+        {
+          "Name": "AdminEmail",
+          "Manager": "NotificationElementManager",
+          "Enable": true,
+          "Properties": {
+            "Type": "Email",
+            "SmtpHost": "smtp.gmail.com",
+            "SmtpPort": 587,
+            "Username": "your-email@gmail.com",
+            "Password": "your-app-password",
+            "EnableSsl": true,
+            "FromAddress": "fusion@example.com",
+            "DefaultRecipient": "admin@example.com",
+            "DefaultSubject": "Fusion System Alert"
+          }
+        },
+        {
+          "Name": "OnCallSms",
+          "Manager": "NotificationElementManager",
+          "Enable": true,
+          "Properties": {
+            "Type": "SMS",
+            "ApiUrl": "https://api.twilio.com/2010-04-01/Accounts/AC.../Messages.json",
+            "ApiKey": "your-twilio-auth-token",
+            "FromNumber": "+1234567890",
+            "DefaultToNumber": "+0987654321"
+          }
+        }
+      ]
+    }
+  }
+}

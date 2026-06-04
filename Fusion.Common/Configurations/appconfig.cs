@@ -15,7 +15,7 @@ public class RootSettings
 
 public class AppSettings
 {
-    public required Configurations.SystemBlueprintTemplate SystemBlueprintTemplate { get; set; }
+    public required Blueprints.SystemBlueprintTemplate SystemBlueprintTemplate { get; set; }
 }
 
  

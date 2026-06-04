@@ -3,7 +3,7 @@
 
 <head>
     <meta charset="utf-8"/>
-    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <meta name="viewport" content="width=element-width, initial-scale=1.0"/>
     <base href="/"/>
     <ResourcePreloader/>
     <link rel="stylesheet" href="@Assets["lib/bootstrap/dist/css/bootstrap.min.css"]"/>
@@ -33,6 +33,29 @@
         // Clean up the memory
         URL.revokeObjectURL(url);
     };
+
+    window.openInNewTab = function (url) {
+        window.open(url, '_blank');
+    };
+
+    window.renderMermaid = function () {
+        if (window.mermaid) {
+            mermaid.contentLoaded();
+            mermaid.init(undefined, ".mermaid");
+        }
+    };
+
+    window.autoResizeTextarea = function (element) {
+        if (element) {
+            element.style.height = "auto";
+            element.style.height = (element.scrollHeight) + "px";
+        }
+    };
+</script>
+<script type="module">
+    import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
+    mermaid.initialize({ startOnLoad: true, theme: 'forest' });
+    window.mermaid = mermaid;
 </script>
 <script src="@Assets["_framework/blazor.web.js"]"></script>
 </body>

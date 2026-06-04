@@ -4,7 +4,7 @@ namespace Fusion.Common.PayloadParsers;
 
 public static class PayloadParserFactory
 {
-    public static IPayloadParser Create(IDeviceConfig config)
+    public static IPayloadParser Create(IElementBlueprint config)
     {
         string format = config.Properties.TryGetValue("PayloadFormat", out var f) 
             ? f.ToString()?.ToUpper() ?? "DELIMITED" 
@@ -20,7 +20,7 @@ public static class PayloadParserFactory
         };
     }
 
-    private static IPayloadParser CreateDelimitedParser(IDeviceConfig config)
+    private static IPayloadParser CreateDelimitedParser(IElementBlueprint config)
     {
         char delimiter = config.Properties.TryGetValue("BodyDelimiter", out var d) 
             ? d.ToString()?[0] ?? ',' 
@@ -42,7 +42,7 @@ public static class PayloadParserFactory
         return new DelimitedPayloadParser(delimiter, fieldNames);
     }
 
-    private static IPayloadParser CreateFixedLengthParser(IDeviceConfig config)
+    private static IPayloadParser CreateFixedLengthParser(IElementBlueprint config)
     {
         string definition = config.Properties.TryGetValue("FieldDefinitions", out var d) 
             ? d.ToString() ?? string.Empty 

@@ -2,15 +2,15 @@ using Apache.NMS;
 using Apache.NMS.ActiveMQ;
 using Fusion.Common;
 using Fusion.Common.BaseClasses;
-using Blueprints;
+using Fusion.Common.Configurations;
 using Fusion.Common.Contracts;
 using Fusion.Common.Logging;
 using Serilog.Core;
 
-namespace Device.ActiveMQ
+namespace Fusion.Element.ActiveMQ
 {
     /// <summary>
-    /// A specialized device that periodically browses a specific ActiveMQ queue and logs the top messages without consuming them.
+    /// A specialized element that periodically browses a specific ActiveMQ queue and logs the top messages without consuming them.
     /// </summary>
     public class ActiveMqQueuePeekElement : ClientElementBase
     {
@@ -21,7 +21,7 @@ namespace Device.ActiveMQ
         private readonly int _peekIntervalMs;
         private IConnection? _connection;
 
-        public ActiveMqQueuePeekElement(IMessageBus bus, IDeviceConfig config, IFireLogger logger, LoggingLevelSwitch ls)
+        public ActiveMqQueuePeekElement(IMessageBus bus, IElementBlueprint config, IFireLogger logger, LoggingLevelSwitch ls)
             : base(bus, config, logger, ls, false)
         {
             _conStr = ConfigurationLoader.GetRequiredConfig<string>(config.Properties, "ConnectionString")!;
@@ -30,9 +30,9 @@ namespace Device.ActiveMQ
             _peekIntervalMs = ConfigurationLoader.GetOptionalConfig(config.Properties, "PeekIntervalMs", 30000);
             
             _factory = new ConnectionFactory(_conStr);
-            Logger.Information("[{Dev}] Initializing ActiveMQ Queue Peek Device. Queue: {Queue}, Broker: {BrokerUrl}", Config.Name, _queueName, _conStr);
+            Logger.Information("[{Dev}] Initializing ActiveMQ Queue Peek Fusion.Element. Queue: {Queue}, Broker: {BrokerUrl}", Config.Name, _queueName, _conStr);
             
-            // Heartbeat monitoring is not applicable for this peek-only device
+            // Heartbeat monitoring is not applicable for this peek-only element
             NeedsHeartbeat = false;
         }
 
@@ -54,16 +54,16 @@ namespace Device.ActiveMQ
             }
         }
 
-        protected override async Task DeviceConnectedAsync()
+        protected override async Task ElementConnectedAsync()
         {
             Logger.Information("[{Dev}] Starting periodic queue peeking every {Interval}ms for queue: {Queue}", Config.Name, _peekIntervalMs, _queueName);
             RegisterTask(PeekLoopAsync(ConnectionToken));
-            await base.DeviceConnectedAsync();
+            await base.ElementConnectedAsync();
         }
 
         protected override Task InitPeriodicEvent()
         {
-            // Custom loop is started in DeviceConnectedAsync
+            // Custom loop is started in ElementConnectedAsync
             return Task.CompletedTask;
         }
 
@@ -121,7 +121,7 @@ namespace Device.ActiveMQ
 
         public override Task SendAsync(string message, CancellationToken token, bool fireEvent = true)
         {
-            Logger.Warning("[{Dev}] SendAsync not supported for Queue Peek Device.", Config.Name);
+            Logger.Warning("[{Dev}] SendAsync not supported for Queue Peek Fusion.Element.", Config.Name);
             return Task.CompletedTask;
         }
 
@@ -131,12 +131,12 @@ namespace Device.ActiveMQ
             return Task.CompletedTask;
         }
 
-        protected override void OnDeviceFaultedAsync(CancellationToken token = default)
+        protected override void OnElementFaultedAsync(CancellationToken token = default)
         {
-            Logger.Error("[{Dev}] Device faulted. Reconnecting...", Config.Name);
+            Logger.Error("[{Dev}] Element faulted. Reconnecting...", Config.Name);
         }
 
-        protected override async Task OnDeviceStoppingAsync()
+        protected override async Task OnElementStoppingAsync()
         {
             if (_connection != null)
             {

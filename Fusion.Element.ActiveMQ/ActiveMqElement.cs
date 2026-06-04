@@ -2,16 +2,16 @@
 using Apache.NMS.ActiveMQ;
 using Fusion.Common;
 using Fusion.Common.BaseClasses;
-using Blueprints;
+using Fusion.Common.Configurations;
 using Fusion.Common.Contracts;
 using Fusion.Common.Logging;
 using Serilog.Core;
 using Stateless;
 using ILogger = Serilog.ILogger;
 
-namespace Device.ActiveMQ
+namespace Fusion.Element.ActiveMQ
 {
-    public class ActiveMqDevice : ClientDeviceBase, IAdapterPort, IMessageProvider
+    public class ActiveMqElement : ClientElementBase, IAdapterPort, IMessageProvider
     {
         // --- AMQ-Specific Fields ---
         private IConnection? _connection;
@@ -30,28 +30,28 @@ namespace Device.ActiveMQ
         /// Event triggered when a message is received.
         /// </summary>
         /// <remarks>
-        /// The <c>MessageReceived</c> event is used to notify when the implementing device or component
+        /// The <c>MessageReceived</c> event is used to notify when the implementing element or component
         /// receives a new message. It provides two parameters: the sender object and a data object containing
         /// further details about the received message.
         /// </remarks>
         /// <example>
         /// This event can be subscribed to by external components that need to process incoming messages
-        /// from a device. The event handler should be implemented to handle the sender and the message data appropriately.
+        /// from a element. The event handler should be implemented to handle the sender and the message data appropriately.
         /// </example>
         public event Func<object, object, Task> MessageReceived;
 
         // --- Constructor ---
-        public ActiveMqDevice(IMessageBus bus, IDeviceConfig config, IFireLogger deviceLogger, LoggingLevelSwitch ls)
-            : base(bus, config, deviceLogger, ls, true)
+        public ActiveMqElement(IMessageBus bus, IElementBlueprint config, IFireLogger elementLogger, LoggingLevelSwitch ls)
+            : base(bus, config, elementLogger, ls, true)
         {
             // Load queues from config with fallbacks
             _defaultReadQueue = ConfigurationLoader.GetOptionalConfig(config.Properties, "DefaultReadQueue", "");
             _defaultWriteQueue = ConfigurationLoader.GetOptionalConfig(config.Properties, "DefaultWriteQueue", "");
             DoubleQueue = ConfigurationLoader.GetOptionalConfig(config.Properties, "DoubleQueue", false);
-            _heartbeatQueue = $"{Key.DeviceName}-Heartbeat";
+            _heartbeatQueue = $"{Key.ElementName}-Heartbeat";
             _conStr = ConfigurationLoader.GetRequiredConfig<string>(config.Properties, "ConnectionString");
 
-            Logger.Information("[{Dev}] Initializing ActiveMQ Device. Broker: {BrokerUrl}", Config.Name, _conStr);
+            Logger.Information("[{Dev}] Initializing ActiveMQ Fusion.Element. Broker: {BrokerUrl}", Config.Name, _conStr);
 
             _factory = new ConnectionFactory(_conStr);
             _consumermanager = new SessionConsumerManager();
@@ -72,23 +72,23 @@ namespace Device.ActiveMQ
         }
 
         /// <summary>
-        /// Sends a periodic heartbeat message to indicate the device's active state.
-        /// This method ensures that the device remains connected and operational.
+        /// Sends a periodic heartbeat message to indicate the element's active state.
+        /// This method ensures that the element remains connected and operational.
         /// </summary>
         /// <returns>A Task representing the asynchronous operation.</returns>
         public override Task SendHeartbeatAsync(CancellationToken token)
         {
-            _ = WriteAsync("Heartbeat", $"{Key.DeviceName}-Heartbeat", false);
+            _ = WriteAsync("Heartbeat", $"{Key.ElementName}-Heartbeat", false);
             return Task.CompletedTask;
         }
 
 
         /// <summary>
-        /// Invoked when the device encounters a fault scenario. Executes recovery logic to handle the fault condition.
+        /// Invoked when the element encounters a fault scenario. Executes recovery logic to handle the fault condition.
         /// </summary>
-        protected override void OnDeviceFaultedAsync(CancellationToken token = default)
+        protected override void OnElementFaultedAsync(CancellationToken token = default)
         {
-            Logger.Error("[{Dev}] Device faulted. Initiating recovery logic.", Config.Name);
+            Logger.Error("[{Dev}] Element faulted. Initiating recovery logic.", Config.Name);
             HandleConnectionError(token);
         }
 
@@ -158,7 +158,7 @@ namespace Device.ActiveMQ
 
   
         /// <summary>
-        /// Initializes and configures the heartbeat monitoring mechanism for the device.
+        /// Initializes and configures the heartbeat monitoring mechanism for the element.
         /// Sets up a listener to detect heartbeat messages on the designated heartbeat queue.
         /// </summary>
         protected override async Task InitPeriodicEvent()
@@ -211,9 +211,9 @@ namespace Device.ActiveMQ
         #endregion
 
         /// <summary>
-        /// Handles connection errors and manages reconnection logic for the device.
+        /// Handles connection errors and manages reconnection logic for the element.
         /// This includes initiating a reconnection loop, attempting to re-establish the connection,
-        /// and transitioning the device state based on the success or failure of reconnection attempts.
+        /// and transitioning the element state based on the success or failure of reconnection attempts.
         /// </summary>
         private void HandleConnectionError(CancellationToken token = default)
         {
@@ -264,10 +264,10 @@ namespace Device.ActiveMQ
         }
 
         /// <summary>
-        /// Disconnects the ActiveMQ device by closing the current connection and resetting internal state.
+        /// Disconnects the ActiveMQ element by closing the current connection and resetting internal state.
         /// </summary>
         /// <remarks>
-        /// This method ensures the proper cleanup of resources associated with the device's connection,
+        /// This method ensures the proper cleanup of resources associated with the element's connection,
         /// including unsubscribing from connection events and releasing the connection object. If already
         /// disconnected, it performs no action.
         /// </remarks>
@@ -296,7 +296,7 @@ namespace Device.ActiveMQ
         }
 
         /// <summary>
-        /// Handles the transition of device states and performs the necessary updates and notifications
+        /// Handles the transition of element states and performs the necessary updates and notifications
         /// associated with the state change.
         /// </summary>
         /// <param name="transition">The state machine transition containing information about the
@@ -304,7 +304,7 @@ namespace Device.ActiveMQ
         protected override void OnStateChange(StateMachine<State, Event>.Transition transition)
         {
             // Log the transition for local debugging
-            Logger.Debug("[{Device}] Transition: {Source} -> {Dest} (Trigger: {Trigger})",
+            Logger.Debug("[{Element}] Transition: {Source} -> {Dest} (Trigger: {Trigger})",
                 Config.Name, transition.Source, transition.Destination, transition.Trigger);
 
             // Build a dynamic comment 
@@ -347,18 +347,18 @@ namespace Device.ActiveMQ
         {
             if (Machine.State != State.Connected)
             {
-                Logger.Warning("[{Dev}] Write blocked: Device in {State}. Message to {Queue} dropped.", Config.Name, Machine.State, queue);
+                Logger.Warning("[{Dev}] Write blocked: Element in {State}. Message to {Queue} dropped.", Config.Name, Machine.State, queue);
                 return;
             }
 
             if (fireEvent)
             {
-                Logger.Information("[{device}] TX >> {Queue}: {Msg}", Config.Name, queue, message);
+                Logger.Information("[{element}] TX >> {Queue}: {Msg}", Config.Name, queue, message);
             }
             else
             {
                 SmartLogger.LogSampled(
-                    key: $"{Key.DeviceName}_HB",
+                    key: $"{Key.ElementName}_HB",
                     sampleRate: 20,
                     subject: queue,
                     verb: "TX >> ",
@@ -404,13 +404,13 @@ namespace Device.ActiveMQ
         {
             if (Machine.State != State.Connected)
             {
-                Logger.Warning("[{Dev}] Write blocked: Device in {State}. Byte message to {Queue} dropped.", Config.Name, Machine.State, queue);
+                Logger.Warning("[{Dev}] Write blocked: Element in {State}. Byte message to {Queue} dropped.", Config.Name, Machine.State, queue);
                 return;
             }
 
             if (fireEvent)
             {
-                Logger.Information("[{device}] TX (Bytes) >> {Queue}: {Len} bytes", Config.Name, queue, message.Length);
+                Logger.Information("[{element}] TX (Bytes) >> {Queue}: {Len} bytes", Config.Name, queue, message.Length);
             }
 
             try
@@ -702,10 +702,10 @@ namespace Device.ActiveMQ
 
     
         /// <summary>
-        /// Stops the device asynchronously. Transitions the device state to 'Stop' and performs necessary cleanup operations.
+        /// Stops the element asynchronously. Transitions the element state to 'Stop' and performs necessary cleanup operations.
         /// </summary>
         /// <param name="token">A cancellation token that can be used to signal the request to cancel the stop operation.</param>
-        /// <returns>A task that represents the asynchronous operation of stopping the device.</returns>
+        /// <returns>A task that represents the asynchronous operation of stopping the element.</returns>
         public override Task StopAsync(CancellationToken token)
         {
             Logger.Information("[{Dev}] Shutting down gracefully...", Config.Name);
@@ -714,12 +714,12 @@ namespace Device.ActiveMQ
         }
 
         /// <summary>
-        /// Performs cleanup of managed resources utilized by the ActiveMqDevice instance.
+        /// Performs cleanup of managed resources utilized by the ActiveMqElement instance.
         /// Invokes any necessary disconnect operations and ensures base class resource cleanup is executed.
         /// </summary>
         protected override void DisposeManagedResources()
         {
-            Logger.Debug("[{Dev}] Disposing ActiveMQ Device.", Config.Name);
+            Logger.Debug("[{Dev}] Disposing ActiveMQ Fusion.Element.", Config.Name);
             Disconnect();
             base.DisposeManagedResources();
         }

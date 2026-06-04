@@ -1,5 +1,8 @@
 ﻿using System.Collections.Concurrent;
-using Blueprints;
+using System.Reflection;
+using Fusion.Common.Attributes;
+using Fusion.Common.Blueprints;
+using Fusion.Common.Configurations;
 using Fusion.Common.Contracts;
 using Fusion.Common.Enums;
 using Microsoft.Extensions.Hosting;
@@ -9,45 +12,47 @@ using Serilog;
 namespace Fusion.Common.BaseClasses;
 
 /// <summary>
-/// Base class for Device Managers.
+/// Base class for Element Managers.
 /// </summary>
-/// <typeparam name="TDevice"></typeparam>
-public abstract class DeviceManagerBase<TDevice> : BackgroundService, IDeviceManager
-    where TDevice : IElement
+/// <typeparam name="TElement"></typeparam>
+public abstract class ElementManagerBase<TElement> : BackgroundService, IElementManager
+    where TElement : IElement
 {
     protected readonly IMessageBus MessageBus;
-    protected readonly List<IElementBlueprint> DeviceConfigList;
-    protected readonly IFireLogger<DeviceManagerBase<TDevice>> Logger;
+    protected readonly List<IElementBlueprint> ElementConfigList;
+    protected readonly IFireLogger<ElementManagerBase<TElement>> Logger;
     protected readonly string ManagerName;
-    protected readonly ConcurrentDictionary<string, TDevice> DeviceInstances = new();
+    protected readonly ConcurrentDictionary<string, TElement> ElementInstances = new();
 
-    protected Func<IElementBlueprint, IFireLogger, TDevice> DeviceFactory;
-    private readonly ConcurrentDictionary<string, (string State, DeviceHealth Health)> _lastDeviceStatus = new();
+    protected Func<IElementBlueprint, IFireLogger, TElement> ElementFactory;
+    private readonly ConcurrentDictionary<string, (string State, ElementHealth Health)> _lastElementStatus = new();
     private readonly SemaphoreSlim _reconciliationLock = new(1, 1);
     private CancellationToken _stoppingToken;
 
+    public string? TestCounterpart => GetType().GetCustomAttribute<TestCounterpartAttribute>()?.CounterpartType.Name;
+
     /// abstract methods
-    protected virtual void RegisterDeviceDestBonds(IElement element)
+    protected virtual void RegisterElementDestBonds(IElement element)
     {
   
         var devLogger = element.GetLogger();
-        var routes = ConfigurationLoader.GetAllWorkflowConfig()
+        var bonds = ConfigurationLoader.GetAllReactionConfig()
             .SelectMany(w => w.Bonds)
             .Where(r => r.Destination.StartsWith(element.Config.Name));
 
-        var workflowBonds = routes as Bonds[] ?? routes.ToArray();
-        if (workflowBonds.Length == 0) devLogger.Information("[{dec}] No Bonds found with a destination for this Device", element.Config.Name);
-        foreach (var route in workflowBonds)
+        var ReactionBonds = bonds as BondBlueprint[] ?? bonds.ToArray();
+        if (ReactionBonds.Length == 0) devLogger.Information("[{dec}] No Bonds found with a destination for this Element", element.Config.Name);
+        foreach (var bond in ReactionBonds)
         {
-            devLogger.Information("{method} [{Dev}]  Manager initializing Bond: {route}","RegisterDeviceDestBonds", element.Config.Name, route.Name);
-            MessageBus.SubscribeAsync(route.Destination, HandleBusMessageAsync);
+            devLogger.Information("{method} [{Dev}]  Manager initializing Bond: {bond}","RegisterElementDestBonds", element.Config.Name, bond.Name);
+            MessageBus.SubscribeAsync(bond.Destination, HandleBusMessageAsync);
         }
 
         // Always subscribe to the element name itself as a fallback
         MessageBus.SubscribeAsync(element.Config.Name, HandleBusMessageAsync);
     }
 
-    protected virtual void OnDeviceCreated(IElement element)
+    protected virtual void OnElementCreated(IElement element)
     {
     }
 
@@ -62,17 +67,17 @@ public abstract class DeviceManagerBase<TDevice> : BackgroundService, IDeviceMan
                 if (payload.Contains("RESTART", StringComparison.OrdinalIgnoreCase))
                 {
                     Logger.Warning("[{Dev}] Remote RESTART signal received.", element.Config.Name);
-                    await ReinitializeDeviceAsync(element.Config.Name);
+                    await ReinitializeElementAsync(element.Config.Name);
                 }
                 else if (payload.Contains("OFFLINE", StringComparison.OrdinalIgnoreCase))
                 {
                     Logger.Warning("[{Dev}] Remote OFFLINE signal received.", element.Config.Name);
-                    await TakeDeviceOfflineAsync(element.Config.Name);
+                    await TakeElementOfflineAsync(element.Config.Name);
                 }
                 else if (payload.Contains("ONLINE", StringComparison.OrdinalIgnoreCase))
                 {
                     Logger.Warning("[{Dev}] Remote ONLINE signal received.", element.Config.Name);
-                    await ReinitializeDeviceAsync(element.Config.Name);
+                    await ReinitializeElementAsync(element.Config.Name);
                 }
             }
             catch (Exception ex)
@@ -82,9 +87,9 @@ public abstract class DeviceManagerBase<TDevice> : BackgroundService, IDeviceMan
         });
     }
 
-    protected virtual Task OnDeviceMessageToMessageBusAsync(object? sender, object messageEnv) {  return Task.CompletedTask; }
+    protected virtual Task OnElementMessageToMessageBusAsync(object? sender, object messageEnv) {  return Task.CompletedTask; }
 
-    protected virtual Task RegisterDeviceSourceBonds(IElement element){ return Task.CompletedTask;}
+    protected virtual Task RegisterElementSourceBonds(IElement element){ return Task.CompletedTask;}
     
     
     protected virtual Task HandleBusMessageAsync(MessageEnvelope envelope, CancellationToken ct){ return Task.CompletedTask;}
@@ -95,37 +100,37 @@ public abstract class DeviceManagerBase<TDevice> : BackgroundService, IDeviceMan
     /// <param name="bus"></param>
     /// <param name="configs"></param>
     /// <param name="logger"></param>
-    /// <param name="deviceFactory"></param>
-    protected DeviceManagerBase(IMessageBus bus, List<IElementBlueprint> configs,
-        IFireLogger<DeviceManagerBase<TDevice>> logger,
-        Func<IElementBlueprint, IFireLogger, TDevice> deviceFactory,
+    /// <param name="elementFactory"></param>
+    protected ElementManagerBase(IMessageBus bus, List<IElementBlueprint> configs,
+        IFireLogger<ElementManagerBase<TElement>> logger,
+        Func<IElementBlueprint, IFireLogger, TElement> elementFactory,
         string managerName)
     {
         MessageBus = bus;
         Logger = logger;
-        DeviceConfigList = configs ?? new List<IElementBlueprint>();
-        DeviceFactory = deviceFactory;
+        ElementConfigList = configs ?? new List<IElementBlueprint>();
+        ElementFactory = elementFactory;
         ManagerName = managerName;
     }
 
     /// <summary>
-    /// Starts all devices.
+    /// Starts all elements.
     /// </summary>
     /// <param name="stoppingToken"></param>
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         await Task.Yield();
         _stoppingToken = stoppingToken;
-        Logger.Information("Starting Manager for {DeviceType}", typeof(TDevice).Name);
+        Logger.Information("Starting Manager for {ElementType}", typeof(TElement).Name);
 
         // Initial load
-        await ReconcileDevicesAsync();
+        await ReconcileElementsAsync();
 
         // Subscribe to configuration changes
         ConfigurationLoader.OnConfigurationChanged += async () =>
         {
-            Logger.Information("[{Manager}] Configuration change detected. Reconciling devices...", typeof(TDevice).Name);
-            await ReconcileDevicesAsync();
+            Logger.Information("[{Manager}] Configuration change detected. Reconciling elements...", typeof(TElement).Name);
+            await ReconcileElementsAsync();
         };
 
         // Subscribe to Global System Control for Status Refresh
@@ -133,9 +138,9 @@ public abstract class DeviceManagerBase<TDevice> : BackgroundService, IDeviceMan
         {
             if (envelope.Payload is Messaging.SystemControlMessage sysMsg && sysMsg.Command == Messaging.SystemCommand.RefreshStatus)
             {
-                foreach (var device in DeviceInstances.Values)
+                foreach (var element in ElementInstances.Values)
                 {
-                    device.RefreshStatus();
+                    element.RefreshStatus();
                 }
             }
         });
@@ -146,18 +151,18 @@ public abstract class DeviceManagerBase<TDevice> : BackgroundService, IDeviceMan
     /// <summary>
     /// Centralized handler for all element status changes within this manager.
     /// </summary>
-    private void OnDeviceStatusUpdated(IElement? sender, IDeviceStatus status)
+    private void OnElementStatusUpdated(IElement? sender, IElementStatus status)
     {
-        if (sender is not { } device) return;
+        if (sender is not { } element) return;
 
-        string name = device.Config.Name;
-        _lastDeviceStatus.TryGetValue(name, out var oldStatus);
+        string name = element.Config.Name;
+        _lastElementStatus.TryGetValue(name, out var oldStatus);
         
         bool changed = oldStatus == default || oldStatus.State != status.State || oldStatus.Health != status.Health;
 
         if (changed)
         {
-            _lastDeviceStatus[name] = (status.State, status.Health);
+            _lastElementStatus[name] = (status.State, status.Health);
             Logger.Information("[{Dev}] Status Change: {State} (Health: {Health})",
                 name, status.State, status.Health);
         }
@@ -167,8 +172,8 @@ public abstract class DeviceManagerBase<TDevice> : BackgroundService, IDeviceMan
                 name, status.State, status.Health);
         }
 
-        _ = MessageBus.PublishAsync(MessageBusTopic.DeviceStatus.ToString(),
-            new MessageEnvelope(MessageBusTopic.DeviceStatus, status));
+        _ = MessageBus.PublishAsync(MessageBusTopic.ElementStatus.ToString(),
+            new MessageEnvelope(MessageBusTopic.ElementStatus, status));
     }
 
     /// <summary>
@@ -177,11 +182,11 @@ public abstract class DeviceManagerBase<TDevice> : BackgroundService, IDeviceMan
     /// <param name="element"></param>
     protected virtual async Task AnnouncePresenceAsync(IElement element)
     {
-        var announcement = new DeviceAnnouncement
+        var announcement = new ElementAnnouncement
         {
-            DeviceName = element.Key.DeviceName,
-            DeviceType = element.GetType().Name,
-            SoftwareVersion = element.GetDeviceVersion(),
+            ElementName = element.Key.ElementName,
+            ElementType = element.GetType().Name,
+            SoftwareVersion = element.GetElementVersion(),
             Runtime = System.Runtime.InteropServices.RuntimeInformation.FrameworkDescription,
             SchemaVersion = 1,
             AvailableCommands = element.GetAvailableCommands().ToList()
@@ -191,7 +196,7 @@ public abstract class DeviceManagerBase<TDevice> : BackgroundService, IDeviceMan
         await MessageBus.PublishAsync(MessageBusTopic.Discovery.ToString(),
             new MessageEnvelope(MessageBusTopic.Discovery, announcement));
 
-        element.GetLogger().Information("[{Dev}] Presence announced to Diag Server.", element.Key.DeviceName);
+        element.GetLogger().Information("[{Dev}] Presence announced to Diag Server.", element.Key.ElementName);
     }
 
     /// <summary>
@@ -199,32 +204,32 @@ public abstract class DeviceManagerBase<TDevice> : BackgroundService, IDeviceMan
     /// </summary>
     /// <param name="config"></param>
     /// <returns></returns>
-    protected virtual Task<TDevice> CreateDeviceAsync(IElementBlueprint config)
+    protected virtual Task<TElement> CreateElementAsync(IElementBlueprint config)
     {
-        var deviceLogger = Logger.WithContext("DeviceName", config.Name);
-        var device = DeviceFactory(config, deviceLogger);
-        return Task.FromResult(device);
+        var elementLogger = Logger.WithContext("ElementName", config.Name);
+        var element = ElementFactory(config, elementLogger);
+        return Task.FromResult(element);
     }
 
-    private IElement? GetDeviceByName(string deviceName)
+    private IElement? GetElementByName(string elementName)
     {
-        foreach (var device in DeviceInstances.Values.ToList())
+        foreach (var element in ElementInstances.Values.ToList())
         {
-            if(device.Key.DeviceName ==  deviceName)
-                return device;    
+            if(element.Key.ElementName ==  elementName)
+                return element;    
         }
 
         return null;
     }
     
-    public async Task<bool> TakeDeviceOfflineAsync(string deviceName)
+    public async Task<bool> TakeElementOfflineAsync(string elementName)
     {
-        var device = GetDeviceByName(deviceName);
-        if (device == null) return false;
+        var element = GetElementByName(elementName);
+        if (element == null) return false;
 
         // 2. Stop the element (Take it down)
         // This typically involves cancelling its internal CancellationToken
-        await device.StopAsync(CancellationToken.None);
+        await element.StopAsync(CancellationToken.None);
         return true;
 
     }
@@ -232,81 +237,81 @@ public abstract class DeviceManagerBase<TDevice> : BackgroundService, IDeviceMan
     /// <summary>
     /// Returns the element instance with the specified name.
     /// </summary>
-    /// <param name="deviceName"></param>
-    public async Task ReinitializeDeviceAsync(string deviceName)
+    /// <param name="elementName"></param>
+    public async Task ReinitializeElementAsync(string elementName)
     {
-        var device = GetDeviceByName(deviceName);
-        if (device == null) return ;
+        var element = GetElementByName(elementName);
+        if (element == null) return ;
         
         // 3. Re-start/Initialize
         // In many WCS implementations, this involves re-running the StartAsync
         // which re-establishes TCP listeners/connections
-        await device.StartAsync(CancellationToken.None);
+        await element.StartAsync(CancellationToken.None);
 
-        Logger.Information("[{Dev}] Device has been reinitialized.", deviceName);
+        Logger.Information("[{Dev}] Element has been reinitialized.", elementName);
     }
 
     /// <summary>
-    /// Registers all workflow routes where the destination of the route is equal to the element name.
+    /// Registers all reaction bonds where the destination of the bond is equal to the element name.
     /// </summary>
     /// <param name="element"></param>
-    protected virtual void PrepareForRouteDestinations(IElement element)
+    protected virtual void PrepareForBondDestinations(IElement element)
     {
     }
 
 
     public override async Task StopAsync(CancellationToken cancellationToken)
     {
-        Logger.Information("Stopping Manager for {DeviceType}", typeof(TDevice).Name);
-        await StopDevicesAsync(cancellationToken);
+        Logger.Information("Stopping Manager for {ElementType}", typeof(TElement).Name);
+        await StopElementsAsync(cancellationToken);
         await base.StopAsync(cancellationToken);
     }
 
-    public async Task StopDevicesAsync(CancellationToken cancellationToken)
+    public async Task StopElementsAsync(CancellationToken cancellationToken)
     {
-        foreach (var device in DeviceInstances.Values.ToList())
+        foreach (var element in ElementInstances.Values.ToList())
         {
-            await device.StopAsync(cancellationToken);
+            await element.StopAsync(cancellationToken);
         }
     }
 
-    private async Task ReconcileDevicesAsync()
+    private async Task ReconcileElementsAsync()
     {
         await _reconciliationLock.WaitAsync();
         try
         {
-            var newConfigs = ConfigurationLoader.GetDeviceConfig(ManagerName);
+            var newConfigs = ConfigurationLoader.GetElementConfig(ManagerName);
             var activeConfigNames = newConfigs.Where(c => c.Enable).Select(c => c.Name).ToHashSet();
 
-            // 1. Identify and Stop Removed or Disabled Devices
-            var devicesToRemove = DeviceInstances.Keys.Where(name => !activeConfigNames.Contains(name)).ToList();
-            foreach (var name in devicesToRemove)
+            // 1. Identify and Stop Removed or Disabled Elements
+            var elementsToRemove = ElementInstances.Keys.Where(name => !activeConfigNames.Contains(name)).ToList();
+            foreach (var name in elementsToRemove)
             {
-                if (DeviceInstances.TryRemove(name, out var device))
+                if (ElementInstances.TryRemove(name, out var element))
                 {
                     Logger.Warning("[{Dev}] Configuration removed or disabled. Stopping element...", name);
-                    await StopAndUnwireDeviceAsync(device);
+                    await StopAndUnwireElementAsync(element);
                 }
             }
 
             // 2. Identify Additions and Updates
             foreach (var config in newConfigs.Where(c => c.Enable))
             {
-                if (DeviceInstances.TryGetValue(config.Name, out var existingDevice))
+                if (ElementInstances.TryGetValue(config.Name, out var existingElement))
                 {
                     // Check if properties have changed
-                    if (ConfigHasChanged(existingDevice.Config, config))
+                    if (ConfigHasChanged(existingElement.Config, config))
                     {
                         Logger.Information("[{Dev}] Configuration updated. Restarting element...", config.Name);
-                        await StopAndUnwireDeviceAsync(existingDevice);
-                        await StartAndWireDeviceAsync(config);
+                        await StopAndUnwireElementAsync(existingElement);
+                        await StartAndWireElementAsync(config);
                     }
                 }
                 else
                 {
-                    // New Device
+                    // New Element
                     Logger.Information("[{Dev}] New configuration detected. Starting element...", config.Name);
-                    await StartAndWireDeviceAsync(config);
+                    await StartAndWireElementAsync(config);
                 }
             }
         }
@@ -320,29 +325,29 @@ public abstract class DeviceManagerBase<TDevice> : BackgroundService, IDeviceMan
         }
     }
 
-    private async Task StartAndWireDeviceAsync(IElementBlueprint config)
+    private async Task StartAndWireElementAsync(IElementBlueprint config)
     {
         try
         {
-            var device = DeviceFactory(config, Logger);
-            DeviceInstances[device.Key.DeviceName] = device;
+            var element = ElementFactory(config, Logger);
+            ElementInstances[element.Key.ElementName] = element;
 
-            if (device is IMessageProvider provider)
+            if (element is IMessageProvider provider)
             {
-                provider.MessageReceived += OnDeviceMessageToMessageBusAsync;
+                provider.MessageReceived += OnElementMessageToMessageBusAsync;
                 Logger.LogDebug("[{Dev}] Messaging interface auto-wired.", config.Name);
             }
-            device.StatusUpdated += OnDeviceStatusUpdated;
+            element.StatusUpdated += OnElementStatusUpdated;
 
-            PrepareForRouteDestinations(device);
-            RegisterDeviceDestBonds(device);
-            RegisterControlBonds(device);
+            PrepareForBondDestinations(element);
+            RegisterElementDestBonds(element);
+            RegisterControlBonds(element);
 
-            if (device is IDiagnosticProvider diagProvider)
+            if (element is IDiagnosticProvider diagProvider)
                 await AnnouncePresenceAsync((IElement)diagProvider);
 
-            _ = Task.Run(() => device.StartAsync(_stoppingToken), _stoppingToken);
-            await RegisterDeviceSourceBonds(device);
+            _ = Task.Run(() => element.StartAsync(_stoppingToken), _stoppingToken);
+            await RegisterElementSourceBonds(element);
         }
         catch (Exception ex)
         {
@@ -350,21 +355,21 @@ public abstract class DeviceManagerBase<TDevice> : BackgroundService, IDeviceMan
         }
     }
 
-    private async Task StopAndUnwireDeviceAsync(TDevice device)
+    private async Task StopAndUnwireElementAsync(TElement element)
     {
         try
         {
-            await device.StopAsync(CancellationToken.None);
+            await element.StopAsync(CancellationToken.None);
 
-            if (device is IMessageProvider provider)
+            if (element is IMessageProvider provider)
             {
-                provider.MessageReceived -= OnDeviceMessageToMessageBusAsync;
+                provider.MessageReceived -= OnElementMessageToMessageBusAsync;
             }
-            device.StatusUpdated -= OnDeviceStatusUpdated;
+            element.StatusUpdated -= OnElementStatusUpdated;
         }
         catch (Exception ex)
         {
-            Logger.Error(ex, "[{Dev}] Error during element shutdown", device.Config.Name);
+            Logger.Error(ex, "[{Dev}] Error during element shutdown", element.Config.Name);
         }
     }
 

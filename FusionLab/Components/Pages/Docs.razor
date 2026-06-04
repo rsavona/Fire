@@ -1,0 +1,138 @@
+@page "/documentation/{FileName}"
+@using Markdig
+@using System.IO
+@inject Microsoft.AspNetCore.Hosting.IWebHostEnvironment Env
+@inject IJSRuntime JSRuntime
+
+<div class="container py-4">
+    <div class="card shadow-sm border-0">
+        <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center">
+            <h5 class="mb-0"><i class="bi bi-file-earmark-text me-2"></i> @FileName</h5>
+            <a href="/" class="btn btn-sm btn-outline-light">Back to Designer</a>
+        </div>
+        <div class="card-body bg-light p-5 markdown-body">
+            @if (_htmlContent != null)
+            {
+                <div class="markdown-container">
+                    @((MarkupString)_htmlContent)
+                </div>
+            }
+            else if (_error != null)
+            {
+                <div class="alert alert-danger">
+                    <i class="bi bi-exclamation-triangle"></i> @_error
+                </div>
+            }
+            else
+            {
+                <div class="text-center p-5">
+                    <div class="spinner-border text-primary" role="status"></div>
+                    <p class="mt-3">Loading documentation...</p>
+                </div>
+            }
+        </div>
+    </div>
+</div>
+
+<style>
+    .markdown-body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+        line-height: 1.6;
+        word-wrap: break-word;
+        color: #24292e;
+    }
+    .markdown-body h1, .markdown-body h2, .markdown-body h3 { 
+        border-bottom: 1px solid #eaecef; 
+        padding-bottom: .3em; 
+        margin-top: 24px;
+        margin-bottom: 16px;
+        font-weight: 600;
+    }
+    .markdown-body code { 
+        background-color: rgba(27,31,35,.05); 
+        border-radius: 3px; 
+        padding: .2em .4em; 
+        font-size: 85%; 
+        font-family: SFMono-Regular,Consolas,Liberation Mono,Menlo,monospace;
+    }
+    .markdown-body pre { 
+        background-color: #f6f8fa; 
+        border-radius: 3px; 
+        padding: 16px; 
+        overflow: auto; 
+        margin-bottom: 16px;
+    }
+    .markdown-body pre code { background-color: transparent; padding: 0; }
+    .markdown-body blockquote { 
+        border-left: .25em solid #dfe2e5; 
+        color: #6a737d; 
+        padding: 0 1em; 
+        margin-bottom: 16px;
+    }
+    .markdown-body table { 
+        border-collapse: collapse; 
+        width: 100%; 
+        margin-bottom: 16px; 
+    }
+    .markdown-body table th, .markdown-body table td { border: 1px solid #dfe2e5; padding: 6px 13px; }
+    .markdown-body table tr:nth-child(2n) { background-color: #f6f8fa; }
+    
+    /* Mermaid styling */
+    .mermaid {
+        background: white;
+        padding: 20px;
+        border-radius: 8px;
+        margin-bottom: 20px;
+        display: flex;
+        justify-content: center;
+    }
+</style>
+
+@code {
+    [Parameter] public string FileName { get; set; }
+
+    private string _htmlContent;
+    private string _error;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        await LoadMarkdown();
+    }
+
+    private async Task LoadMarkdown()
+    {
+        try
+        {
+            var path = Path.Combine(Env.WebRootPath, "docs", FileName);
+            if (!File.Exists(path))
+            {
+                _error = $"Documentation file '{FileName}' not found at {path}";
+                return;
+            }
+
+            var markdown = await File.ReadAllTextAsync(path);
+            
+            var pipeline = new MarkdownPipelineBuilder()
+                .UseAdvancedExtensions()
+                .Build();
+
+            var html = Markdown.ToHtml(markdown, pipeline);
+            
+            // Post-processing for Mermaid
+            html = html.Replace("<pre><code class=\"language-mermaid\">", "<div class=\"mermaid\">");
+            html = html.Replace("<pre><code class=\"language-mermaid \">", "<div class=\"mermaid\">");
+            html = html.Replace("</code></pre>", "</div>");
+            
+            _htmlContent = html;
+            _error = null;
+            StateHasChanged();
+            
+            await Task.Delay(200);
+            await JSRuntime.InvokeVoidAsync("renderMermaid");
+        }
+        catch (Exception ex)
+        {
+            _error = $"Failed to load documentation: {ex.Message}";
+        }
+    }
+}

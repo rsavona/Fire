@@ -1,10 +1,10 @@
 {
   "AppSettings": {
-    "DeviceSpace": {
+    "Fusion": {
       "Name": "TuraSort",
       "ColorConsole": true,
       "DiagnosticPort": 9999,
-      "WorkflowList": [
+      "ReactionList": [
         {
           "Name": "StandardSort",
           "Type": "StandardSort",
@@ -13,36 +13,36 @@
             "Diverts": "1;2;3;4;5;15"
           },
 
-          "Routes": [
+          "Bonds": [
             {
               "Mode": 0,
-              "Name": "Route1-InductRequestToResponse",
+              "Name": "Bond1-InductRequestToResponse",
               "Source": "CP1.DReqM.SNC302",
               "Handler": "HandleInductionRoundRobinSort",
               "Destination": "CP1.DRespM.SNC302"
             },
             { "Mode": 1,
-              "Name": "Route2-InductRequestToSQL",
+              "Name": "Bond2-InductRequestToSQL",
               "Source": "CP1.DReqM.SNC302",
               "Handler": "HandleInductionSqlSort",
               "Destination": "MSSQL_Store.Query.SNC302"
             },
             { "Mode": 1,
-              "Name": "Route3-InductRequestToSQL",
+              "Name": "Bond3-InductRequestToSQL",
               "Source": "CP1.DReqM.SNC301",
               "Handler": "HandleInductionSqlSort",
               "Destination": "MySQL_Store.Query.SNC301"
             },
             {
               "Mode": 1,
-              "Name": "Route4-InductRequestToResponse",
+              "Name": "Bond4-InductRequestToResponse",
               "Source": "MSSQL_Store.QueryResult.SNC302",
               "Handler": "HandleDestinastionResult",
               "Destination": "CP1.DRespM.SNC302"
             },
              {
               "Mode": 1,
-              "Name": "Route5-InductRequestToResponse",
+              "Name": "Bond5-InductRequestToResponse",
               "Source": "MySQL_Store.QueryResult.SNC301",
               "Handler": "HandleDestinastionResult",
               "Destination": "CP1.DRespM.SNC301"
@@ -50,20 +50,20 @@
           ]
         }
       ],
-      "DeviceList": [
+      "ElementList": [
         {
           "Name": "CP1",
-          "Manager": "PlcDeviceManager",
+          "Manager": "PlcElementManager",
           "Enable": true,
           "Properties": {
-            "DevicePort": "6999",
+            "ElementPort": "6999",
             "HeartbeatTimeoutMs": 20000,
             "AllowedHosts": "*"
           }
         },
         {
           "Name": "MSSQL_Store",
-          "Manager": "DatabaseDeviceManager",
+          "Manager": "DatabaseElementManager",
           "Enable": true,
           "Properties": {
             "DatabaseType": "MsSql",
@@ -73,7 +73,7 @@
         },
         {
           "Name": "Postgres_Store",
-          "Manager": "DatabaseDeviceManager",
+          "Manager": "DatabaseElementManager",
           "Enable": true,
           "Properties": {
             "DatabaseType": "PostgreSql",
@@ -83,7 +83,7 @@
         },
         {
           "Name": "MySQL_Store",
-          "Manager": "DatabaseDeviceManager",
+          "Manager": "DatabaseElementManager",
           "Enable": true,
           "Properties": {
             "DatabaseType": "MySql",
@@ -93,7 +93,7 @@
         },
         {
           "Name": "HostCommServer",
-          "Manager": "TcpServerDeviceManager",
+          "Manager": "TcpServerElementManager",
           "Enable": false,
           "Properties": {
             "Port": 5000,

@@ -9,14 +9,14 @@ using System.Threading;
 using System.Threading.Tasks;
 using Fusion.Common;
 using Fusion.Common.BaseClasses;
-using Blueprints;
+using Fusion.Common.Configurations;
 using Fusion.Common.Contracts;
 using Fusion.Common.Enums;
 using Fusion.Common.Logging;
 using Serilog;
-using Workflow.PrintAndApplyFrc;
+using Fusion.Reaction.PrintAndApplyFrc;
 
-namespace Workflow.PrintAndApplyFrc;
+namespace Fusion.Reaction.PrintAndApplyFrc;
 
 public class PrintAndApplyFrc : ReactionBase
 {
@@ -35,26 +35,26 @@ public class PrintAndApplyFrc : ReactionBase
     
     
     /// <summary>
-    /// Represents the PrintAndApplyFrc workflow class, responsible for managing
+    /// Represents the PrintAndApplyFrc reaction class, responsible for managing
     /// the printing and application of labels in a distribution or manufacturing system.
     /// Extends the ReactionBase class to provide specific implementations for handling
     /// element status messages and coordinating label requests with printers.
     /// Subscribes to element status messages and initializes the printer status store
     /// upon instantiation.
     /// </summary>
-    public PrintAndApplyFrc(IMessageBus messageBus, WorkflowConfig config, ILogger logger)
+    public PrintAndApplyFrc(IMessageBus messageBus, IReactionBlueprint config, ILogger logger)
         : base(messageBus, config, logger)
     {
-        MessageBus.SubscribeAsync(MessageBusTopic.DeviceStatus.ToString(), HandleStatusMessageAsync);
+        MessageBus.SubscribeAsync(MessageBusTopic.ElementStatus.ToString(), HandleStatusMessageAsync);
 
         if (IntitializePrinterStatusStore())
         {
-            Logger.Information("[{Workflow}] Printer status store initialized with {Count} types.",
-                WorkflowKey.DeviceName, _printTypes.Count);
+            Logger.Information("[{Reaction}] Printer status store initialized with {Count} types.",
+                ReactionKey.ElementName, _printTypes.Count);
         }
         else
         {
-            Logger.Error("[{Workflow}] Failed to initialize Printer Status Store.", WorkflowKey.DeviceName);
+            Logger.Error("[{Reaction}] Failed to initialize Printer Status Store.", ReactionKey.ElementName);
         }
     }
 
@@ -67,15 +67,15 @@ public class PrintAndApplyFrc : ReactionBase
     /// <summary>
     /// Initializes the printer status store by gathering printer configurations
     /// and creating a collection of unique printer types based on element settings.
-    /// Iterates through all devices in the configuration, identifies those managed
+    /// Iterates through all elements in the configuration, identifies those managed
     /// by "PrinterManager", and adds their status to the printer status store.
     /// </summary>
     /// <returns>True if the printer status store was successfully initialized; otherwise, false.</returns>
     private bool IntitializePrinterStatusStore()
     {
-        var alldevices = ConfigurationLoader.GetAllDeviceConfig();
+        var allelements = ConfigurationLoader.GetAllElementConfig();
 
-        foreach (var dev in alldevices)
+        foreach (var dev in allelements)
         {
             if (dev is { Manager: "PrintClientManager", Enable: true })
             {
@@ -116,7 +116,7 @@ public class PrintAndApplyFrc : ReactionBase
     /// a new MessageEnvelope with updated printer selection data or null if the envelope data is invalid.</returns>
     public async Task<object?> HandlePrintersToUseAsync(MessageEnvelope envelope, CancellationToken ct)
     {
-        PublishStatusAsync();
+        await PublishStatusAsync();
         string payloadStr = envelope?.Payload?.ToString() ?? string.Empty;
         string gin = GetGinFromPayload(payloadStr);
         
@@ -137,11 +137,33 @@ public class PrintAndApplyFrc : ReactionBase
         var descPoint = jsonObj["DecisionPoint"]?.GetValue<string>();
         var parsedGin = jsonObj["GIN"]?.GetValue<int>();
         var bcNode = jsonObj["Barcodes"]?.AsArray();
+        var metadataNode = jsonObj["Metadata"]?.AsObject();
 
         if (descPoint == null || parsedGin == null)
         {
             Logger.Error("No Decision Point or GIN found in payload");
             return null;
+        }
+
+        // 1. Process Metadata for simulated printer status overrides
+        if (metadataNode != null)
+        {
+            foreach (var kvp in metadataNode)
+            {
+                string printerName = kvp.Key;
+                string statusStr = kvp.Value?.ToString() ?? "1";
+
+                if (_printerStatusStore.TryGetValue(printerName, out var status))
+                {
+                    // "1" means active, anything else (0, out of paper, paused) means unavailable
+                    bool isAvailable = statusStr == "1";
+                    if (status.IsAvailable != isAvailable)
+                    {
+                        status.IsAvailable = isAvailable;
+                        Logger.Information("[{Dev}] Status override from PLC: {Status}", printerName, statusStr);
+                    }
+                }
+            }
         }
 
         string? firstBarcode = (bcNode != null && bcNode.Count > 0)
@@ -170,21 +192,21 @@ public class PrintAndApplyFrc : ReactionBase
 
         Logger.Debug($"Assigned to printers: {string.Join(", ", printers)}", gin);
 
-        var payload = new { 
+        var responsePayload = new { 
             MessageType = "DRespM", // Explicitly named for the PLC
             DecisionPoint = descPoint, 
             GIN = parsedGin, 
             DecisionPoints = printers 
         };
 
-        var serializedPayload = JsonSerializer.Serialize(payload, _jsonOptions);
+        var serializedPayload = JsonSerializer.Serialize(responsePayload, _jsonOptions);
 
         return serializedPayload;
    }
 
     /// <summary>
     /// Handles the asynchronous processing of label data contained in the provided message envelope
-    /// and stores it in a thread-safe manner. Updates the workflow status and logs the operation status.
+    /// and stores it in a thread-safe manner. Updates the reaction status and logs the operation status.
     /// </summary>
     /// <param name="envelope">The message envelope containing the label data to be processed.</param>
     /// <param name="ct">A CancellationToken used to monitor for cancellation requests.</param>
@@ -192,7 +214,7 @@ public class PrintAndApplyFrc : ReactionBase
     private async Task<object?> HandleLabelToStorageAsync(MessageEnvelope? envelope, CancellationToken ct)
     {
         if (envelope == null) return null;
-        Logger.Information( "Route -4 HandleLabelToStorageAsync  Handling Label Data for {Payload}", envelope.Payload);
+        Logger.Information( "Bond -4 HandleLabelToStorageAsync  Handling Label Data for {Payload}", envelope.Payload);
         
         string payloadStr = envelope.Payload.ToString() ?? string.Empty;
         if (payloadStr.Length == 0) return null;
@@ -222,7 +244,7 @@ public class PrintAndApplyFrc : ReactionBase
 
                 Logger.Information("Label data stored for Barcode: {Barcode}", bc, gin);
 
-                UpdateStatus(WorkflowState.Active, WorkflowEvent.MessageProcessed, DeviceHealth.Normal,
+                UpdateStatus(ReactionState.Active, ReactionEvent.MessageProcessed, ElementHealth.Normal,
                     $"Stored label data for Barcode {bc}");
             }
              return "Label Stored Successfully";
@@ -230,7 +252,7 @@ public class PrintAndApplyFrc : ReactionBase
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             Logger.Error(ex, "Failed to store label data for payload: {Payload}", payloadStr);
-            UpdateStatus(WorkflowState.ActiveWithErrors, WorkflowEvent.Error, DeviceHealth.Warning, ex.Message);
+            UpdateStatus(ReactionState.ActiveWithErrors, ReactionEvent.Error, ElementHealth.Warning, ex.Message);
             Tracker.IncrementError(ex.Message);
              return "Storing Label Failed";
         }
@@ -257,7 +279,7 @@ public class PrintAndApplyFrc : ReactionBase
             List<string> barcodes = MessageParser.GetBarcodes(payloadStr);
             string scannedBarcode = barcodes.FirstOrDefault() ?? string.Empty;
             
-            var printer = envelope?.Destination.DeviceName;
+            var printer = envelope?.Destination.ElementName;
             // 3. Perform Lookup in your tracking dictionary
             if (_expectedBarcodes.TryGetValue(gin, out string? expected))
             {
@@ -266,7 +288,7 @@ public class PrintAndApplyFrc : ReactionBase
                     Logger.Information("[Verification SUCCESS] GIN {GIN} matches expected barcode {Barcode}", gin, scannedBarcode);
                 
                     // Optional: Trigger success logic or MQ message here
-                    UpdateStatus(WorkflowState.Active, WorkflowEvent.MessageProcessed, DeviceHealth.Normal, $"Verified GIN {gin}");
+                    UpdateStatus(ReactionState.Active, ReactionEvent.MessageProcessed, ElementHealth.Normal, $"Verified GIN {gin}");
                    
                     //var msg = FrcHelper.GetVerificationMessage( ) 
                 }
@@ -322,7 +344,7 @@ public class PrintAndApplyFrc : ReactionBase
             var jsonObj = node?.AsObject();
             if (jsonObj == null) return null;
 
-            var plc = envelope.Destination.DeviceName;
+            var plc = envelope.Destination.ElementName;
         
             // Note: Check if your source uses "DecisionPoint" or "DecisionPoint" (case sensitive)
             var descPoint = jsonObj["DecisionPoint"]?.GetValue<string>() ?? "Unknown";
@@ -334,13 +356,17 @@ public class PrintAndApplyFrc : ReactionBase
                 .Where(s => !string.IsNullOrEmpty(s))
                 .ToList() ?? new List<string>();
 
+            // Extract Metadata if present
+            var metadata = jsonObj["Metadata"]?.AsObject();
+
             // 2. Construct the record
             var labelRequest = new LabelRequestFrcMessage(
                 Guid.NewGuid(),
                 plc,
                 descPoint,
                 barcodes,
-                new Characteristics("0", "0", "0", "0")
+                new Characteristics("0", "0", "0", "0"),
+                metadata
             );
 
             Logger.Debug("Generated LabelRequestFrcMessage for {PLC}, GIN: {GIN}", plc, envelope.Gin);
@@ -594,19 +620,19 @@ public class PrintAndApplyFrc : ReactionBase
         string payloadStr = envelope?.Payload?.ToString() ?? string.Empty;
 
 
-        if (envelope?.Destination.DeviceName == null)
+        if (envelope?.Destination.ElementName == null)
         {
             Logger.Error("improper message received: no destination element name");
             return;
         }
 
-        var printerName = envelope.Destination.DeviceName;
+        var printerName = envelope.Destination.ElementName;
 
         try
         {
-            ElementStatusMessage? statusMsg = await Task.Run(() =>
+            IElementStatus? statusMsg = await Task.Run(() =>
             {
-                if (envelope.Payload is ElementStatusMessage msg) return msg;
+                if (envelope.Payload is IElementStatus msg) return msg;
 
                 return string.IsNullOrEmpty(payloadStr)
                     ? null
@@ -621,7 +647,7 @@ public class PrintAndApplyFrc : ReactionBase
 
             if (_printerStatusStore.TryGetValue(printerName, out var status))
             {
-                var isNowAvailable = statusMsg.Health == DeviceHealth.Normal;
+                var isNowAvailable = statusMsg.Health == ElementHealth.Normal;
 
                 if (status.IsAvailable != isNowAvailable)
                 {
@@ -673,12 +699,16 @@ public class PrintAndApplyFrc : ReactionBase
                 );
 
               
+                // Extract Metadata if present
+                var metadata = jsonObj["Metadata"]?.AsObject();
+
                 return new LabelRequestFrcMessage(
                     SessionId: Guid.NewGuid(),
                     ControllerId: plcName,
                     LineId: jsonObj["DecisionPoint"]?.GetValue<string>() ?? "Unknown",
                     Barcodes: barcodes,
-                    Characteristics: characteristics
+                    Characteristics: characteristics,
+                    Metadata: metadata
                 );
             }
             catch (OperationCanceledException)

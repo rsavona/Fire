@@ -6,9 +6,9 @@
   "compilationOptions": {},
   "targets": {
     ".NETCoreApp,Version=v10.0": {
-      "DeviceSpace.Console/1.0.0": {
+      "Fusion.Console/1.0.0": {
         "dependencies": {
-          "DeviceSpace.Core": "1.0.0",
+          "Fusion.Core": "1.0.0",
           "Microsoft.Data.SqlClient": "7.0.0",
           "Microsoft.Extensions.Hosting.WindowsServices": "10.0.5",
           "Serilog": "4.3.1",
@@ -21,7 +21,7 @@
           "Stateless": "5.20.1"
         },
         "runtime": {
-          "DeviceSpace.Console.dll": {}
+          "Fusion.Console.dll": {}
         }
       },
       "Apache.NMS/2.2.0": {
@@ -1181,7 +1181,7 @@
           }
         }
       },
-      "DeviceSpace.Common/1.0.0": {
+      "Fusion.Common/1.0.0": {
         "dependencies": {
           "Apache.NMS.ActiveMQ": "2.2.0",
           "Microsoft.CodeAnalysis.CSharp.Scripting": "5.0.0",
@@ -1204,17 +1204,17 @@
           "Stateless": "5.20.1"
         },
         "runtime": {
-          "DeviceSpace.Common.dll": {
+          "Fusion.Common.dll": {
             "assemblyVersion": "1.0.0.0",
             "fileVersion": "1.0.0.0"
           }
         }
       },
-      "DeviceSpace.Core/1.0.0": {
+      "Fusion.Core/1.0.0": {
         "dependencies": {
           "Castle.Core": "5.2.1",
           "Castle.DynamicProxy": "2.2.0",
-          "DeviceSpace.Common": "1.0.0",
+          "Fusion.Common": "1.0.0",
           "Microsoft.Extensions.Configuration": "10.0.5",
           "Microsoft.Extensions.DependencyInjection": "10.0.5",
           "Microsoft.Extensions.Hosting": "10.0.5",
@@ -1236,7 +1236,7 @@
           "Stateless": "5.20.1"
         },
         "runtime": {
-          "DeviceSpace.Core.dll": {
+          "Fusion.Core.dll": {
             "assemblyVersion": "1.0.0.0",
             "fileVersion": "1.0.0.0"
           }
@@ -1245,7 +1245,7 @@
     }
   },
   "libraries": {
-    "DeviceSpace.Console/1.0.0": {
+    "Fusion.Console/1.0.0": {
       "type": "project",
       "serviceable": false,
       "sha512": ""
@@ -1789,12 +1789,12 @@
       "path": "system.serviceprocess.servicecontroller/10.0.5",
       "hashPath": "system.serviceprocess.servicecontroller.10.0.5.nupkg.sha512"
     },
-    "DeviceSpace.Common/1.0.0": {
+    "Fusion.Common/1.0.0": {
       "type": "project",
       "serviceable": false,
       "sha512": ""
     },
-    "DeviceSpace.Core/1.0.0": {
+    "Fusion.Core/1.0.0": {
       "type": "project",
       "serviceable": false,
       "sha512": ""

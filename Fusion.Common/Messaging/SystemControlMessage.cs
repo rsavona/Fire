@@ -1,3 +1,5 @@
+using Fusion.Common.Contracts;
+
 namespace Fusion.Common.Messaging;
 
 public enum SystemCommand
@@ -19,6 +21,14 @@ public class SystemControlMessage
     {
         Command = command;
     }
+}
+
+public class SystemTopologyMessage
+{
+    public List<IElementBlueprint> Elements { get; set; } = new();
+    public List<IReactionBlueprint> Reactions { get; set; } = new();
+    public string SystemName { get; set; } = string.Empty;
+    public DateTime Timestamp { get; set; } = DateTime.UtcNow;
 }
 
 public class FlowEvent

@@ -19,5 +19,5 @@ public interface IConveyable
     int Destination { get; set; }
     string Location { get; set;}
     // State Machine access
-    StateMachine<ConveyableState, ConveyableTrigger> Workflow { get; }
+    StateMachine<ConveyableState, ConveyableTrigger> Reaction { get; }
 }

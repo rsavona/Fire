@@ -11,7 +11,7 @@ public class SocketServerElement : TcpServerElementBase<SocketMessageProcessor>,
 {
     public event Func<object, object, Task>? MessageReceived;
 
-    public SocketServerElement(IMessageBus bus, IDeviceConfig config, IFireLogger logger, LoggingLevelSwitch swtch)
+    public SocketServerElement(IMessageBus bus, IElementBlueprint config, IFireLogger logger, LoggingLevelSwitch swtch)
         : base(bus, config, logger, 
                new SocketMessageProcessor(config.Name, logger), 
                swtch, 
@@ -28,17 +28,17 @@ public class SocketServerElement : TcpServerElementBase<SocketMessageProcessor>,
         };
     }
 
-    private static int GetPort(IDeviceConfig config)
+    private static int GetPort(IElementBlueprint config)
     {
         return config.Properties.TryGetValue("Port", out var p) ? Convert.ToInt32(p) : 0;
     }
 
-    private static int GetMaxClients(IDeviceConfig config)
+    private static int GetMaxClients(IElementBlueprint config)
     {
         return config.Properties.TryGetValue("MaxClients", out var c) ? Convert.ToInt32(c) : 1;
     }
 
-    private static ITerminationStrategy GetTerminationStrategy(IDeviceConfig config)
+    private static ITerminationStrategy GetTerminationStrategy(IElementBlueprint config)
     {
         var type = config.Properties.TryGetValue("TerminationType", out var t) ? t.ToString()?.ToUpper() : "DELIMITED";
 

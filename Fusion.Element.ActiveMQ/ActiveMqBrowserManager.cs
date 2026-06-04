@@ -1,20 +1,19 @@
 using Fusion.Common;
 using Fusion.Common.BaseClasses;
-using Blueprints;
 using Fusion.Common.Contracts;
 using Fusion.Common.Logging;
 
-namespace Device.ActiveMQ;
+namespace Fusion.Element.ActiveMQ;
 
-public class ActiveMqBrowserManager : DeviceManagerBase<ActiveMqBrowserDevice>
+public class ActiveMqBrowserManager : ElementManagerBase<ActiveMqBrowserElement>
 {
     public ActiveMqBrowserManager(
         IMessageBus bus,
-        List<IDeviceConfig> config,
+        List<IElementBlueprint> config,
         IFireLogger<ActiveMqBrowserManager> logger,
-        Func<IDeviceConfig, IFireLogger, ActiveMqBrowserDevice> deviceFactory,
+        Func<IElementBlueprint, IFireLogger, ActiveMqBrowserElement> elementFactory,
         string managerName)
-        : base(bus, config, logger, deviceFactory, managerName)
+        : base(bus, config, logger, elementFactory, managerName)
     {
     }
 }

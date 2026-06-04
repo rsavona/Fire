@@ -1,4 +1,4 @@
-﻿namespace Workflow.PrintAndApplyFrc;
+﻿namespace Fusion.Reaction.PrintAndApplyFrc;
 
 public enum PrintType
 {

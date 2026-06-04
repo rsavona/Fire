@@ -5,7 +5,7 @@ Structure: Must contain an Object (the entity), Event (the action), and Subject 
 
 Example: InventoryAdjustment (Event) for SKU 100148 (Object) sent to Aurora (Subject).
 
-Best Practice: Always use Structured Logging (passing objects, not just strings). This allows you to query your SQL event tables by SKU or DeviceID without parsing text.
+Best Practice: Always use Structured Logging (passing objects, not just strings). This allows you to query your SQL event tables by SKU or ElementID without parsing text.
 
 Storage: Sent to permanent storage (SQL Table, Syslog, or long-term Audit logs).
 

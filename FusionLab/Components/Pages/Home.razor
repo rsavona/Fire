@@ -6,7 +6,7 @@
 
 <div class="container-fluid d-flex flex-column p-0" style="height: 100vh; overflow: hidden;">
     
-    <NavBar OnExportClicked="DownloadJson" />
+    <NavBar OnExportClicked="DownloadJson" OnFileSelected="UploadJson" />
 
     <Canvas @ref="_fireBuilderComponent" />
 
@@ -26,6 +26,14 @@
             
             // Triggers the browser download
             await JSRuntime.InvokeVoidAsync("downloadFile", "SystemBlueprintTemplate.json", jsonText);
+        }
+    }
+
+    private async Task UploadJson(InputFileChangeEventArgs e)
+    {
+        if (_fireBuilderComponent != null)
+        {
+            await _fireBuilderComponent.LoadJson(e);
         }
     }
 }

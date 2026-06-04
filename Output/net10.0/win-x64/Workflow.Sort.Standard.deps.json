@@ -7,13 +7,13 @@
   "targets": {
     ".NETCoreApp,Version=v10.0": {},
     ".NETCoreApp,Version=v10.0/win-x64": {
-      "Workflow.Sort.Standard/1.0.0": {
+      "Fusion.Reaction.Sort.Standard/1.0.0": {
         "dependencies": {
-          "DeviceSpace.Common": "1.0.0",
-          "DeviceSpace.Core": "1.0.0"
+          "Fusion.Common": "1.0.0",
+          "Fusion.Core": "1.0.0"
         },
         "runtime": {
-          "Workflow.Sort.Standard.dll": {}
+          "Fusion.Reaction.Sort.Standard.dll": {}
         }
       },
       "Apache.NMS/2.2.0": {
@@ -1096,7 +1096,7 @@
           }
         }
       },
-      "DeviceSpace.Common/1.0.0": {
+      "Fusion.Common/1.0.0": {
         "dependencies": {
           "Apache.NMS.ActiveMQ": "2.2.0",
           "Microsoft.CodeAnalysis.CSharp.Scripting": "5.0.0",
@@ -1119,17 +1119,17 @@
           "Stateless": "5.20.1"
         },
         "runtime": {
-          "DeviceSpace.Common.dll": {
+          "Fusion.Common.dll": {
             "assemblyVersion": "1.0.0.0",
             "fileVersion": "1.0.0.0"
           }
         }
       },
-      "DeviceSpace.Core/1.0.0": {
+      "Fusion.Core/1.0.0": {
         "dependencies": {
           "Castle.Core": "5.2.1",
           "Castle.DynamicProxy": "2.2.0",
-          "DeviceSpace.Common": "1.0.0",
+          "Fusion.Common": "1.0.0",
           "Microsoft.Extensions.Configuration": "9.0.9",
           "Microsoft.Extensions.DependencyInjection": "9.0.9",
           "Microsoft.Extensions.Hosting": "9.0.9",
@@ -1151,7 +1151,7 @@
           "Stateless": "5.20.1"
         },
         "runtime": {
-          "DeviceSpace.Core.dll": {
+          "Fusion.Core.dll": {
             "assemblyVersion": "1.0.0.0",
             "fileVersion": "1.0.0.0"
           }
@@ -1160,7 +1160,7 @@
     }
   },
   "libraries": {
-    "Workflow.Sort.Standard/1.0.0": {
+    "Fusion.Reaction.Sort.Standard/1.0.0": {
       "type": "project",
       "serviceable": false,
       "sha512": ""
@@ -1690,12 +1690,12 @@
       "path": "system.security.cryptography.protecteddata/9.0.13",
       "hashPath": "system.security.cryptography.protecteddata.9.0.13.nupkg.sha512"
     },
-    "DeviceSpace.Common/1.0.0": {
+    "Fusion.Common/1.0.0": {
       "type": "project",
       "serviceable": false,
       "sha512": ""
     },
-    "DeviceSpace.Core/1.0.0": {
+    "Fusion.Core/1.0.0": {
       "type": "project",
       "serviceable": false,
       "sha512": ""

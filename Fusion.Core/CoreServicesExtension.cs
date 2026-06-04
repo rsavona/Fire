@@ -1,7 +1,8 @@
 ﻿using System.Reflection;
 using Fusion.Common;
 using Fusion.Common.BaseClasses;
-using Blueprints;
+using Fusion.Common.Blueprints;
+using Fusion.Common.Configurations;
 using Fusion.Common.Contracts;
 using Fusion.Common.logging;
 using Fusion.Common.Logging;
@@ -37,7 +38,7 @@ public static class CoreServicesExtensions
             isFire = true;
           
             var appconfig = ConfigurationLoader.InitConfig(args);
-            var config = appconfig?.GetSection("AppSettings:SystemBlueprintTemplate").Get<Blueprints.SystemBlueprintTemplate>();
+            var config = appconfig?.GetSection("AppSettings:Fusion").Get<SystemBlueprintTemplate>();
             var appName = config?.CustomerName is { Length: > 0 } ? config.CustomerName : "simulatioin.fusion";
 
             if (config != null)
@@ -65,55 +66,55 @@ public static class CoreServicesExtensions
             builder.Services.AddSingleton(Log.Logger);
             builder.Services.AddSingleton(LogControl.LevelSwitch);
             builder.Services.AddSingleton<IMessageBus, MessageBus>();
-            builder.Services.AddSingleton<DeviceManagerFactory>();
-            builder.Services.AddSingleton<WorkflowFactory>();
-            builder.Services.AddSingleton<IWorkflowFactory>(p => p.GetRequiredService<WorkflowFactory>());
-            builder.Services.AddHostedService<WorkflowOrchestrator>();
-            builder.Services.AddHostedService<DeviceSpaceCore>();
+            builder.Services.AddSingleton<ElementManagerFactory>();
+            builder.Services.AddSingleton<ReactionFactory>();
+            builder.Services.AddSingleton<IReactionFactory>(p => p.GetRequiredService<ReactionFactory>());
+            builder.Services.AddHostedService<ReactionOrchestrator>();
+            builder.Services.AddHostedService<FusionCore>();
         }
         
-        LoadAvailableDeviceManagersFromDll(builder, baseFolderPath, isFire);
-        LoadAvailableWorkflowsFromDll(builder, baseFolderPath, isFire);
+        LoadAvailableElementManagersFromDll(builder, baseFolderPath, isFire);
+        LoadAvailableReactionsFromDll(builder, baseFolderPath, isFire);
         
         if (args != null)
         {
-            LoadConfiguredDevices(builder);
+            LoadConfiguredElements(builder);
         }
        
         return builder;
     }
 
-    private static IHostApplicationBuilder LoadConfiguredDevices(IHostApplicationBuilder builder)
+    private static IHostApplicationBuilder LoadConfiguredElements(IHostApplicationBuilder builder)
     {
         try
         {
-            var allDevices = ConfigurationLoader.GetAllDeviceConfig();
+            var allElements = ConfigurationLoader.GetAllElementConfig();
 
-            if (!allDevices.Any())
+            if (!allElements.Any())
             {
-                Log.Logger.Error("HOSTED", "LOAD", "CONFIG", "NONE", "No device configurations were found in the JSON.");
+                Log.Logger.Error("HOSTED", "LOAD", "CONFIG", "NONE", "No element configurations were found in the JSON.");
                 return builder;
             }
 
-            var uniqueDevices = allDevices
-                .GroupBy(device => device.Manager)
+            var uniqueElements = allElements
+                .GroupBy(element => element.Manager)
                 .Select(group => group.First())
                 .ToList();
              
-            // Loop builds the DeviceManagerFactory parameters. DI will resolve constructors at runtime.
-            foreach (var deviceConfig in uniqueDevices)
+            // Loop builds the ElementManagerFactory parameters. DI will resolve constructors at runtime.
+            foreach (var elementConfig in uniqueElements)
             {
                 try
                 {
-                    string managerName = deviceConfig.Manager.ToString();
+                    string managerName = elementConfig.Manager.ToString();
                     Log.Logger.Information("HOSTED", "CREATE", "MANAGER", managerName, "Registering Service Definition");
 
                     builder.Services.AddSingleton<IHostedService>(provider =>
                     {
                         try
                         {
-                            var factory = provider.GetRequiredService<DeviceManagerFactory>();
-                            var manager = factory.CreateDeviceManager(managerName);
+                            var factory = provider.GetRequiredService<ElementManagerFactory>();
+                            var manager = factory.CreateElementManager(managerName);
 
                             if (manager == null)
                                 throw new InvalidOperationException($"Factory returned null for manager: {managerName}");
@@ -122,51 +123,51 @@ public static class CoreServicesExtensions
                         }
                         catch (Exception ex)
                         {
-                            Log.Logger.Fatal(ex, "HOSTED", "STARTUP", "FACTORY", managerName, "Failed to resolve device manager at runtime.");
+                            Log.Logger.Fatal(ex, "HOSTED", "STARTUP", "FACTORY", managerName, "Failed to resolve element manager at runtime.");
                             throw; 
                         }
                     });
                 }
                 catch (Exception ex)
                 {
-                    Log.Logger.Error(ex, "HOSTED", "REGISTER", "DI", deviceConfig.Manager?.ToString() ?? "Unknown", "Failed to register manager in DI container.");
+                    Log.Logger.Error(ex, "HOSTED", "REGISTER", "DI", elementConfig.Manager?.ToString() ?? "Unknown", "Failed to register manager in DI container.");
                 }
             }
         }
         catch (Exception ex)
         {
-            Log.Logger.Fatal(ex, "HOSTED", "LOAD", "CRITICAL", "GLOBAL", "Critical failure loading device configurations.");
+            Log.Logger.Fatal(ex, "HOSTED", "LOAD", "CRITICAL", "GLOBAL", "Critical failure loading element configurations.");
             throw; 
         }
         return builder;
     }
 
-    private static IHostApplicationBuilder LoadAvailableWorkflowsFromDll(IHostApplicationBuilder builder, string baseFolderPath, bool fire)
+    private static IHostApplicationBuilder LoadAvailableReactionsFromDll(IHostApplicationBuilder builder, string baseFolderPath, bool fire)
     {
-        var workflowList = new List<Type>();
+        var reactionList = new List<Type>();
         
         if (Directory.Exists(baseFolderPath))
         {
-            var workflowDlls = Directory.GetFiles(baseFolderPath, "Workflow.*.dll");
+            var reactionDlls = Directory.GetFiles(baseFolderPath, "Fusion.Reaction.*.dll");
             
             // Fixed: Removed interpolation, added structured property
-            Log.Logger.Information("DISCOVERY", "SCAN", "DLL", "WORKFLOW", "Found {AssemblyCount} assemblies", workflowDlls.Length);
+            Log.Logger.Information("DISCOVERY", "SCAN", "DLL", "REACTION", "Found {AssemblyCount} assemblies", reactionDlls.Length);
             
-            foreach (string dllPath in workflowDlls)
+            foreach (string dllPath in reactionDlls)
             {
                 try
                 {
                     Assembly assembly = Assembly.LoadFrom(dllPath);
-                    var foundWorkflows = assembly.GetTypes()
-                        .Where(t => t.BaseType == typeof(WorkflowBase) && !t.IsAbstract)
+                    var foundReactions = assembly.GetTypes()
+                        .Where(t => t.BaseType == typeof(ReactionBase) && !t.IsAbstract)
                         .ToList();
 
-                    foreach (var wf in foundWorkflows)
+                    foreach (var wf in foundReactions)
                     {
-                        Log.Logger.Information("DISCOVERY", "LOAD", "WORKFLOW", wf.Name, "Workflow registered");
+                        Log.Logger.Information("DISCOVERY", "LOAD", "REACTION", wf.Name, "Reaction registered");
                     }
 
-                    workflowList.AddRange(foundWorkflows);
+                    reactionList.AddRange(foundReactions);
                     if (fire)
                     {
                         RegisterPlugins(builder, assembly);
@@ -175,33 +176,33 @@ public static class CoreServicesExtensions
                 catch (Exception ex)
                 {
                     // Fixed: Include exception explicitly for stack traces
-                    Log.Logger.Error(ex, "DISCOVERY", "FAULT", "DLL", "WORKFLOW", "Failed to load workflow assembly: {DllPath}", Path.GetFileName(dllPath));
+                    Log.Logger.Error(ex, "DISCOVERY", "FAULT", "DLL", "REACTION", "Failed to load reaction assembly: {DllPath}", Path.GetFileName(dllPath));
                 }
             }
 
-            builder.Services.AddKeyedSingleton<IEnumerable<Type>>("WorkflowTypes", workflowList);
+            builder.Services.AddKeyedSingleton<IEnumerable<Type>>("ReactionTypes", reactionList);
         }
 
         return builder;
     }
 
-    private static IHostApplicationBuilder LoadAvailableDeviceManagersFromDll(IHostApplicationBuilder builder, string baseFolderPath, bool fire)
+    private static IHostApplicationBuilder LoadAvailableElementManagersFromDll(IHostApplicationBuilder builder, string baseFolderPath, bool fire)
     {
         var managerList = new List<Type>();
         
         if (Directory.Exists(baseFolderPath))
         {
-            var deviceDlls = Directory.GetFiles(baseFolderPath, "Device.*.dll");
-            Log.Logger.Information("DISCOVERY", "SCAN", "DLL", "DEVICE", "Found {AssemblyCount} assemblies", deviceDlls.Length);
+            var elementDlls = Directory.GetFiles(baseFolderPath, "Fusion.Element.*.dll");
+            Log.Logger.Information("DISCOVERY", "SCAN", "DLL", "ELEMENT", "Found {AssemblyCount} assemblies", elementDlls.Length);
 
-            foreach (string dllPath in deviceDlls)
+            foreach (string dllPath in elementDlls)
             {
                 try
                 {
                     Assembly assembly = Assembly.LoadFrom(dllPath);
                     var version = assembly.GetName().Version;
                     var managers = assembly.GetTypes()
-                        .Where(t => typeof(IDeviceManager).IsAssignableFrom(t) && !t.IsInterface && !t.IsAbstract)
+                        .Where(t => typeof(IElementManager).IsAssignableFrom(t) && !t.IsInterface && !t.IsAbstract)
                         .ToList();
 
                     foreach (var m in managers)
@@ -218,11 +219,11 @@ public static class CoreServicesExtensions
                 }
                 catch (Exception ex)
                 {
-                    Log.Logger.Error(ex, "DISCOVERY", "FAULT", "DLL", "DEVICE", "Failed to load device assembly: {DllPath}", Path.GetFileName(dllPath));
+                    Log.Logger.Error(ex, "DISCOVERY", "FAULT", "DLL", "ELEMENT", "Failed to load element assembly: {DllPath}", Path.GetFileName(dllPath));
                 }
             }
 
-            builder.Services.AddKeyedSingleton<IEnumerable<Type>>("DeviceManagerTypes", managerList);
+            builder.Services.AddKeyedSingleton<IEnumerable<Type>>("ElementManagerTypes", managerList);
         }
 
         return builder;
@@ -231,13 +232,13 @@ public static class CoreServicesExtensions
     private static IHostApplicationBuilder RegisterPlugins(IHostApplicationBuilder builder, Assembly assembly)
     {
         var registrars = assembly.GetTypes()
-            .Where(t => typeof(IDeviceRegistrar).IsAssignableFrom(t) && !t.IsInterface && !t.IsAbstract);
+            .Where(t => typeof(IElementRegistrar).IsAssignableFrom(t) && !t.IsInterface && !t.IsAbstract);
 
         foreach (var type in registrars)
         {
             try
             {
-                if (Activator.CreateInstance(type) is IDeviceRegistrar registrar)
+                if (Activator.CreateInstance(type) is IElementRegistrar registrar)
                 {
                     registrar.RegisterServices(builder.Services);
                 }
@@ -270,7 +271,7 @@ public static class CoreServicesExtensions
             .Enrich.FromLogContext()
             .WriteTo.Async(a => a.Console(
                 levelSwitch: LogControl.ConsoleLevelSwitch,
-                outputTemplate: "[{Timestamp:HH:mm:ss.fff}][{Level:u3}][{DeviceName}] {MethodTag}{GinTag}{Message:lj}{NewLine}{Exception}"))
+                outputTemplate: "[{Timestamp:HH:mm:ss.fff}][{Level:u3}][{ElementName}] {MethodTag}{GinTag}{Message:lj}{NewLine}{Exception}"))
 
             // --- PIPELINE 1: Audit ---
             .WriteTo.Logger(lc => lc
@@ -280,22 +281,22 @@ public static class CoreServicesExtensions
                     $"../../logs/audit/{configName}_audit_.json",
                     rollingInterval: RollingInterval.Day)))
             
-            // --- PIPELINE 2: Device-Specific Log Files ---
+            // --- PIPELINE 2: Element-Specific Log Files ---
             .WriteTo.Logger(lc => lc
-                .Filter.ByIncludingOnly(evt => evt.Properties.ContainsKey("DeviceName"))
+                .Filter.ByIncludingOnly(evt => evt.Properties.ContainsKey("ElementName"))
                 .Filter.ByIncludingOnly(evt => 
                     evt.Properties.ContainsKey("BufferedDump") || 
                     LogControl.DynamicFilter(evt))
                 
                 .WriteTo.Sink(new BufferedLog())
-                .WriteTo.Async(a => a.File(new CompactJsonFormatter(), $"../../logs/clef/{configName}_devices_.clef"))
+                .WriteTo.Async(a => a.File(new CompactJsonFormatter(), $"../../logs/clef/{configName}_elements_.clef"))
                 .WriteTo.Map(
-                    keyPropertyName: "DeviceName",
+                    keyPropertyName: "ElementName",
                     defaultKey: "System",
-                    configure: (deviceName, wt) =>
+                    configure: (elementName, wt) =>
                     {
                         wt.Async(a => a.File(
-                            path: $"../../logs/devices/{configName}_{deviceName}_.log",
+                            path: $"../../logs/elements/{configName}_{elementName}_.log",
                             outputTemplate: "[{Timestamp:HH:mm:ss:fff}][{Level:u3}] {MethodTag}{GinTag}{Message:lj}{NewLine}{Exception}",
                             rollingInterval: RollingInterval.Day,
                             retainedFileCountLimit: 14));
@@ -318,7 +319,7 @@ public static class CoreServicesExtensions
                 .Filter.ByExcluding(evt =>
                     evt.Properties.ContainsKey("AuditLog") ||
                     evt.Properties.ContainsKey("GIN") ||
-                    evt.Properties.ContainsKey("DeviceName") ||
+                    evt.Properties.ContainsKey("ElementName") ||
                     evt.Properties.ContainsKey("Context")) 
                 .MinimumLevel.Override("Microsoft.Data.SqlClient", LogEventLevel.Error)
                 .WriteTo.File(new CompactJsonFormatter(), $"../../logs/clef/{configName}_system_.clef")

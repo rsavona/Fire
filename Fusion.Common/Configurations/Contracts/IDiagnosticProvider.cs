@@ -12,7 +12,7 @@ public interface IDiagnosticProvider
     string GetStatus();
     Task ResetStats();
     int GetLatencyMs();
-    string GetDeviceName();
+    string GetElementName();
     bool Reconnect();
     string GetLastErrorCode();
     string GetBufferDepth();

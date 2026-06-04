@@ -32,7 +32,7 @@ public class MessageBus : IMessageBus
     private readonly ConcurrentDictionary<string, List<Delegate>> _matchCache;
     private readonly ConcurrentDictionary<Delegate, byte> _globalSubscribers;
 
-    private readonly DeviceStatusTracker<BusState, BusEvent> _tracker;
+    private readonly StatusTracker<BusState, BusEvent> _tracker;
     private string _lastErrorComment = "System Online";
 
     private int statusCounter = 0;
@@ -40,8 +40,8 @@ public class MessageBus : IMessageBus
     public MessageBus(BusAuditLogger auditLogger, ILogger logger)
     {
         _auditLogger = auditLogger;
-        _logger = logger.ForContext("DeviceName", "MessageBus");
-        _tracker = new DeviceStatusTracker<BusState, BusEvent>(BusState.Idle, BusEvent.ActivityStarted);
+        _logger = logger.ForContext("ElementName", "MessageBus");
+        _tracker = new StatusTracker<BusState, BusEvent>(BusState.Idle, BusEvent.ActivityStarted);
 
         _subscriptions = new ConcurrentDictionary<string, ConcurrentDictionary<Delegate, byte>>(StringComparer.OrdinalIgnoreCase);
         _patternSubscriptions = new ConcurrentDictionary<string, ConcurrentDictionary<Delegate, byte>>(StringComparer.OrdinalIgnoreCase);
@@ -141,7 +141,7 @@ public class MessageBus : IMessageBus
     {
         _tracker.Update(BusState.Processing, BusEvent.Publishing, _lastErrorComment);
         _tracker.IncrementInbound();
-        _auditLogger.LogMessage(messageEnvelope.Payload, topic);
+        _auditLogger.LogMessage(messageEnvelope.Payload, messageEnvelope.Header, topic);
         if (statusCounter == 10)
         {
             statusCounter = 0;
@@ -176,7 +176,7 @@ public class MessageBus : IMessageBus
         if (handler != null) _globalSubscribers.TryRemove(handler, out _);
     }
 
-    private Task DispatchStatusInternal(string busTopic, string envelopeTopic, IDeviceStatus status,
+    private Task DispatchStatusInternal(string busTopic, string envelopeTopic, IElementStatus status,
         CancellationToken ct)
     {
         if (status == null) return Task.CompletedTask;
@@ -186,21 +186,21 @@ public class MessageBus : IMessageBus
     }
 
 
-    public Task PublishStatusAsync(DeviceStatusMessage snapshot, CancellationToken cancellationToken = default)
+    public Task PublishStatusAsync(IElementStatus snapshot, CancellationToken cancellationToken = default)
     {
-        var topic = MessageBusTopic.DeviceStatus.ToString();
+        var topic = MessageBusTopic.ElementStatus.ToString();
         return DispatchStatusInternal(topic, topic, snapshot, cancellationToken);
     }
 
-    public Task PublishStatusAsync(string topic, DeviceStatusMessage snapshot, CancellationToken ct)
+    public Task PublishStatusAsync(string topic, IElementStatus snapshot, CancellationToken ct)
     {
         return DispatchStatusInternal(topic, topic, snapshot, ct);
     }
     
-    public Task PublishStatusAsync(string keyDeviceName, IDeviceStatus status)
+    public Task PublishStatusAsync(string keyElementName, IElementStatus status)
     {
-        // Preserving your original logic: Envelope gets the device key, but it publishes to the "DeviceStatus" topic
-        return DispatchStatusInternal("DeviceStatus", keyDeviceName, status, CancellationToken.None);
+        // Preserving your original logic: Envelope gets the element key, but it publishes to the "ElementStatus" topic
+        return DispatchStatusInternal("ElementStatus", keyElementName, status, CancellationToken.None);
     }
 
     public List<string> GetSubscriptionList(string topic)
@@ -279,7 +279,7 @@ public class MessageBus : IMessageBus
 
             if (isVerbose)
             {
-                _logger.Verbose(">>> BUS ENTRY: Topic={Topic} Handler={Handler}", topic, handlerName);
+                _logger.Verbose(">>> BUS ENTRY: Topic={Topic} Handler={Handler} CorrelationId={CorrelationId}", topic, handlerName, envelope.Header.CorrelationId);
                 sw = System.Diagnostics.Stopwatch.StartNew();
             }
 
@@ -307,8 +307,8 @@ public class MessageBus : IMessageBus
                     allTasks.Add(handlerTask.ContinueWith(t =>
                     {
                         sw.Stop();
-                        _logger.Verbose("<<< BUS EXIT: Topic={Topic} Handler={Handler} | Elapsed={Elapsed}ms",
-                            topic, handlerName, sw.ElapsedMilliseconds);
+                        _logger.Verbose("<<< BUS EXIT: Topic={Topic} Handler={Handler} CorrelationId={CorrelationId} | Elapsed={Elapsed}ms",
+                            topic, handlerName, envelope.Header.CorrelationId, sw.ElapsedMilliseconds);
                         if (t.IsFaulted) HandleHandlerFailure(t, topic, envelope);
                     }));
                 }
@@ -438,17 +438,6 @@ public class MessageBus : IMessageBus
 
     public List<string> GetActiveTopics() => _subscriptions.Keys.ToList();
 
-    /// <summary>
-    /// Publishes a device status snapshot to the bus on a specific topic.
-    /// </summary>
-    /// <param name="status"></param>
-    /// <param name="token"></param>
-    public Task PublishStatusAsync(IDeviceStatus status, CancellationToken token)
-    {
-        var envelope = new MessageEnvelope(new MessageBusTopic(MessageBusTopic.DeviceStatus.ToString()), status);
-        return PublishAsync(MessageBusTopic.DeviceStatus.ToString(), envelope, token);
-    }
-
     public int GetListenerCount(string topic)
     {
         int count = _globalSubscribers.Count;
@@ -464,15 +453,15 @@ public class MessageBus : IMessageBus
     {
         try
         {
-            DeviceKey busKey = new DeviceKey("System", "MessageBus");
+            ElementKey busKey = new ElementKey("System", "MessageBus");
             // Just grab the literal string directly from the tracker
             var stateText = _tracker.ToStatusMessage(busKey, "");
 
             // Pack the raw string into the envelope
-            var envelope = new MessageEnvelope(MessageBusTopic.DeviceStatus, stateText);
+            var envelope = new MessageEnvelope(MessageBusTopic.ElementStatus, stateText);
 
             // Dispatch internally to bypass the audit log and main counters
-            return DispatchMessageInternal(MessageBusTopic.DeviceStatus.ToString(), envelope, CancellationToken.None);
+            return DispatchMessageInternal(MessageBusTopic.ElementStatus.ToString(), envelope, CancellationToken.None);
         }
         catch (Exception ex)
         {

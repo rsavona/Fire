@@ -2,15 +2,15 @@ using Apache.NMS;
 using Apache.NMS.ActiveMQ;
 using Fusion.Common;
 using Fusion.Common.BaseClasses;
-using Blueprints;
+using Fusion.Common.Configurations;
 using Fusion.Common.Contracts;
 using Fusion.Common.Logging;
 using Serilog.Core;
 
-namespace Device.ActiveMQ
+namespace Fusion.Element.ActiveMQ
 {
     /// <summary>
-    /// A specialized device that periodically browses ActiveMQ queue names and logs them.
+    /// A specialized element that periodically browses ActiveMQ queue names and logs them.
     /// </summary>
     public class ActiveMqBrowserElement : ClientElementBase
     {
@@ -19,14 +19,14 @@ namespace Device.ActiveMQ
         private IConnection? _connection;
         private readonly int _browseIntervalMs;
 
-        public ActiveMqBrowserElement(IMessageBus bus, IDeviceConfig config, IFireLogger logger, LoggingLevelSwitch ls)
+        public ActiveMqBrowserElement(IMessageBus bus, IElementBlueprint config, IFireLogger logger, LoggingLevelSwitch ls)
             : base(bus, config, logger, ls, false)
         {
             _conStr = ConfigurationLoader.GetRequiredConfig<string>(config.Properties, "ConnectionString");
             _browseIntervalMs = ConfigurationLoader.GetOptionalConfig(config.Properties, "BrowseIntervalMs", 30000);
             
             _factory = new ConnectionFactory(_conStr);
-            Logger.Information("[{Dev}] Initializing ActiveMQ Browser Device. Broker: {BrokerUrl}", Config.Name, _conStr);
+            Logger.Information("[{Dev}] Initializing ActiveMQ Browser Fusion.Element. Broker: {BrokerUrl}", Config.Name, _conStr);
             
             // Explicitly ensure heartbeat is disabled
             NeedsHeartbeat = false;
@@ -50,16 +50,16 @@ namespace Device.ActiveMQ
             }
         }
 
-        protected override async Task DeviceConnectedAsync()
+        protected override async Task ElementConnectedAsync()
         {
             Logger.Information("[{Dev}] Starting periodic queue browsing every {Interval}ms.", Config.Name, _browseIntervalMs);
             RegisterTask(BrowseQueuesLoopAsync(ConnectionToken));
-            await base.DeviceConnectedAsync();
+            await base.ElementConnectedAsync();
         }
 
         protected override Task InitPeriodicEvent()
         {
-            // Heartbeat check is disabled, but we use DeviceConnectedAsync to start our custom loop
+            // Heartbeat check is disabled, but we use ElementConnectedAsync to start our custom loop
             return Task.CompletedTask;
         }
 
@@ -130,7 +130,7 @@ namespace Device.ActiveMQ
 
         public override Task SendAsync(string message, CancellationToken token, bool fireEvent = true)
         {
-            Logger.Warning("[{Dev}] SendAsync not supported for Browser Device.", Config.Name);
+            Logger.Warning("[{Dev}] SendAsync not supported for Browser Fusion.Element.", Config.Name);
             return Task.CompletedTask;
         }
 
@@ -140,12 +140,12 @@ namespace Device.ActiveMQ
             return Task.CompletedTask;
         }
 
-        protected override void OnDeviceFaultedAsync(CancellationToken token = default)
+        protected override void OnElementFaultedAsync(CancellationToken token = default)
         {
-            Logger.Error("[{Dev}] Device faulted. Reconnecting...", Config.Name);
+            Logger.Error("[{Dev}] Element faulted. Reconnecting...", Config.Name);
         }
 
-        protected override async Task OnDeviceStoppingAsync()
+        protected override async Task OnElementStoppingAsync()
         {
             if (_connection != null)
             {

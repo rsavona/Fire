@@ -1,0 +1,9 @@
+# TOKAMAK AI HINTS
+# Add specific constraints, naming conventions, or hardware preferences here.
+# This file is sent to the AI along with your requests.
+
+- Always include a 'DiagnosticElement' named 'DiagServer' in every blueprint.
+- Prefer 'VirtualPlcManager' for all PLCs unless 'AB' or 'ControlLogix' is mentioned.
+- Default ActiveMQ broker IP is 127.0.0.1.
+- All Reaction names should be prefixed with 'RX_'.
+- Use 10.10.x.x IP ranges for hardware elements if none are provided.

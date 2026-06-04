@@ -7,9 +7,9 @@
   "targets": {
     ".NETCoreApp,Version=v10.0": {},
     ".NETCoreApp,Version=v10.0/win-x64": {
-      "Device.Plc.Suite/1.0.0": {
+      "Fusion.Element.Plc.Suite/1.0.0": {
         "dependencies": {
-          "DeviceSpace.Common": "1.0.0",
+          "Fusion.Common": "1.0.0",
           "Serilog": "4.3.1",
           "Serilog.Enrichers.CorrelationId": "3.0.1",
           "Serilog.Enrichers.Dynamic": "1.0.9",
@@ -21,7 +21,7 @@
           "runtimepack.Microsoft.NETCore.App.Runtime.win-x64": "10.0.3"
         },
         "runtime": {
-          "Device.Plc.Suite.dll": {}
+          "Fusion.Element.Plc.Suite.dll": {}
         }
       },
       "runtimepack.Microsoft.NETCore.App.Runtime.win-x64/10.0.3": {
@@ -1772,7 +1772,7 @@
           }
         }
       },
-      "DeviceSpace.Common/1.0.0": {
+      "Fusion.Common/1.0.0": {
         "dependencies": {
           "Apache.NMS.ActiveMQ": "2.2.0",
           "Microsoft.CodeAnalysis.CSharp.Scripting": "5.0.0",
@@ -1795,7 +1795,7 @@
           "Stateless": "5.20.0"
         },
         "runtime": {
-          "DeviceSpace.Common.dll": {
+          "Fusion.Common.dll": {
             "assemblyVersion": "1.0.0.0",
             "fileVersion": "1.0.0.0"
           }
@@ -1804,7 +1804,7 @@
     }
   },
   "libraries": {
-    "Device.Plc.Suite/1.0.0": {
+    "Fusion.Element.Plc.Suite/1.0.0": {
       "type": "project",
       "serviceable": false,
       "sha512": ""
@@ -2297,7 +2297,7 @@
       "path": "system.security.cryptography.protecteddata/9.0.13",
       "hashPath": "system.security.cryptography.protecteddata.9.0.13.nupkg.sha512"
     },
-    "DeviceSpace.Common/1.0.0": {
+    "Fusion.Common/1.0.0": {
       "type": "project",
       "serviceable": false,
       "sha512": ""

@@ -1,7 +1,7 @@
 ﻿using System.Net.Sockets;
 using System.Text;
+using Fusion.Common.Configurations;
 using Fusion.Common.Enums;
-using Blueprints;
 using Fusion.Common.Contracts; // Ensure Enums are available for Machine.State
 using Serilog;
 using Serilog.Core;
@@ -16,16 +16,16 @@ public abstract class TcpClientElementBase : ClientElementBase
     private readonly int _port;
     private NetworkStream? TransportStream { get; set; }
 
-    public TcpClientElementBase(IMessageBus bus, IDeviceConfig config, IFireLogger logger, LoggingLevelSwitch ls, bool needsHb = false)
+    public TcpClientElementBase(IMessageBus bus, IElementBlueprint config, IFireLogger logger, LoggingLevelSwitch ls, bool needsHb = false)
         : base(bus, config, logger, ls, needsHb)
     {
         _host = ConfigurationLoader.GetRequiredConfig<string>(config.Properties, "IPAddress");
         _port = ConfigurationLoader.GetRequiredConfig<int>(config.Properties, "Port");
     }
 
-    protected override async void OnDeviceFaultedAsync(CancellationToken token = default)
+    protected override async void OnElementFaultedAsync(CancellationToken token = default)
     {
-        Logger.Error("[{Dev}] Device Faulted. Closing TCP connection to {Host}:{Port}", Config.Name, _host, _port);
+        Logger.Error("[{Dev}] Element Faulted. Closing TCP connection to {Host}:{Port}", Config.Name, _host, _port);
         try
         {
             await CloseConnectionAsync();
@@ -60,16 +60,16 @@ public abstract class TcpClientElementBase : ClientElementBase
         }
     }
 
-    protected override Task DeviceConnectedAsync()
+    protected override Task ElementConnectedAsync()
     {
         _ = Task.Run(() => ReadLoopAsync(CancellationToken.None));
-        return base.DeviceConnectedAsync();
+        return base.ElementConnectedAsync();
     }
 
     protected override void OnStateChange(StateMachine<State, Event>.Transition transition)
     {
         // 1. Log the transition for local debugging
-        Logger.Debug("[{Device}] Transition: {Source} -> {Dest} (Trigger: {Trigger})",
+        Logger.Debug("[{Element}] Transition: {Source} -> {Dest} (Trigger: {Trigger})",
             Config.Name, transition.Source, transition.Destination, transition.Trigger);
 
         // 2. Build a dynamic comment based on the connection context
@@ -121,7 +121,7 @@ public abstract class TcpClientElementBase : ClientElementBase
     /// <returns></returns>
     private bool CheckTcpConnection(TcpClient? client)
     {
-        if (client == null || !client.Connected)
+        if (client == null || !client.Connected || client.Client == null)
         {
             return false;
         }
@@ -149,7 +149,7 @@ public abstract class TcpClientElementBase : ClientElementBase
     }
 
     /// <summary>
-    /// Returns true if the device is connected and the TCP connection is active.
+    /// Returns true if the element is connected and the TCP connection is active.
     /// </summary>
     public bool IsConnected
     {
@@ -174,7 +174,7 @@ public abstract class TcpClientElementBase : ClientElementBase
 
 
     /// <summary>
-    /// Override this method if your device needs sa heasrtbeat or staus check
+    /// Override this method if your element needs sa heasrtbeat or staus check
     /// </summary>
     /// <param name="incomingData"></param>
     /// <returns></returns>
@@ -223,6 +223,12 @@ public abstract class TcpClientElementBase : ClientElementBase
         {
             // This is normal. The socket was closed/disposed while a read was pending.
             Logger.Debug("[{Dev}] Socket operation aborted (Connection gracefully closed).", Config.Name);
+        }
+        catch (IOException ioEx) when (ioEx.InnerException is SocketException se &&
+                                       se.SocketErrorCode == SocketError.ConnectionReset)
+        {
+            // This happens when the remote host (e.g. Virtual Printer) forcefully closes the connection
+            Logger.Warning("[{Dev}] Connection forcibly closed by remote host (ConnectionReset).", Config.Name);
         }
         catch (Exception ex)
         {

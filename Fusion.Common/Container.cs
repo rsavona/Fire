@@ -19,7 +19,7 @@ public class Container : IConveyable
     public int  Destination { get; set; }
     public string Location { get; set; }
     // State Machine for the individual carton
-    public StateMachine<ConveyableState, ConveyableTrigger> Workflow { get; private set; }
+    public StateMachine<ConveyableState, ConveyableTrigger> Reaction { get; private set; }
 
   
     // Fixed constructor based on your requirements
@@ -34,8 +34,8 @@ public class Container : IConveyable
         Weight = weight;
         Dimensions = dimensions;
 
-        Workflow = new StateMachine<ConveyableState, ConveyableTrigger>(ConveyableState.NotInducted);
-        ConfigureWorkflow();
+        Reaction = new StateMachine<ConveyableState, ConveyableTrigger>(ConveyableState.NotInducted);
+        ConfigureReaction();
     }
 
 
@@ -43,8 +43,8 @@ public class Container : IConveyable
     {
         Location = location;
         Barcodes = new List<string>();
-        Workflow = new StateMachine<ConveyableState, ConveyableTrigger>(ConveyableState.NotInducted);
-        ConfigureWorkflow();
+        Reaction = new StateMachine<ConveyableState, ConveyableTrigger>(ConveyableState.NotInducted);
+        ConfigureReaction();
     }
 
     public Container()
@@ -52,18 +52,18 @@ public class Container : IConveyable
         throw new NotImplementedException();
     }
 
-    private void ConfigureWorkflow()
+    private void ConfigureReaction()
     {
-        Workflow.Configure(ConveyableState.NotInducted)
+        Reaction.Configure(ConveyableState.NotInducted)
             .Permit(ConveyableTrigger.Induct, ConveyableState.Inducted);
 
-        Workflow.Configure(ConveyableState.Inducted)
+        Reaction.Configure(ConveyableState.Inducted)
             .PermitIf(ConveyableTrigger.Print, ConveyableState.Labeling, () => RequiresLabeling)
             .PermitIf(ConveyableTrigger.Insert, ConveyableState.Inserting, () => !RequiresLabeling && RequiresInsertion)
             .Permit(ConveyableTrigger.Verify, ConveyableState.Verified)
             .Permit(ConveyableTrigger.Reject, ConveyableState.Failed);
 
-        Workflow.Configure(ConveyableState.Labeling)
+        Reaction.Configure(ConveyableState.Labeling)
             .PermitIf(ConveyableTrigger.Insert, ConveyableState.Inserting, () => RequiresInsertion)
             .Permit(ConveyableTrigger.Verify, ConveyableState.Verified);
         

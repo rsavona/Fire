@@ -5,7 +5,7 @@ using System.Text.Json.Serialization;
 using Fusion.Common.BaseClasses;
 using Fusion.Common.Contracts;
 
-namespace Workflow.PrintAndApplyFrc;
+namespace Fusion.Reaction.Simulation;
 
 using System;
 using System.Collections.Generic;
@@ -20,6 +20,12 @@ public record LabelRequestFrcMessage  (
     [property: JsonPropertyName("characteristics")] Characteristics Characteristics
 ): ElementMessageBase
 {
+    public static LabelRequestFrcMessage FromJson(string jsonstr)
+    {
+        return JsonSerializer.Deserialize<LabelRequestFrcMessage>(jsonstr) 
+               ?? throw new InvalidOperationException("Failed to deserialize LabelRequestFrcMessage");
+    }
+
     [JsonPropertyName("type")] 
     public string Type { get; init; } = "LabelRequest";
 }

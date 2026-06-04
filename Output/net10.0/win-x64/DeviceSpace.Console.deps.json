@@ -7,16 +7,16 @@
   "targets": {
     ".NETCoreApp,Version=v10.0": {},
     ".NETCoreApp,Version=v10.0/win-x64": {
-      "DeviceSpace.Console/1.0.0": {
+      "Fusion.Console/1.0.0": {
         "dependencies": {
-          "Device.ActiveMQ": "1.0.0",
-          "Device.Api.Suite": "1.0.0",
-          "Device.Database.Suite": "1.0.0",
-          "Device.HostComm": "1.0.0",
-          "Device.Plc.Suite": "1.0.0",
-          "Device.Printer.Suite": "1.0.0",
-          "Device.Support.CLI": "1.0.0",
-          "DeviceSpace.Core": "1.0.0",
+          "Fusion.Element.ActiveMQ": "1.0.0",
+          "Fusion.Element.Api.Suite": "1.0.0",
+          "Fusion.Element.Database.Suite": "1.0.0",
+          "Fusion.Element.HostComm": "1.0.0",
+          "Fusion.Element.Plc.Suite": "1.0.0",
+          "Fusion.Element.Printer.Suite": "1.0.0",
+          "Fusion.Element.Support.CLI": "1.0.0",
+          "Fusion.Core": "1.0.0",
           "Microsoft.Data.SqlClient": "7.0.1",
           "Microsoft.Extensions.Hosting.WindowsServices": "10.0.5",
           "Microsoft.Extensions.Logging": "10.0.7",
@@ -31,14 +31,14 @@
           "Serilog.Sinks.Map": "2.0.0",
           "Stateless": "5.20.1",
           "TuraHostTester": "1.0.0",
-          "Workflow.PrintAndApply.Frc": "1.0.0",
-          "Workflow.Simulation": "1.0.0",
-          "Workflow.Sort.Standard": "1.0.0",
-          "Workflow.Tura.HostComm": "1.0.0",
+          "Fusion.Reaction.PrintAndApply.Frc": "1.0.0",
+          "Fusion.Reaction.Simulation": "1.0.0",
+          "Fusion.Reaction.Sort.Standard": "1.0.0",
+          "Fusion.Reaction.Tura.HostComm": "1.0.0",
           "runtimepack.Microsoft.NETCore.App.Runtime.win-x64": "10.0.7"
         },
         "runtime": {
-          "DeviceSpace.Console.dll": {}
+          "Fusion.Console.dll": {}
         }
       },
       "runtimepack.Microsoft.NETCore.App.Runtime.win-x64/10.0.7": {
@@ -2468,11 +2468,11 @@
           }
         }
       },
-      "Device.ActiveMQ/1.0.0": {
+      "Fusion.Element.ActiveMQ/1.0.0": {
         "dependencies": {
           "Apache.NMS": "2.2.0",
           "Apache.NMS.ActiveMQ": "2.2.0",
-          "DeviceSpace.Common": "1.0.0",
+          "Fusion.Common": "1.0.0",
           "Microsoft.Extensions.Logging": "10.0.7",
           "Microsoft.Extensions.Logging.Abstractions": "10.0.7",
           "Serilog": "4.3.1",
@@ -2485,30 +2485,30 @@
           "Stateless": "5.20.1"
         },
         "runtime": {
-          "Device.ActiveMQ.dll": {
+          "Fusion.Element.ActiveMQ.dll": {
             "assemblyVersion": "1.0.0.0",
             "fileVersion": "1.0.0.0"
           }
         }
       },
-      "Device.Api.Suite/1.0.0": {
+      "Fusion.Element.Api.Suite/1.0.0": {
         "dependencies": {
-          "DeviceSpace.Common": "1.0.0",
+          "Fusion.Common": "1.0.0",
           "Microsoft.AspNetCore.Mvc": "2.3.9",
           "Microsoft.Extensions.Logging": "10.0.7",
           "System.Security.Cryptography.Xml": "10.0.6"
         },
         "runtime": {
-          "Device.Api.Suite.dll": {
+          "Fusion.Element.Api.Suite.dll": {
             "assemblyVersion": "1.0.0.0",
             "fileVersion": "1.0.0.0"
           }
         }
       },
-      "Device.Database.Suite/1.0.0": {
+      "Fusion.Element.Database.Suite/1.0.0": {
         "dependencies": {
           "Dapper": "2.1.72",
-          "DeviceSpace.Common": "1.0.0",
+          "Fusion.Common": "1.0.0",
           "Microsoft.Data.SqlClient": "7.0.1",
           "Microsoft.Extensions.Logging": "10.0.7",
           "MySqlConnector": "2.5.0",
@@ -2516,27 +2516,27 @@
           "Serilog": "4.3.1"
         },
         "runtime": {
-          "Device.Database.Suite.dll": {
+          "Fusion.Element.Database.Suite.dll": {
             "assemblyVersion": "1.0.0.0",
             "fileVersion": "1.0.0.0"
           }
         }
       },
-      "Device.HostComm/1.0.0": {
+      "Fusion.Element.HostComm/1.0.0": {
         "dependencies": {
-          "DeviceSpace.Common": "1.0.0",
+          "Fusion.Common": "1.0.0",
           "Microsoft.Extensions.Logging": "10.0.7"
         },
         "runtime": {
-          "Device.HostComm.dll": {
+          "Fusion.Element.HostComm.dll": {
             "assemblyVersion": "1.0.0.0",
             "fileVersion": "1.0.0.0"
           }
         }
       },
-      "Device.Plc.Suite/1.0.0": {
+      "Fusion.Element.Plc.Suite/1.0.0": {
         "dependencies": {
-          "DeviceSpace.Common": "1.0.0",
+          "Fusion.Common": "1.0.0",
           "Microsoft.Extensions.Logging": "10.0.7",
           "Microsoft.Extensions.Logging.Console": "10.0.7",
           "Serilog": "4.3.1",
@@ -2549,15 +2549,15 @@
           "Stateless": "5.20.1"
         },
         "runtime": {
-          "Device.Plc.Suite.dll": {
+          "Fusion.Element.Plc.Suite.dll": {
             "assemblyVersion": "1.0.0.0",
             "fileVersion": "1.0.0.0"
           }
         }
       },
-      "Device.Printer.Suite/1.0.0": {
+      "Fusion.Element.Printer.Suite/1.0.0": {
         "dependencies": {
-          "DeviceSpace.Common": "1.0.0",
+          "Fusion.Common": "1.0.0",
           "Microsoft.Extensions.Logging": "10.0.7",
           "Microsoft.Extensions.Logging.Console": "10.0.7",
           "Serilog": "4.3.1",
@@ -2570,15 +2570,15 @@
           "Stateless": "5.20.1"
         },
         "runtime": {
-          "Device.Printer.Suite.dll": {
+          "Fusion.Element.Printer.Suite.dll": {
             "assemblyVersion": "1.0.0.0",
             "fileVersion": "1.0.0.0"
           }
         }
       },
-      "Device.Support.CLI/1.0.0": {
+      "Fusion.Element.Support.CLI/1.0.0": {
         "dependencies": {
-          "DeviceSpace.Common": "1.0.0",
+          "Fusion.Common": "1.0.0",
           "Microsoft.Extensions.Logging": "10.0.7",
           "Microsoft.Extensions.Logging.Console": "10.0.7",
           "Serilog": "4.3.1",
@@ -2591,13 +2591,13 @@
           "Stateless": "5.20.1"
         },
         "runtime": {
-          "Device.Support.CLI.dll": {
+          "Fusion.Element.Support.CLI.dll": {
             "assemblyVersion": "1.0.0.0",
             "fileVersion": "1.0.0.0"
           }
         }
       },
-      "DeviceSpace.Common/1.0.0": {
+      "Fusion.Common/1.0.0": {
         "dependencies": {
           "Apache.NMS.ActiveMQ": "2.2.0",
           "Microsoft.CodeAnalysis.CSharp.Scripting": "5.0.0",
@@ -2620,23 +2620,23 @@
           "Stateless": "5.20.1"
         },
         "runtime": {
-          "DeviceSpace.Common.dll": {
+          "Fusion.Common.dll": {
             "assemblyVersion": "1.0.0.0",
             "fileVersion": "1.0.0.0"
           }
         }
       },
-      "DeviceSpace.Core/1.0.0": {
+      "Fusion.Core/1.0.0": {
         "dependencies": {
           "Castle.Core": "5.2.1",
-          "Device.ActiveMQ": "1.0.0",
-          "Device.Api.Suite": "1.0.0",
-          "Device.Database.Suite": "1.0.0",
-          "Device.HostComm": "1.0.0",
-          "Device.Plc.Suite": "1.0.0",
-          "Device.Printer.Suite": "1.0.0",
-          "Device.Support.CLI": "1.0.0",
-          "DeviceSpace.Common": "1.0.0",
+          "Fusion.Element.ActiveMQ": "1.0.0",
+          "Fusion.Element.Api.Suite": "1.0.0",
+          "Fusion.Element.Database.Suite": "1.0.0",
+          "Fusion.Element.HostComm": "1.0.0",
+          "Fusion.Element.Plc.Suite": "1.0.0",
+          "Fusion.Element.Printer.Suite": "1.0.0",
+          "Fusion.Element.Support.CLI": "1.0.0",
+          "Fusion.Common": "1.0.0",
           "Microsoft.Extensions.Configuration": "10.0.7",
           "Microsoft.Extensions.DependencyInjection": "10.0.7",
           "Microsoft.Extensions.Hosting": "10.0.7",
@@ -2656,11 +2656,11 @@
           "Serilog.Sinks.File": "7.0.0",
           "Serilog.Sinks.Map": "2.0.0",
           "Stateless": "5.20.1",
-          "Workflow.PrintAndApply.Frc": "1.0.0",
-          "Workflow.Simulation": "1.0.0"
+          "Fusion.Reaction.PrintAndApply.Frc": "1.0.0",
+          "Fusion.Reaction.Simulation": "1.0.0"
         },
         "runtime": {
-          "DeviceSpace.Core.dll": {
+          "Fusion.Core.dll": {
             "assemblyVersion": "1.0.0.0",
             "fileVersion": "1.0.0.0"
           }
@@ -2674,9 +2674,9 @@
           }
         }
       },
-      "Workflow.PrintAndApply.Frc/1.0.0": {
+      "Fusion.Reaction.PrintAndApply.Frc/1.0.0": {
         "dependencies": {
-          "DeviceSpace.Common": "1.0.0",
+          "Fusion.Common": "1.0.0",
           "Microsoft.Extensions.Logging": "10.0.7",
           "Microsoft.Extensions.Logging.Console": "10.0.7",
           "Serilog": "4.3.1",
@@ -2689,15 +2689,15 @@
           "Stateless": "5.20.1"
         },
         "runtime": {
-          "Workflow.PrintAndApply.Frc.dll": {
+          "Fusion.Reaction.PrintAndApply.Frc.dll": {
             "assemblyVersion": "1.0.0.0",
             "fileVersion": "1.0.0.0"
           }
         }
       },
-      "Workflow.Simulation/1.0.0": {
+      "Fusion.Reaction.Simulation/1.0.0": {
         "dependencies": {
-          "DeviceSpace.Common": "1.0.0",
+          "Fusion.Common": "1.0.0",
           "Microsoft.Extensions.Logging": "10.0.7",
           "Microsoft.Extensions.Logging.Console": "10.0.7",
           "Serilog": "4.3.1",
@@ -2710,34 +2710,34 @@
           "Stateless": "5.20.1"
         },
         "runtime": {
-          "Workflow.Simulation.dll": {
+          "Fusion.Reaction.Simulation.dll": {
             "assemblyVersion": "1.0.0.0",
             "fileVersion": "1.0.0.0"
           }
         }
       },
-      "Workflow.Sort.Standard/1.0.0": {
+      "Fusion.Reaction.Sort.Standard/1.0.0": {
         "dependencies": {
           "Dapper": "2.1.72",
-          "DeviceSpace.Common": "1.0.0",
-          "DeviceSpace.Core": "1.0.0",
+          "Fusion.Common": "1.0.0",
+          "Fusion.Core": "1.0.0",
           "Microsoft.Data.SqlClient": "7.0.1",
           "Microsoft.Extensions.Logging": "10.0.7"
         },
         "runtime": {
-          "Workflow.Sort.Standard.dll": {
+          "Fusion.Reaction.Sort.Standard.dll": {
             "assemblyVersion": "1.0.0.0",
             "fileVersion": "1.0.0.0"
           }
         }
       },
-      "Workflow.Tura.HostComm/1.0.0": {
+      "Fusion.Reaction.Tura.HostComm/1.0.0": {
         "dependencies": {
-          "DeviceSpace.Common": "1.0.0",
+          "Fusion.Common": "1.0.0",
           "Serilog": "4.3.1"
         },
         "runtime": {
-          "Workflow.Tura.HostComm.dll": {
+          "Fusion.Reaction.Tura.HostComm.dll": {
             "assemblyVersion": "1.0.0.0",
             "fileVersion": "1.0.0.0"
           }
@@ -2746,7 +2746,7 @@
     }
   },
   "libraries": {
-    "DeviceSpace.Console/1.0.0": {
+    "Fusion.Console/1.0.0": {
       "type": "project",
       "serviceable": false,
       "sha512": ""
@@ -3624,47 +3624,47 @@
       "path": "system.serviceprocess.servicecontroller/10.0.5",
       "hashPath": "system.serviceprocess.servicecontroller.10.0.5.nupkg.sha512"
     },
-    "Device.ActiveMQ/1.0.0": {
+    "Fusion.Element.ActiveMQ/1.0.0": {
       "type": "project",
       "serviceable": false,
       "sha512": ""
     },
-    "Device.Api.Suite/1.0.0": {
+    "Fusion.Element.Api.Suite/1.0.0": {
       "type": "project",
       "serviceable": false,
       "sha512": ""
     },
-    "Device.Database.Suite/1.0.0": {
+    "Fusion.Element.Database.Suite/1.0.0": {
       "type": "project",
       "serviceable": false,
       "sha512": ""
     },
-    "Device.HostComm/1.0.0": {
+    "Fusion.Element.HostComm/1.0.0": {
       "type": "project",
       "serviceable": false,
       "sha512": ""
     },
-    "Device.Plc.Suite/1.0.0": {
+    "Fusion.Element.Plc.Suite/1.0.0": {
       "type": "project",
       "serviceable": false,
       "sha512": ""
     },
-    "Device.Printer.Suite/1.0.0": {
+    "Fusion.Element.Printer.Suite/1.0.0": {
       "type": "project",
       "serviceable": false,
       "sha512": ""
     },
-    "Device.Support.CLI/1.0.0": {
+    "Fusion.Element.Support.CLI/1.0.0": {
       "type": "project",
       "serviceable": false,
       "sha512": ""
     },
-    "DeviceSpace.Common/1.0.0": {
+    "Fusion.Common/1.0.0": {
       "type": "project",
       "serviceable": false,
       "sha512": ""
     },
-    "DeviceSpace.Core/1.0.0": {
+    "Fusion.Core/1.0.0": {
       "type": "project",
       "serviceable": false,
       "sha512": ""
@@ -3674,22 +3674,22 @@
       "serviceable": false,
       "sha512": ""
     },
-    "Workflow.PrintAndApply.Frc/1.0.0": {
+    "Fusion.Reaction.PrintAndApply.Frc/1.0.0": {
       "type": "project",
       "serviceable": false,
       "sha512": ""
     },
-    "Workflow.Simulation/1.0.0": {
+    "Fusion.Reaction.Simulation/1.0.0": {
       "type": "project",
       "serviceable": false,
       "sha512": ""
     },
-    "Workflow.Sort.Standard/1.0.0": {
+    "Fusion.Reaction.Sort.Standard/1.0.0": {
       "type": "project",
       "serviceable": false,
       "sha512": ""
     },
-    "Workflow.Tura.HostComm/1.0.0": {
+    "Fusion.Reaction.Tura.HostComm/1.0.0": {
       "type": "project",
       "serviceable": false,
       "sha512": ""

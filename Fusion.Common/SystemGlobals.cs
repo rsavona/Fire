@@ -3,7 +3,7 @@ using Fusion.Common.Contracts;
 
 namespace Fusion.Common;
 
-public class ScriptGlobals
+public class SystemGlobals
 {
     /// <summary>
     /// The actual data payload from the MessageEnvelope.
@@ -28,7 +28,7 @@ public class ScriptGlobals
     /// </summary>
     public Action<string> Log { get; }
 
-    public ScriptGlobals(object message, string key, IMessageBus bus, Action<string> logAction)
+    public SystemGlobals(object message, string key, IMessageBus bus, Action<string> logAction)
     {
         Message = message;
         Key = key;

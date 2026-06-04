@@ -1,5 +1,5 @@
 ﻿using System.Diagnostics;
-using Blueprints;
+using Fusion.Common.Configurations;
 using Fusion.Common.Contracts;
 using Fusion.Common.Enums;
 using Serilog.Core;
@@ -9,10 +9,10 @@ using ILogger = Serilog.ILogger;
 namespace Fusion.Common.BaseClasses;
 
 /// <summary>
-/// Abstract base class for client-side devices providing built-in state management, 
+/// Abstract base class for client-side elements providing built-in state management, 
 /// reconnection logic, automated heartbeats, and metric tracking.
 /// </summary>
-public abstract class ClientElementBase : ElementBase<ClientElementBase.State, ClientElementBase.Event, DeviceMetric>
+public abstract class ClientElementBase : ElementBase<ClientElementBase.State, ClientElementBase.Event, ElementMetric>
 {
     public enum State
     {
@@ -52,7 +52,7 @@ public abstract class ClientElementBase : ElementBase<ClientElementBase.State, C
     private int _timeout;
 
 
-    protected ClientElementBase(IMessageBus bus, IDeviceConfig config, IFireLogger logger, LoggingLevelSwitch ls, bool
+    protected ClientElementBase(IMessageBus bus, IElementBlueprint config, IFireLogger logger, LoggingLevelSwitch ls, bool
         needsHb = false)
         : base(bus, config, logger, ls, State.Offline, Event.Start)
     {
@@ -74,7 +74,7 @@ public abstract class ClientElementBase : ElementBase<ClientElementBase.State, C
     // --- Abstract Requirements ---
     public abstract Task SendAsync(string message, CancellationToken token, bool fireEvent = true);
     public abstract Task SendHeartbeatAsync(CancellationToken token);
-    protected abstract void OnDeviceFaultedAsync(CancellationToken token = default);
+    protected abstract void OnElementFaultedAsync(CancellationToken token = default);
     protected abstract Task<bool> ConnectAsync(CancellationToken ct = default);
 
 
@@ -84,7 +84,7 @@ public abstract class ClientElementBase : ElementBase<ClientElementBase.State, C
         return Task.CompletedTask;
     }
 
-    protected virtual Task DeviceConnectedAsync()
+    protected virtual Task ElementConnectedAsync()
     {
         return Task.CompletedTask;
     }
@@ -94,22 +94,22 @@ public abstract class ClientElementBase : ElementBase<ClientElementBase.State, C
         return Task.CompletedTask;
     }
 
-    protected virtual Task DeviceDisconnectedAsync()
+    protected virtual Task ElementDisconnectedAsync()
     {
         return Task.CompletedTask;
     }
 
-    protected virtual Task OnDeviceStoppingAsync()
+    protected virtual Task OnElementStoppingAsync()
     {
         return Task.CompletedTask;
     }
 
-    protected virtual Task DeviceOfflineAsync()
+    protected virtual Task ElementOfflineAsync()
     {
         return Task.CompletedTask;
     }
 
-    protected virtual Task DeviceServerOfflineAsync()
+    protected virtual Task ElementServerOfflineAsync()
     {
         return Task.CompletedTask;
     }
@@ -123,7 +123,7 @@ public abstract class ClientElementBase : ElementBase<ClientElementBase.State, C
     {
     }
 
-    protected virtual void OnDeviceUnavailable()
+    protected virtual void OnElementUnavailable()
     {
     }
 
@@ -151,7 +151,7 @@ public abstract class ClientElementBase : ElementBase<ClientElementBase.State, C
             .OnEntry(() =>
             {
                 Tracker.SetConnectionCount(0);
-                DeviceOfflineAsync();
+                ElementOfflineAsync();
             })
             .Permit(Event.Start, State.Connecting);
 
@@ -191,7 +191,7 @@ public abstract class ClientElementBase : ElementBase<ClientElementBase.State, C
             {
                 Tracker.SetConnectionCount(1);
                 _connectionAttempts = 0;
-                _ = DeviceConnectedAsync();
+                _ = ElementConnectedAsync();
                 _lastResponse = DateTime.UtcNow; // Reset on connect
                 if (NeedsHeartbeat)
                     StartPeriodicEvent();
@@ -199,7 +199,7 @@ public abstract class ClientElementBase : ElementBase<ClientElementBase.State, C
             .OnExit(() =>
             {
                 Tracker.SetConnectionCount(0);
-                _ = DeviceDisconnectedAsync();
+                _ = ElementDisconnectedAsync();
                 if (NeedsHeartbeat)
                     StopHeartbeat();
             })
@@ -224,12 +224,12 @@ public abstract class ClientElementBase : ElementBase<ClientElementBase.State, C
             .SubstateOf(State.Connected) // Inherits ConnectionLost, Error, Stop, etc.
             .OnEntry(() =>
             {
-                Logger.Warning("[{Dev}] Device entered UNAVAILABLE substate.", Config.Name);
+                Logger.Warning("[{Dev}] Element entered UNAVAILABLE substate.", Config.Name);
                 UpdateAndNotify();
             })
             .OnExit(() =>
             {
-                Logger.Information("[{Dev}] Device leaving UNAVAILABLE substate.", Config.Name);
+                Logger.Information("[{Dev}] Element leaving UNAVAILABLE substate.", Config.Name);
                 UpdateAndNotify();
             })
             // Return to the main Connected state
@@ -240,7 +240,7 @@ public abstract class ClientElementBase : ElementBase<ClientElementBase.State, C
         Machine.Configure(State.ServerOffline)
             .OnEntry(t =>
             {
-                DeviceServerOfflineAsync();
+                ElementServerOfflineAsync();
                 Logger.Warning("[{Dev}] Server offline. Retrying in 5s...", Config.Name);
                 _ = Task.Delay(5000).ContinueWith(_ => Machine.Fire(Event.Start));
             })
@@ -251,8 +251,8 @@ public abstract class ClientElementBase : ElementBase<ClientElementBase.State, C
         Machine.Configure(State.Faulted)
             .OnEntry(_ =>
             {
-                Tracker.IncrementError("Device Faulted");
-                OnDeviceFaultedAsync();
+                Tracker.IncrementError("Element Faulted");
+                OnElementFaultedAsync();
             })
             .Permit(Event.Start, State.Starting)
             .Permit(Event.Stop, State.Offline);
@@ -263,7 +263,7 @@ public abstract class ClientElementBase : ElementBase<ClientElementBase.State, C
             .Permit(Event.ConnectRetry, State.Connecting);
 
         Machine.Configure(State.Stopping)
-            .OnEntry(_ => OnDeviceStoppingAsync())
+            .OnEntry(_ => OnElementStoppingAsync())
             .Permit(Event.Stop, State.Offline);
 
         Machine.OnUnhandledTrigger((state, trigger) =>
@@ -362,7 +362,7 @@ public abstract class ClientElementBase : ElementBase<ClientElementBase.State, C
             Machine.State != State.Faulted &&
             Machine.State != State.ServerOffline)
         {
-            Logger.Warning("Device is already active or starting. Ignoring redundant Start request.");
+            Logger.Warning("Element is already active or starting. Ignoring redundant Start request.");
             return;
         }
 
@@ -387,17 +387,17 @@ public abstract class ClientElementBase : ElementBase<ClientElementBase.State, C
         if (Machine.CanFire(Event.Error)) Machine.Fire(Event.Error);
     }
 
-    protected override DeviceHealth MapStateToHealth(State state)
+    protected override ElementHealth MapStateToHealth(State state)
     {
         return state switch
         {
-            State.Connected => DeviceHealth.Normal,
-            State.Unavailable => DeviceHealth.Warning,
-            State.Offline => DeviceHealth.Warning,
-            State.Connecting => DeviceHealth.Warning,
-            State.ServerOffline => DeviceHealth.Warning,
-            State.Faulted => DeviceHealth.Critical,
-            _ => DeviceHealth.Warning
+            State.Connected => ElementHealth.Normal,
+            State.Unavailable => ElementHealth.Warning,
+            State.Offline => ElementHealth.Warning,
+            State.Connecting => ElementHealth.Warning,
+            State.ServerOffline => ElementHealth.Warning,
+            State.Faulted => ElementHealth.Critical,
+            _ => ElementHealth.Warning
         };
     }
 }

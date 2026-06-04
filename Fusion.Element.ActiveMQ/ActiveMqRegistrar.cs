@@ -1,34 +1,34 @@
 ﻿using Fusion.Common.Contracts;
 using Microsoft.Extensions.DependencyInjection;
 
-namespace Device.ActiveMQ;
+namespace Fusion.Element.ActiveMQ;
 
-public class ActiveMqRegistrar : IDeviceRegistrar
+public class ActiveMqRegistrar : IElementRegistrar
 {
     public void RegisterServices(IServiceCollection services)
     {
-        // 1. Register the device type
-        services.AddTransient<ActiveMqDevice>();
-        services.AddTransient<ActiveMqBrowserDevice>();
-        services.AddTransient<ActiveMqQueuePeekDevice>();
+        // 1. Register the element type
+        services.AddTransient<ActiveMqElement>();
+        services.AddTransient<ActiveMqBrowserElement>();
+        services.AddTransient<ActiveMqQueuePeekElement>();
        
-        services.AddTransient<Func<IDeviceConfig, IFireLogger, ActiveMqDevice>>(provider =>
+        services.AddTransient<Func<IElementBlueprint, IFireLogger, ActiveMqElement>>(provider =>
             (config, logger) =>
             {
                 // Now it only needs config and logger
-                return ActivatorUtilities.CreateInstance<ActiveMqDevice>(provider, config, logger);
+                return ActivatorUtilities.CreateInstance<ActiveMqElement>(provider, config, logger);
             });
 
-        services.AddTransient<Func<IDeviceConfig, IFireLogger, ActiveMqBrowserDevice>>(provider =>
+        services.AddTransient<Func<IElementBlueprint, IFireLogger, ActiveMqBrowserElement>>(provider =>
             (config, logger) =>
             {
-                return ActivatorUtilities.CreateInstance<ActiveMqBrowserDevice>(provider, config, logger);
+                return ActivatorUtilities.CreateInstance<ActiveMqBrowserElement>(provider, config, logger);
             });
 
-        services.AddTransient<Func<IDeviceConfig, IFireLogger, ActiveMqQueuePeekDevice>>(provider =>
+        services.AddTransient<Func<IElementBlueprint, IFireLogger, ActiveMqQueuePeekElement>>(provider =>
             (config, logger) =>
             {
-                return ActivatorUtilities.CreateInstance<ActiveMqQueuePeekDevice>(provider, config, logger);
+                return ActivatorUtilities.CreateInstance<ActiveMqQueuePeekElement>(provider, config, logger);
             });
     }
 }

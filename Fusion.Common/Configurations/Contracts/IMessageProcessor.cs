@@ -1,4 +1,4 @@
-﻿using System.Net.Sockets;
+﻿using System.Buffers;
 
 namespace Fusion.Common.Contracts;
 
@@ -9,12 +9,11 @@ public interface IMessageProcessor
     
      public event Action<string>? OnMessageError;
      Task<bool> ProcessMessageAsync(
-        NetworkStream stream, 
-        byte[] buffer, 
-        int bytesRead, 
+        ReadOnlySequence<byte> buffer, 
         string clientKey, 
+        Func<object, Task<bool>> sendResponse,
         CancellationToken token);
 
      public event Action<string> HeartbeatReceived;
-     public string HandleResponse(string deviceName, object payload);
+     public string HandleResponse(string elementName, object payload);
 }

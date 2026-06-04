@@ -1,5 +1,17 @@
       
 
+# Virtual PLC Simulation
+
+```mermaid
+stateDiagram-v2
+    [*] --> Induct: Trigger (Timer/Manual)
+    Induct --> Travel: DecisionRequest Sent
+    Travel --> Divert: Wait DistanceMs
+    Divert --> Decision: Check RoundRobin/Routing
+    Decision --> [*]: Final Target Reached
+    Decision --> Travel: Next Step in Chain
+```
+
 ```
  "DecisionPoints":  "SORT1:0;PNA2 151:1000|PNA2 152:2000;PNA2_Verify:1000",
 ```

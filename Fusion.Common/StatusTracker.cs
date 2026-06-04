@@ -11,11 +11,11 @@ public sealed record StatusTracker<TState, TEvent> : IStatusTracker
     where TEvent : struct, Enum
 
 {
-    private readonly ConcurrentDictionary<DeviceMetric, long> _metrics = new();
+    private readonly ConcurrentDictionary<ElementMetric, long> _metrics = new();
     private readonly ConcurrentDictionary<(string strId, long nId), long> _activeTimers = new();
      private readonly ConcurrentDictionary<long, long> _activeLongTimers = new();
-    private ImmutableDictionary<DeviceMetric, long>
-        _lastMetricsSnapshot = ImmutableDictionary<DeviceMetric, long>.Empty;
+    private ImmutableDictionary<ElementMetric, long>
+        _lastMetricsSnapshot = ImmutableDictionary<ElementMetric, long>.Empty;
 
 
     // --- High-Precision Timing ---
@@ -28,16 +28,16 @@ public sealed record StatusTracker<TState, TEvent> : IStatusTracker
     private readonly RollingRateCounter _outboundRate = new();
 
     // --- Public Properties (Restored for Backward Compatibility) ---
-    public int CountInbound => (int)GetMetric(DeviceMetric.Inbound);
-    public int CountOutbound => (int)GetMetric(DeviceMetric.Outbound);
-    public int CountError => (int)GetMetric(DeviceMetric.Error);
-    public int CountConnections => (int)GetMetric(DeviceMetric.Conn);
-    public int CountDisconnects => (int)GetMetric(DeviceMetric.Disc);
+    public int CountInbound => (int)GetMetric(ElementMetric.Inbound);
+    public int CountOutbound => (int)GetMetric(ElementMetric.Outbound);
+    public int CountError => (int)GetMetric(ElementMetric.Error);
+    public int CountConnections => (int)GetMetric(ElementMetric.Conn);
+    public int CountDisconnects => (int)GetMetric(ElementMetric.Disc);
     public double AvgProcessTime => _times.IsEmpty ? 0.0 : _times.Average();
     public double InboundRate => _inboundRate.GetRate();
     public double OutboundRate => _outboundRate.GetRate();
 
-    public DeviceHealth Health { get; set; }
+    public ElementHealth Health { get; set; }
     public TState State { get; private set; }
     public TEvent Event { get; private set; }
 
@@ -52,10 +52,10 @@ public sealed record StatusTracker<TState, TEvent> : IStatusTracker
         State = initialState;
         Event = initialEvent;
         Comments = "Starting up ....";
-        Health = DeviceHealth.Warning;
+        Health = ElementHealth.Warning;
 
 
-        foreach (DeviceMetric metric in Enum.GetValues<DeviceMetric>())
+        foreach (ElementMetric metric in Enum.GetValues<ElementMetric>())
         {
             _metrics[metric] = 0;
         }
@@ -64,9 +64,9 @@ public sealed record StatusTracker<TState, TEvent> : IStatusTracker
     }
 
     // --- Metric Logic ---
-    public void Increment(DeviceMetric metric) => _metrics.AddOrUpdate(metric, 1, (_, val) => val + 1);
+    public void Increment(ElementMetric metric) => _metrics.AddOrUpdate(metric, 1, (_, val) => val + 1);
 
-    private long GetMetric(DeviceMetric? key)
+    private long GetMetric(ElementMetric? key)
     {
         if (key.HasValue && _metrics.TryGetValue(key.Value, out var val)) return val;
         return 0;
@@ -75,29 +75,29 @@ public sealed record StatusTracker<TState, TEvent> : IStatusTracker
     // --- Increment Wrappers ---
     public void IncrementInbound()
     {
-        Increment(DeviceMetric.Inbound);
+        Increment(ElementMetric.Inbound);
         _inboundRate.AddEvent();
     }
 
     public void IncrementOutbound()
     {
-        Increment(DeviceMetric.Outbound);
+        Increment(ElementMetric.Outbound);
         _outboundRate.AddEvent();
     }
 
     public void IncrementConnections()
     {
-        Increment(DeviceMetric.Conn);
+        Increment(ElementMetric.Conn);
     }
 
     public void IncrementDisconnects()
     {
-        Increment(DeviceMetric.Disc);
+        Increment(ElementMetric.Disc);
     }
 
     public void IncrementError(string str)
     {
-        Increment(DeviceMetric.Error);
+        Increment(ElementMetric.Error);
     }
 
     // --- Transaction Timing Logic ---
@@ -127,9 +127,15 @@ public sealed record StatusTracker<TState, TEvent> : IStatusTracker
         return duration;
     }
     
+    public void AddProcessTime(double durationMs)
+    {
+        _times.Enqueue(durationMs);
+        while (_times.Count > MAX_ROLLING_WINDOW) _times.TryDequeue(out _);
+    }
+
     public void HeartBeat() => _heartBeatVisual = _heartBeatVisual == 'H' ? 'B' : 'H';
 
-    public bool Update(TState newStatus, TEvent newEvent, DeviceHealth health, string newComments = "")
+    public bool Update(TState newStatus, TEvent newEvent, ElementHealth health, string newComments = "")
     {
   
         if (State.Equals(newStatus) && Event.Equals(newEvent) && Comments == newComments && Health == health)
@@ -149,7 +155,7 @@ public sealed record StatusTracker<TState, TEvent> : IStatusTracker
     public bool Update(TState newStatus, TEvent newEvent, string newComments = "")
     {
        
-        var calculatedHealth = CountError == 0 ? DeviceHealth.Normal : DeviceHealth.Warning;
+        var calculatedHealth = CountError == 0 ? ElementHealth.Normal : ElementHealth.Warning;
 
         if (State.Equals(newStatus) && Event.Equals(newEvent) && Comments == newComments && Health == calculatedHealth)
         {
@@ -211,7 +217,7 @@ public sealed record StatusTracker<TState, TEvent> : IStatusTracker
     public void SetConnectionCount(int connectedClientsCount)
     {
         // Explicitly set the value for the connection metric
-        _metrics[DeviceMetric.Conn] = connectedClientsCount;
+        _metrics[ElementMetric.Conn] = connectedClientsCount;
     }
 }
 

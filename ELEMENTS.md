@@ -1,0 +1,93 @@
+# Fortna Fusion: System Elements Summary
+
+This document provides a comprehensive overview of the **Elements** available in the Fortna Fusion system. Elements represent hardware interfaces, communication protocols, or infrastructure components.
+
+---
+
+## 1. PLC Suite (`Fusion.Element.Plc.Suite`)
+Manages communication with Programmable Logic Controllers.
+
+| Element Type | Manager Name | Description |
+| :--- | :--- | :--- |
+| **AB CIP PLC** | `AbCipPlcManager` | Interface for Allen-Bradley PLCs using the Common Industrial Protocol (CIP). Supports read/write tags and message sequences. |
+| **PLC Server** | `PlcServerManager` | Acting as a PLC server for external systems to connect to. |
+| **Virtual PLC** | `VirtualPlcManager` | A simulated PLC used for testing and simulation environments. Supports virtual conveyor logic and tote injection. |
+
+---
+
+## 2. Printer Suite (`Fusion.Element.Printer.Suite`)
+Handles integration with industrial label printers.
+
+| Element Type | Manager Name | Description |
+| :--- | :--- | :--- |
+| **Zebra Printer** | `PrintClientManager` | Standard interface for Zebra thermal printers using ZPL (Zebra Programming Language). |
+| **JetMark Printer** | `PrintClientManager` | Interface for JetMark printers, handling high-speed inkjet marking. |
+| **Virtual Printer** | `VirtualPrinterManager` | A simulated printer that captures ZPL data and logs it or displays it on the dashboard without physical hardware. |
+
+---
+
+## 3. Messaging Suite
+Facilitates communication across various message brokers.
+
+| Element Type | Manager Name | Description |
+| :--- | :--- | :--- |
+| **ActiveMQ** | `ActiveMqManager` | Connects to Apache ActiveMQ brokers. Supports full producer/consumer patterns and session management. |
+| **ActiveMQ Peek** | `ActiveMqQueuePeekManager` | Specialized element for monitoring queue depths and message counts without consuming data. |
+| **NATS** | `NatsManager` | High-performance interface for NATS.io messaging clusters. |
+| **MQTT** | `MqttManager` | Lightweight messaging interface for IoT-style communications. |
+
+---
+
+## 4. Host Communication (`Fusion.Element.HostComm`)
+Direct communication layers for external host systems.
+
+| Element Type | Manager Name | Description |
+| :--- | :--- | :--- |
+| **TCP Client** | `TcpMessageClientElementManager` | Generic TCP client for connecting to external host servers. |
+| **TCP Server** | `TcpMessageServerElementManager` | Generic TCP server for accepting connections from external clients. |
+| **File Comm** | `FileMessageElementManager` | Watches directories for incoming flat files and writes outgoing files for integration with legacy systems. |
+
+---
+
+## 5. Database Suite (`Fusion.Element.Database.Suite`)
+Persistence layers for system data and logging.
+
+| Element Type | Manager Name | Description |
+| :--- | :--- | :--- |
+| **MS SQL** | `DatabaseElementManager` | Microsoft SQL Server integration for structured data storage. |
+| **MySQL** | `DatabaseElementManager` | MySQL/MariaDB database interface. |
+| **PostgreSQL** | `DatabaseElementManager` | PostgreSQL database interface. |
+| **DB Pruning** | `DatabaseElementManager` | Specialized element for maintaining database health by automatically removing aged records. |
+
+---
+
+## 6. Enterprise Suite (`Fusion.Element.Enterprise.Suite`)
+Advanced business and operational support elements.
+
+| Element Type | Manager Name | Description |
+| :--- | :--- | :--- |
+| **Inventory** | `InventoryManager` | Manages real-time tracking of items, totes, and containers within the system. |
+| **Telemetry** | `TelemetryManager` | Captures and exports system-wide metrics and performance data. |
+| **Fire Logging** | `FireLogManager` | Centralized high-performance logging element for system-wide auditing. |
+
+---
+
+## 7. Notification Suite (`Fusion.Element.Notification.Suite`)
+Outbound alert and notification services.
+
+| Element Type | Manager Name | Description |
+| :--- | :--- | :--- |
+| **Email** | `NotificationElementManager` | Sends SMTP-based alerts and reports. |
+| **SMS** | `NotificationElementManager` | Sends text message alerts via integrated SMS gateways. |
+
+---
+
+## 8. Support & CLI (`Fusion.Element.Support.CLI`)
+System management and diagnostic tools.
+
+| Element Type | Manager Name | Description |
+| :--- | :--- | :--- |
+| **Diagnostic Server**| `DiagnosticElementManager` | Provides a Telnet-accessible (Port 9999) dashboard for remote system monitoring and control. |
+| **Verifier** | `BlueprintVerifierManager` | Validates the integrity of `.fusion` blueprints and identifies logical errors or missing dependencies. |
+
+---

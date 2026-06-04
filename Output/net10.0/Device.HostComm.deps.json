@@ -6,13 +6,13 @@
   "compilationOptions": {},
   "targets": {
     ".NETCoreApp,Version=v10.0": {
-      "Device.HostComm/1.0.0": {
+      "Fusion.Element.HostComm/1.0.0": {
         "dependencies": {
-          "DeviceSpace.Common": "1.0.0",
+          "Fusion.Common": "1.0.0",
           "Microsoft.Extensions.Logging": "10.0.7"
         },
         "runtime": {
-          "Device.HostComm.dll": {}
+          "Fusion.Element.HostComm.dll": {}
         }
       },
       "Apache.NMS/2.2.0": {
@@ -1068,7 +1068,7 @@
           }
         }
       },
-      "DeviceSpace.Common/1.0.0": {
+      "Fusion.Common/1.0.0": {
         "dependencies": {
           "Apache.NMS.ActiveMQ": "2.2.0",
           "Microsoft.CodeAnalysis.CSharp.Scripting": "5.0.0",
@@ -1091,7 +1091,7 @@
           "Stateless": "5.20.0"
         },
         "runtime": {
-          "DeviceSpace.Common.dll": {
+          "Fusion.Common.dll": {
             "assemblyVersion": "1.0.0.0",
             "fileVersion": "1.0.0.0"
           }
@@ -1100,7 +1100,7 @@
     }
   },
   "libraries": {
-    "Device.HostComm/1.0.0": {
+    "Fusion.Element.HostComm/1.0.0": {
       "type": "project",
       "serviceable": false,
       "sha512": ""
@@ -1588,7 +1588,7 @@
       "path": "system.security.cryptography.protecteddata/9.0.13",
       "hashPath": "system.security.cryptography.protecteddata.9.0.13.nupkg.sha512"
     },
-    "DeviceSpace.Common/1.0.0": {
+    "Fusion.Common/1.0.0": {
       "type": "project",
       "serviceable": false,
       "sha512": ""

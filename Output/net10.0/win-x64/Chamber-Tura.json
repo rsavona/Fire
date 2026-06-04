@@ -1,9 +1,9 @@
 {
   "AppSettings": {
-    "DeviceSpace": {
+    "Fusion": {
       "Name": "TuraSort",
       "DiagnosticPort": 9999,
-      "WorkflowList": [
+      "ReactionList": [
         {
           "Name": "StandardSort",
           "Type": "StandardSort",
@@ -11,17 +11,17 @@
           "Properties": {
             "Diverts": "1;2;3;4;5;15"
           },
-          "Routes": [
+          "Bonds": [
             {
               "Mode": 1,
-              "Name": "Route1-InductRequestToResponse",
+              "Name": "Bond1-InductRequestToResponse",
               "Source": "CP1.DReqM.SCN302",
               "Handler": "HandleInductionSqlSort",
               "Destination": "SQLServer.Query.SCN302"
             },
             {
               "Mode": 1,
-              "Name": "Route2-SQLtoPLC",
+              "Name": "Bond2-SQLtoPLC",
               "Source": "SQLServer.QueryResult.SCN302",
               "Handler": "HandleDestinationResult",
               "Destination": "CP1.DRespM.SCN302"
@@ -29,19 +29,19 @@
           ]
         }
       ],
-      "DeviceList": [
+      "ElementList": [
         {
           "Name": "CP1",
-          "Manager": "PlcDeviceManager",
+          "Manager": "PlcElementManager",
           "Enable": true,
           "Properties": {
-            "DevicePort": "6999",
-            "DeviceTimeout": "1500"
+            "ElementPort": "6999",
+            "ElementTimeout": "1500"
           }
         },
         {
           "Name": "SQLServer",
-          "Manager": "DatabaseDeviceManager",
+          "Manager": "DatabaseElementManager",
           "Enable": true,
           "Properties": {
             "ConnectionString": "Server=RSAVONA-LT1;Database=FortnaFire;Trusted_Connection=True;Encrypt=False;TrustServerCertificate=True;"
@@ -49,7 +49,7 @@
         },
         {
           "Name": "DIAG_SERVER",
-          "Manager": "DiagnosticDeviceManager",
+          "Manager": "DiagnosticElementManager",
           "Enable": true,
           "Properties": {
             "Port": 9998

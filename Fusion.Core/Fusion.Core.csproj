@@ -5,7 +5,7 @@
         <ImplicitUsings>enable</ImplicitUsings>
         <Nullable>enable</Nullable>
         <LangVersion>14</LangVersion>
-        <RootNamespace>DeviceSpace.Core</RootNamespace>
+        <RootNamespace>Fusion.Core</RootNamespace>
     </PropertyGroup>
 
     <PropertyGroup Condition=" '$(Configuration)' == 'Debug' ">
@@ -41,16 +41,16 @@
     </ItemGroup>
 
     <ItemGroup>
-      <ProjectReference Include="..\Device.ActiveMQ\Device.ActiveMQ.csproj" />
-      <ProjectReference Include="..\Device.Api.Suite\Device.Api.Suite.csproj" />
-      <ProjectReference Include="..\Device.Database.Suite\Device.Database.Suite.csproj" />
-      <ProjectReference Include="..\Device.HostComm\Device.HostComm.csproj" />
-      <ProjectReference Include="..\Device.Plc.Suite\Device.Plc.Suite.csproj" />
-      <ProjectReference Include="..\Device.Printer.Suite\Device.Printer.Suite.csproj" />
-      <ProjectReference Include="..\Device.Support.CLI\Device.Support.CLI.csproj" />
+      <ProjectReference Include="..\Fusion.Element.ActiveMQ\Fusion.Element.ActiveMQ.csproj" />
+      <ProjectReference Include="..\Fusion.Element.Api.Suite\Fusion.Element.Api.Suite.csproj" />
+      <ProjectReference Include="..\Fusion.Element.Database.Suite\Fusion.Element.Database.Suite.csproj" />
+      <ProjectReference Include="..\Fusion.Element.HostComm\Fusion.Element.HostComm.csproj" />
+      <ProjectReference Include="..\Fusion.Element.Plc.Suite\Fusion.Element.Plc.Suite.csproj" />
+      <ProjectReference Include="..\Fusion.Element.Printer.Suite\Fusion.Element.Printer.Suite.csproj" />
+      <ProjectReference Include="..\Fusion.Element.Support.CLI\Fusion.Element.Support.CLI.csproj" />
       <ProjectReference Include="..\Fusion.Common\Fusion.Common.csproj" />
-      <ProjectReference Include="..\Workflow.PrintAndApply.Frc\Workflow.PrintAndApply.Frc.csproj" />
-      <ProjectReference Include="..\Workflow.Simulation\Workflow.Simulation.csproj" />
+      <ProjectReference Include="..\Fusion.Reaction.PandA\Fusion.Reaction.PandA.csproj" />
+      <ProjectReference Include="..\Fusion.Reaction.Simulation\Fusion.Reaction.Simulation.csproj" />
     </ItemGroup>
 
     <ItemGroup>

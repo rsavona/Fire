@@ -1,20 +1,19 @@
 using Fusion.Common;
 using Fusion.Common.BaseClasses;
-using Blueprints;
 using Fusion.Common.Contracts;
 using Fusion.Common.Logging;
 
-namespace Device.ActiveMQ;
+namespace Fusion.Element.ActiveMQ;
 
-public class ActiveMqQueuePeekManager : DeviceManagerBase<ActiveMqQueuePeekDevice>
+public class ActiveMqQueuePeekManager : ElementManagerBase<ActiveMqQueuePeekElement>
 {
     public ActiveMqQueuePeekManager(
         IMessageBus bus,
-        List<IDeviceConfig> config,
+        List<IElementBlueprint> config,
         IFireLogger<ActiveMqQueuePeekManager> logger,
-        Func<IDeviceConfig, IFireLogger, ActiveMqQueuePeekDevice> deviceFactory,
+        Func<IElementBlueprint, IFireLogger, ActiveMqQueuePeekElement> elementFactory,
         string managerName)
-        : base(bus, config, logger, deviceFactory, managerName)
+        : base(bus, config, logger, elementFactory, managerName)
     {
     }
 }

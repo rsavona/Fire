@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Buffers;
 using System.Net.Sockets;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -26,12 +27,22 @@ public class PrintMessageProcessor : IMessageProcessor
         _logger = logger;
     }
 
-    public async Task<bool> ProcessMessageAsync(NetworkStream stream, byte[] buffer, int bytesRead, string clientKey,
+    public async Task<bool> ProcessMessageAsync(ReadOnlySequence<byte> buffer, string clientKey,
+        Func<object, Task<bool>> sendResponse,
         CancellationToken token)
     {
         try
         {
-            string data = Encoding.ASCII.GetString(buffer, 0, bytesRead);
+            // Convert ReadOnlySequence to string efficiently
+            string data;
+            if (buffer.IsSingleSegment)
+            {
+                data = Encoding.ASCII.GetString(buffer.First.Span);
+            }
+            else
+            {
+                data = Encoding.ASCII.GetString(buffer.ToArray());
+            }
 
             // If Host Status (~HS) is found, notify the system which client sent it
             if (data.Contains("~HS"))
@@ -44,8 +55,8 @@ public class PrintMessageProcessor : IMessageProcessor
 
             }
 
-            // If ZPL Start (^XA) is found or XML-style label tag is found
-            if (data.Contains("^XA") || data.Contains("<?xml") )
+            // If ZPL Start (^XA) or XML-style tags are found
+            if (data.Contains("^XA") || data.Contains("<labels>") || data.Contains("</labels>"))
             {
                 _logger.Information("Label received from {ClientId}", clientKey);
                 if (MessageReceived != null)
@@ -58,8 +69,8 @@ public class PrintMessageProcessor : IMessageProcessor
         }
         catch (Exception ex)
         {
-            _logger.Error(ex, "ZPL Parsing Error.");
-            OnMessageError?.Invoke($"ZPL Parsing ErrorClient: {ex.Message}");
+            _logger.Error(ex, "Label Parsing Error.");
+            OnMessageError?.Invoke($"Label Parsing Error Client: {ex.Message}");
             return false;
         }
     }

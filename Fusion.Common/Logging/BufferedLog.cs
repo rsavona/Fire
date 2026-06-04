@@ -19,11 +19,11 @@ public class BufferedLog : ILogEventSink
 
         // 0. Disable Smart Dump if loglevel is Verbose (vrb)
         // If we are already logging everything, the forensic dump is redundant.
-        if (logEvent.Properties.TryGetValue("DeviceName", out var propertyValue) &&
+        if (logEvent.Properties.TryGetValue("ElementName", out var propertyValue) &&
             propertyValue is ScalarValue scalarValue &&
-            scalarValue.Value is string deviceName)
+            scalarValue.Value is string elementName)
         {
-            if (LogControl.IsVerbose(deviceName))
+            if (LogControl.IsVerbose(elementName))
             {
                 if (!_buffer.IsEmpty) _buffer.Clear();
                 return;

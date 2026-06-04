@@ -1,56 +1,141 @@
-@using FireBuilder.Services
-@inject DeviceDiscoveryService DiscoveryService
+@using FusionLab.Services
+@using Fusion.Common.Blueprints
+@inject ElementDiscoveryService DiscoveryService
+@inject CompoundService CompoundService
+@inject IJSRuntime JSRuntime
 
-<div class="flex-grow-1 overflow-auto h-100" style="background-color: #CE2029; min-height: 100vh;">
-    <div class="sidebar-section-header" style="background-color: rgba(0,0,0,0.2); color: white; padding: 10px 15px; font-size: 0.75rem; font-weight: bold; text-transform: uppercase;">Devices</div>
-    <div class="nav flex-column nav-pills gap-1 p-2">
-        @foreach (var deviceType in DiscoveryService.GetDiscoveredDevices())
+<div class="fusion-sidebar d-flex flex-column">
+    
+    <!-- ELEMENTS SECTION -->
+    <div class="sidebar-section-header d-flex flex-column align-items-start" 
+         style="background: rgba(255,255,255,0.05); border-left: 4px solid var(--fusion-accent) !important; padding: 10px; margin-bottom: 5px; margin-top: 10px; border-radius: 0 4px 4px 0;"
+         @onclick="() => _elementsCollapsed = !_elementsCollapsed">
+        <div class="d-flex justify-content-between w-100 align-items-center">
+            <span class="fw-bold text-white" style="letter-spacing: 1px;">ELEMENTS</span>
+            <i class="bi @(_elementsCollapsed ? "bi-chevron-right" : "bi-chevron-down") text-muted"></i>
+        </div>
+        @if (!_elementsCollapsed)
         {
-            <div class="nav-link text-white toolbox-item d-flex align-items-center gap-2 rounded p-2 mb-1" 
-                 style="cursor: grab; background-color: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.1);"
-                 draggable="true" 
-                 @ondragstart="@(() => HandleDragStart(deviceType.Name))">
-                <i class="bi @GetIconForType(deviceType.Name) text-white"></i> <span class="small text-white">@FormatName(deviceType.Name)</span>
-            </div>
+            <small class="text-info mt-1" style="font-size: 0.7rem;"><i class="bi bi-arrows-move me-1"></i>Drag to Canvas | <i class="bi bi-info-circle ms-1 me-1"></i>Click for Info</small>
         }
     </div>
     
-    <div class="sidebar-section-header mt-2" style="background-color: rgba(0,0,0,0.2); color: white; padding: 10px 15px; font-size: 0.75rem; font-weight: bold; text-transform: uppercase;">Workflows</div>
-    <div class="nav flex-column nav-pills gap-1 p-2">
-        @foreach (var wfType in DiscoveryService.GetDiscoveredWorkflows())
+    @if (!_elementsCollapsed)
+    {
+        <div class="nav flex-column gap-1 p-2">
+            @foreach (var elementType in DiscoveryService.GetDiscoveredElements())
+            {
+                <div class="toolbox-item" 
+                     draggable="true" 
+                     @onclick="@(() => OpenDocs(elementType.Name))"
+                     @ondragstart="@(() => HandleDragStart(elementType.Name))">
+                    <i class="bi @GetIconForType(elementType.Name)"></i> 
+                    <span>@FormatName(elementType.Name)</span>
+                    <i class="bi bi-info-circle info-icon"></i>
+                </div>
+            }
+        </div>
+    }
+    
+    <!-- COMPOUNDS SECTION -->
+    <div class="sidebar-section-header d-flex flex-column align-items-start" 
+         style="background: rgba(255,255,255,0.05); border-left: 4px solid var(--fusion-primary) !important; padding: 10px; margin-bottom: 5px; margin-top: 10px; border-radius: 0 4px 4px 0;"
+         @onclick="() => _compoundsCollapsed = !_compoundsCollapsed">
+        <div class="d-flex justify-content-between w-100 align-items-center">
+            <span class="fw-bold text-white" style="letter-spacing: 1px;">COMPOUNDS</span>
+            <i class="bi @(_compoundsCollapsed ? "bi-chevron-right" : "bi-chevron-down") text-muted"></i>
+        </div>
+        @if (!_compoundsCollapsed)
         {
-            <div class="nav-link text-white toolbox-item d-flex align-items-center gap-2 rounded p-2 mb-1" 
-                 style="cursor: grab; background-color: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.1);"
-                 draggable="true" 
-                 @ondragstart="@(() => HandleDragStart("Workflow"))">
-                <i class="bi bi-diagram-3 text-white"></i> <span class="small text-white">@wfType.Name</span>
-            </div>
-        }
-
-        @if (!DiscoveryService.GetDiscoveredWorkflows().Any())
-        {
-            <div class="nav-link text-white toolbox-item d-flex align-items-center gap-2 rounded p-2" 
-                 style="cursor: grab; background-color: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.1);"
-                 draggable="true" 
-                 @ondragstart="@(() => HandleDragStart("Workflow"))">
-                <i class="bi bi-diagram-3 text-white"></i> <span class="small text-white">Workflow</span>
-            </div>
+            <small class="text-info mt-1" style="font-size: 0.7rem;"><i class="bi bi-arrows-move me-1"></i>Drag to Canvas</small>
         }
     </div>
+
+    @if (!_compoundsCollapsed)
+    {
+        <div class="nav flex-column gap-1 p-2">
+            @foreach (var compound in CompoundService.GetDiscoveredCompounds())
+            {
+                <div class="toolbox-item" 
+                     draggable="true" 
+                     @ondragstart="@(() => HandleDragStart("Compound:" + compound.Name))">
+                    <i class="bi bi-box-seam"></i> 
+                    <span>@compound.Name</span>
+                </div>
+            }
+        </div>
+    }
+
+    <!-- REACTIONS SECTION -->
+    <div class="sidebar-section-header d-flex flex-column align-items-start" 
+         style="background: rgba(255,255,255,0.05); border-left: 4px solid #ef4444 !important; padding: 10px; margin-bottom: 5px; margin-top: 10px; border-radius: 0 4px 4px 0;"
+         @onclick="() => _reactionsCollapsed = !_reactionsCollapsed">
+        <div class="d-flex justify-content-between w-100 align-items-center">
+            <span class="fw-bold text-white" style="letter-spacing: 1px;">REACTIONS</span>
+            <i class="bi @(_reactionsCollapsed ? "bi-chevron-right" : "bi-chevron-down") text-muted"></i>
+        </div>
+        @if (!_reactionsCollapsed)
+        {
+            <small class="text-info mt-1" style="font-size: 0.7rem;"><i class="bi bi-arrows-move me-1"></i>Drag to Canvas | <i class="bi bi-info-circle ms-1 me-1"></i>Click for Info</small>
+        }
+    </div>
+
+    @if (!_reactionsCollapsed)
+    {
+        <div class="nav flex-column gap-1 p-2">
+            @foreach (var reactionType in DiscoveryService.GetDiscoveredReactions())
+            {
+                <div class="toolbox-item" 
+                     draggable="true" 
+                     @onclick="@(() => OpenDocs(reactionType.Name))"
+                     @ondragstart="@(() => HandleDragStart("Reaction"))">
+                    <i class="bi bi-diagram-3"></i> 
+                    <span>@reactionType.Name</span>
+                    <i class="bi bi-info-circle info-icon"></i>
+                </div>
+            }
+        </div>
+    }
 </div>
 
 @code {
-    /// <summary>
-    /// Event triggered when a user starts dragging a toolkit item.
-    /// Passes the string identifier of the device type.
-    /// </summary>
-    [Parameter]
-    public EventCallback<string> OnItemDragStart { get; set; }
+    [Parameter] public EventCallback<string> OnItemDragStart { get; set; }
 
-    private async Task HandleDragStart(string deviceType)
+    private bool _elementsCollapsed = false;
+    private bool _compoundsCollapsed = false;
+    private bool _reactionsCollapsed = false;
+
+    private async Task HandleDragStart(string elementType)
     {
-        await OnItemDragStart.InvokeAsync(deviceType);
+        await OnItemDragStart.InvokeAsync(elementType);
     }
+
+    private async Task OpenDocs(string typeName)
+    {
+        string docFile = GetDocFileName(typeName);
+        if (!string.IsNullOrEmpty(docFile))
+        {
+            await JSRuntime.InvokeVoidAsync("openInNewTab", $"/documentation/{docFile}");
+        }
+    }
+
+    private string GetDocFileName(string typeName) => typeName switch
+    {
+        string s when s.Contains("ActiveMq") => "ReadMe-ActiveMQ.md",
+        string s when s.Contains("Ai") => "ReadMe-AiSuite.md",
+        string s when s.Contains("Api") => "ReadMe-ApiSuite.md",
+        string s when s.Contains("Database") => "ReadMe-DatabaseSuite.md",
+        string s when s.Contains("Enterprise") => "ReadMe-EnterpriseSuite.md",
+        string s when s.Contains("HostComm") || s.Contains("FileMessage") || s.Contains("TcpMessage") => "ReadMe-HostComm.md",
+        string s when s.Contains("Mqtt") => "ReadMe-Mqtt.md",
+        string s when s.Contains("Nats") => "ReadMe-NATS.md",
+        string s when s.Contains("Notification") || s.Contains("Email") => "ReadMe-NotificationSuite.md",
+        string s when s.Contains("Plc") => "ReadMe-PlcSuite.md",
+        string s when s.Contains("Printer") => "ReadMe-PrinterSuite.md",
+        string s when s.Contains("Scanner") => "ReadMe-ScannerSuite.md",
+        string s when s.Contains("Diagnostic") || s.Contains("BlueprintVerifier") => "ReadMe-SupportCLI.md",
+        _ => ""
+    };
 
     private string GetIconForType(string typeName) => typeName switch
     {
@@ -66,6 +151,6 @@
 
     private string FormatName(string name)
     {
-        return name.Replace("Device", "").Replace("Server", "").Replace("Client", "");
+        return name.Replace("Element", "").Replace("Server", "").Replace("Client", "").Replace("Manager", "");
     }
 }

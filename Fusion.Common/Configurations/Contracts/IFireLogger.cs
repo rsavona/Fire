@@ -37,7 +37,7 @@ namespace Fusion.Common.Contracts
         void Information(string message, params object?[] args);
         
         // Tracking for warehouse cartons and conveyor events
-        void LogConveyableEvent(string device, string message, string? gin , List<string> barcodes , string? decisionPoint = "");
+        void LogConveyableEvent(string element, string message, string? gin , List<string> barcodes , string? decisionPoint = "");
 
         // --- Warning ---
         void LogWarning(string message, params object?[] args);

@@ -1,24 +1,26 @@
-﻿using Fusion.Common.Contracts;
+﻿using System.Text.Json.Serialization;
+using Fusion.Common.Contracts;
 
-namespace Fusion.Common.Configurations
+namespace Fusion.Common.Blueprints
 {
     // --- Interfaces (Assuming these exist elsewhere or you define them) ---
     
     /// <summary>
     /// Represents a Core Adapter configuration entry.
     /// </summary>
-    public class WorkflowConfig : IWorkflowConfig
+    public class ReactionBlueprint : IReactionBlueprint
     {
         public string Name { get; set; } = string.Empty;
         public string Type { get; set; } = string.Empty; 
         public bool Enable { get; set; } 
         public string CoreName { get; set; } = string.Empty;
+        public string Comment { get; set; } = string.Empty;
         // The list of routing rules
-        public List<ForceBond> Bonds { get; set; } = new();
+        public List<BondBlueprint> Bonds { get; set; } = new();
         public Dictionary<string, object> Properties { get; set; } = new ();
     }
 
-    public class ForceBond
+    public class BondBlueprint
     {
         public string Name { get; set; } = string.Empty;
         // 0 = Disabled, 1 = Method, 2 = Script
@@ -32,39 +34,43 @@ namespace Fusion.Common.Configurations
 
         // Method CustomerName OR File Path
         public string Handler { get; set; } = string.Empty;
+        public string Comment { get; set; } = string.Empty;
     }
 
 
     /// <summary>
-    /// Represents a specific device configuration.
+    /// Represents a specific element configuration.
     /// </summary>
-    public class DeviceConfig : IDeviceConfig
+    public class ElementBlueprint : IElementBlueprint
     {
         public string Name { get; set; } = string.Empty;
         public string Manager { get; set; } = string.Empty;
         public bool Enable { get; set; } 
         public string CoreName { get; set; } = string.Empty;
+        public string Comment { get; set; } = string.Empty;
         public Dictionary<string, object> Properties { get; set; } = new Dictionary<string, object>();
 
 
     }
 
-    public class CoreConfig : ICoreConfig
+    public class CompoundBlueprint : ICompoundBlueprint
     {
         public string Name { get; set; } = string.Empty;
-        public List<DeviceConfig> Elements { get; set; } = new();
-        public List<WorkflowConfig> Forces { get; set; } = new();
+        public List<ElementBlueprint> Elements { get; set; } = new();
+        public List<ReactionBlueprint> Reactions { get; set; } = new();
 
-        List<IDeviceConfig> ICoreConfig.Elements
+        [JsonIgnore]
+        List<IElementBlueprint> ICompoundBlueprint.Elements
         {
-            get => Elements.Cast<IDeviceConfig>().ToList();
-            set => Elements = value.Cast<DeviceConfig>().ToList();
+            get => Elements.Cast<IElementBlueprint>().ToList();
+            set { /* Binder skip */ }
         }
 
-        List<IWorkflowConfig> ICoreConfig.Forces
+        [JsonIgnore]
+        List<IReactionBlueprint> ICompoundBlueprint.Reactions
         {
-            get => Forces.Cast<IWorkflowConfig>().ToList();
-            set => Forces = value.Cast<WorkflowConfig>().ToList();
+            get => Reactions.Cast<IReactionBlueprint>().ToList();
+            set { /* Binder skip */ }
         }
     }
 
@@ -74,17 +80,47 @@ namespace Fusion.Common.Configurations
     /// </summary>
     public class SystemBlueprintTemplate : ISystemBlueprintTemplate
     {
+        [JsonPropertyName("Name")]
+        [Microsoft.Extensions.Configuration.ConfigurationKeyName("Name")]
         public string CustomerName { get; set; } = "Fusion";
+
         public bool ColorConsole { get; set; } = true;
         public bool IsTestEnvironment { get; set; } = false;
         public TimeSpan SimulationRuntime { get; set; } = TimeSpan.Zero;
         public TimeSpan StabilityDuration { get; set; } = TimeSpan.Zero;
-        public List<CoreConfig> Cores { get; set; } = new ();
+
+        [JsonPropertyName("Cores")]
+        [Microsoft.Extensions.Configuration.ConfigurationKeyName("Cores")]
+        public List<CompoundBlueprint> Compounds { get; set; } = new ();
+
+        [JsonPropertyName("ElementList")]
+        [Microsoft.Extensions.Configuration.ConfigurationKeyName("ElementList")]
+        public List<ElementBlueprint> ElementList { get; set; } = new();
+
+        [JsonPropertyName("ReactionList")]
+        [Microsoft.Extensions.Configuration.ConfigurationKeyName("ReactionList")]
+        public List<ReactionBlueprint> ReactionList { get; set; } = new();
+
         // Explicitly implement interface properties
-        List<ICoreConfig> ISystemBlueprintTemplate.Cores
+        [JsonIgnore]
+        List<ICompoundBlueprint> ISystemBlueprintTemplate.Cores
         {
-            get => Cores.Cast<ICoreConfig>().ToList();
-            set => Cores = value.Cast<CoreConfig>().ToList();
+            get => Compounds.Cast<ICompoundBlueprint>().ToList();
+            set { /* Binder skip */ }
+        }
+
+        [JsonIgnore]
+        List<IElementBlueprint> ISystemBlueprintTemplate.ElementList
+        {
+            get => ElementList.Cast<IElementBlueprint>().ToList();
+            set { /* Binder skip */ }
+        }
+
+        [JsonIgnore]
+        List<IReactionBlueprint> ISystemBlueprintTemplate.ReactionList
+        {
+            get => ReactionList.Cast<IReactionBlueprint>().ToList();
+            set { /* Binder skip */ }
         }
     }
 

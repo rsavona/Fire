@@ -1,64 +1,64 @@
 
 {
   "AppSettings": {
-    "DeviceSpace": {
+    "Fusion": {
       "Name": "PNA2",
       "ColorConsole": true,
       "DiagnosticPort": 9999,
-      "WorkflowList": [
+      "ReactionList": [
         {
           "Name": "PrintAndApplyFrc",
           "Type": "PrintAndApplyFrc",
           "Enable": true,
-          "Routes": [
+          "Bonds": [
             {
               "Mode": 1,
-              "Name": "Route1-InductRequestToResponse",
+              "Name": "Bond1-InductRequestToResponse",
               "Source": "TPNA2.DReqM.PNALINE-2",
               "Handler": "HandlePrintersToUseAsync",
               "Destination": "TPNA2.DRespM.PNALINE-2"
             },
             {
               "Mode": 1,
-               "Name": "Route2-InductRequestToQueue",
+               "Name": "Bond2-InductRequestToQueue",
               "Source": "TPNA2.DReqM.PNALINE-2",
               "Handler": "HandleLabelRequestToMqAsync",
               "Destination": "TBROKER.LabelRequestFrcMessage.AC.PNA.LABELREQUEST"
             },
             {
               "Mode": 1,
-              "Name": "Route3-VerifyRequestToQueue",
+              "Name": "Bond3-VerifyRequestToQueue",
               "Source": "TPNA2.DReqM.PNA2_Verification",
               "Handler": "HandleLabelVerificationToMqAsync",
               "Destination": "TBROKER.LabelVerifyFrcMessage.AC.PNA.LABELVERIFY"
             },{
               "Mode": 1,
-              "Name": "Route4-QueueToMemory",
+              "Name": "Bond4-QueueToMemory",
               "Source": "TBROKER.LabelDataFrcMessage.AC.PNA.LABELDATA",
               "Handler": "HandleLabelToStorageAsync",
               "Destination": "PrintAndApplyFrc.LabelToPrint.Storage"
               
             },{
               "Mode": 1,
-              "Name": "Route5-PrintRequestToPrinter1",
+              "Name": "Bond5-PrintRequestToPrinter1",
               "Source": "TPNA2.DReqM.PNA2 151",
               "Destination": "PNA2 151.LabelToPrint.None",
               "Handler": "HandleBarcodeToPrinterAsync"
             },{
               "Mode": 1,
-              "Name": "Route6-PrintRequestToPrinter2",
+              "Name": "Bond6-PrintRequestToPrinter2",
               "Source": "TPNA2.DReqM.PNA2 152",
               "Destination": "PNA2 152.LabelToPrint.None",
               "Handler": "HandleBarcodeToPrinterAsync"
             },{
               "Mode": 0,
-              "Name": "Route7-PrintRequestToPrinter3",
+              "Name": "Bond7-PrintRequestToPrinter3",
               "Source": "TPNA2.DReqM.I001",
               "Handler": "HandleContentToPrinterAsync",
               "Destination": "I001.LabelToPrint.None"
             },{
               "Mode": 0,
-              "Name": "Route8-PrintRequestToPrinter4",
+              "Name": "Bond8-PrintRequestToPrinter4",
               "Source": "TPNA2.DReqM.I002",
               "Handler": "HandleContentToPrinterAsync",
               "Destination": "I002.LabelToPrint.None"
@@ -66,14 +66,14 @@
           ]
         }
       ],
-      "DeviceList": [
+      "ElementList": [
         {
           "Name": "TPNA2",
-          "Manager": "PlcDeviceManager",
+          "Manager": "PlcElementManager",
           "Enable": true,
           "Properties": {
-            "DevicePort": "6999",
-            "DeviceTimeout": "15000"
+            "ElementPort": "6999",
+            "ElementTimeout": "15000"
           }
         },
         {
@@ -97,7 +97,7 @@
             "DestinationType": "Ship",
             "PrintType": "SHIPTOP",
             "Induct": "PNALINE-2",
-            "DeviceTimeout": 2000,
+            "ElementTimeout": 2000,
             "PollRateMs": 1000,
             "PrintTimeoutMs": 5000,
             "PrintError": false,
@@ -116,7 +116,7 @@
             "DestinationType": "Ship",
             "PrintType": "SHIPTOP",
             "Induct": "PNALINE-2",
-            "DeviceTimeout": 2000,
+            "ElementTimeout": 2000,
             "PollRateMs": 1000,
             "PrintTimeoutMs": 5000,
             "PrintError": false,
@@ -126,7 +126,7 @@
         },
         {
           "Name": "DIAG_SERVER",
-          "Manager": "DiagnosticDeviceManager",
+          "Manager": "DiagnosticElementManager",
           "Enable": true,
           "Properties": {
             "Port": 9999

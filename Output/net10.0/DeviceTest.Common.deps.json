@@ -6,9 +6,9 @@
   "compilationOptions": {},
   "targets": {
     ".NETCoreApp,Version=v10.0": {
-      "DeviceTest.Common/1.0.0": {
+      "ElementTest.Common/1.0.0": {
         "dependencies": {
-          "DeviceSpace.Common": "1.0.0",
+          "Fusion.Common": "1.0.0",
           "Microsoft.NET.Test.Sdk": "17.14.1",
           "Moq": "4.20.72",
           "Serilog": "4.3.1",
@@ -21,7 +21,7 @@
           "xunit": "2.9.3"
         },
         "runtime": {
-          "DeviceTest.Common.dll": {}
+          "ElementTest.Common.dll": {}
         }
       },
       "Apache.NMS/2.2.0": {
@@ -1170,7 +1170,7 @@
           }
         }
       },
-      "DeviceSpace.Common/1.0.0": {
+      "Fusion.Common/1.0.0": {
         "dependencies": {
           "Apache.NMS.ActiveMQ": "2.2.0",
           "Microsoft.CodeAnalysis.CSharp.Scripting": "5.0.0",
@@ -1193,7 +1193,7 @@
           "Stateless": "5.20.0"
         },
         "runtime": {
-          "DeviceSpace.Common.dll": {
+          "Fusion.Common.dll": {
             "assemblyVersion": "1.0.0.0",
             "fileVersion": "1.0.0.0"
           }
@@ -1202,7 +1202,7 @@
     }
   },
   "libraries": {
-    "DeviceTest.Common/1.0.0": {
+    "ElementTest.Common/1.0.0": {
       "type": "project",
       "serviceable": false,
       "sha512": ""
@@ -1662,7 +1662,7 @@
       "path": "xunit.extensibility.execution/2.9.3",
       "hashPath": "xunit.extensibility.execution.2.9.3.nupkg.sha512"
     },
-    "DeviceSpace.Common/1.0.0": {
+    "Fusion.Common/1.0.0": {
       "type": "project",
       "serviceable": false,
       "sha512": ""

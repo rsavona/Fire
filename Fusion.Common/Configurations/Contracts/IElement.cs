@@ -27,13 +27,13 @@ namespace Fusion.Common.Contracts // Or your preferred core namespace
         /// Gets the current status object for this element.
         /// </summary>
         /// <param name="comment"></param>
-        IDeviceStatus CreateStatusSnapshot( string comment = "");
+        IElementStatus CreateStatusSnapshot( string comment = "");
 
         /// <summary>
         /// Fires whenever the element's internal 'Status' object is updated.
-        /// This is the primary event for the DeviceManager to subscribe to.
+        /// This is the primary event for the ElementManager to subscribe to.
         /// </summary>
-        event Action<IElement, IDeviceStatus> StatusUpdated;
+        event Action<IElement, IElementStatus> StatusUpdated;
         
         IFireLogger GetLogger();
 
@@ -43,7 +43,12 @@ namespace Fusion.Common.Contracts // Or your preferred core namespace
         /// <returns></returns>
          string ExportToGraphviz();
 
-        string GetDeviceVersion();
+        string GetElementVersion();
+
+        /// <summary>
+        /// Returns the name of the test counterpart for this element, if defined via TestCounterpartAttribute.
+        /// </summary>
+        string? TestCounterpart { get; }
         
         /// <summary>
         /// Starts the element's internal operations (e.g., starts its TcpServer).
@@ -61,7 +66,7 @@ namespace Fusion.Common.Contracts // Or your preferred core namespace
 
         void RefreshStatus();
         
-        public event Action<IElement>? DeviceReady;
+        public event Action<IElement>? ElementReady;
         
         bool NeedsHeartbeat { get; set; }
         

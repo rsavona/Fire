@@ -5,7 +5,7 @@ using System.Text.Json.Serialization;
 using Fusion.Common.BaseClasses;
 using Fusion.Common.Contracts;
 
-namespace Workflow.PrintAndApplyFrc;
+namespace Fusion.Reaction.PrintAndApplyFrc;
 
 using System;
 using System.Collections.Generic;
@@ -17,7 +17,8 @@ public record LabelRequestFrcMessage  (
     [property: JsonPropertyName("controllerId")] string ControllerId,
     [property: JsonPropertyName("lineId")] string? LineId,
     [property: JsonPropertyName("barcodes")] List<string> Barcodes,
-    [property: JsonPropertyName("characteristics")] Characteristics Characteristics
+    [property: JsonPropertyName("characteristics")] Characteristics Characteristics,
+    [property: JsonPropertyName("metadata")] JsonObject? Metadata = null
 ): ElementMessageBase
 {
     [JsonPropertyName("type")] 

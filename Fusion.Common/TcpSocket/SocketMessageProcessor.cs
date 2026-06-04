@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Net.Sockets;
 using System.Text;
 using Fusion.Common.Contracts;
@@ -6,25 +7,30 @@ namespace Fusion.Common.TcpSocket;
 
 public class SocketMessageProcessor : IMessageProcessor
 {
-    private readonly string _deviceName;
+    private readonly string _elementName;
     private readonly IFireLogger _logger;
 
     public event Action<string>? HeartbeatReceived;
     public event Func<object, Task>? MessageReceived;
     public event Action<string>? OnMessageError;
 
-    public SocketMessageProcessor(string deviceName, IFireLogger logger)
+    public SocketMessageProcessor(string elementName, IFireLogger logger)
     {
-        _deviceName = deviceName;
+        _elementName = elementName;
         _logger = logger;
     }
 
-    public async Task<bool> ProcessMessageAsync(NetworkStream stream, byte[] rawMessage, int len, string clientKey,
+    public async Task<bool> ProcessMessageAsync(ReadOnlySequence<byte> buffer, string clientKey,
+        Func<object, Task<bool>> sendResponse,
         CancellationToken token)
     {
         try
         {
+            // Convert to byte array to handle BOM stripping logic easily, or use spans
+            byte[] rawMessage = buffer.ToArray();
+            int len = rawMessage.Length;
             int offset = 0;
+
             // Strip UTF-8 BOM if present (0xEF, 0xBB, 0xBF)
             if (len >= 3 && rawMessage[0] == 0xEF && rawMessage[1] == 0xBB && rawMessage[2] == 0xBF)
             {
@@ -40,7 +46,7 @@ public class SocketMessageProcessor : IMessageProcessor
             _logger.Information("[{Client}] Raw Message Received: {Msg}", clientKey, strMessage);
 
             // Wrap in an envelope so we can pass the client key up the stack
-            var topic = new MessageBusTopic(_deviceName, "Inbound");
+            var topic = new MessageBusTopic(_elementName, "Inbound");
             var envelope = new MessageEnvelope(topic, strMessage, 0, clientKey);
 
             if (MessageReceived != null)
@@ -57,7 +63,7 @@ public class SocketMessageProcessor : IMessageProcessor
         }
     }
 
-    public string HandleResponse(string deviceName, object payload)
+    public string HandleResponse(string elementName, object payload)
     {
         return payload?.ToString() ?? string.Empty;
     }

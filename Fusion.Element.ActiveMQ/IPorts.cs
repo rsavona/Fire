@@ -1,4 +1,4 @@
-﻿namespace Device.ActiveMQ
+﻿namespace Fusion.Element.ActiveMQ
 {
 
     public interface IPort : IDisposable

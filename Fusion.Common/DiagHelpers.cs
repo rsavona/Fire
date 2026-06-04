@@ -47,7 +47,7 @@ public class DiagResult
     // A message to show the user (e.g., "Paper sensor is now set to LOW")
     public string Message { get; set; } = string.Empty;
 
-    // Optional: Data returned from the device (e.g., current GIN count)
+    // Optional: Data returned from the element (e.g., current GIN count)
     public object? Data { get; set; }
 
     // Helper methods for quick creation
@@ -56,10 +56,10 @@ public class DiagResult
     
 }
 
-public class DeviceAnnouncement
+public class ElementAnnouncement
 {
-    public string DeviceName { get; set; }      // e.g., "Printer_Zone_01"
-    public string DeviceType { get; set; }      // e.g., "ZebraPrinter"
+    public string ElementName { get; set; }      // e.g., "Printer_Zone_01"
+    public string ElementType { get; set; }      // e.g., "ZebraPrinter"
 
     public string SoftwareVersion { get; set; } // Assembly Version
 
@@ -67,7 +67,7 @@ public class DeviceAnnouncement
     
     public int SchemaVersion { get; set; }      // To check message compatibility
     
-    // The list of commands this specific device supports
+    // The list of commands this specific element supports
     public List<DiagCommand> AvailableCommands { get; set; } = new();
 }
 

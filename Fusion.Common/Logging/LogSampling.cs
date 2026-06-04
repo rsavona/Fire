@@ -15,7 +15,7 @@ public static class SmartLogger
     public static void LogSampled(string key, int sampleRate, string subject, string verb, string id, string obj,
         string comment, LogEventLevel level = LogEventLevel.Information)
     {
-        // 1. Correctly route Warnings to Warning (not Error), and skip sampling for criticals
+        // 1. Correctly bond Warnings to Warning (not Error), and skip sampling for criticals
         if (level == LogEventLevel.Warning)
         {
             Log.Logger.Warning(subject, verb, id, obj, comment);

@@ -1,0 +1,18 @@
+using Fusion.Common.Contracts;
+using Microsoft.Extensions.DependencyInjection;
+
+namespace Fusion.Element.HostComm;
+
+public class FileMessageElementRegistrar : IElementRegistrar
+{
+    public void RegisterServices(IServiceCollection services)
+    {
+        services.AddTransient<FileMessageElement>();
+
+        services.AddTransient<Func<IElementBlueprint, IFireLogger, FileMessageElement>>(provider => 
+            (config, logger) => 
+            {
+                return ActivatorUtilities.CreateInstance<FileMessageElement>(provider, config, logger);
+            });
+    }
+}

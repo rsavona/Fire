@@ -105,13 +105,13 @@ public class DurableMessageBus : IMessageBus
     /// <summary>
     /// Publishes a general status snapshot to the bus.
     /// </summary>
-    public Task PublishStatusAsync(DeviceStatusMessage snapshot, CancellationToken cancellationToken = default)
+    public Task PublishStatusAsync(IElementStatus snapshot, CancellationToken cancellationToken = default)
     {
         if (snapshot == null) return Task.CompletedTask;
         
-        // We use the common DeviceStatus string as the topic key
-        var envelope = new MessageEnvelope("DeviceStatus", snapshot);
-        return PublishAsync("DeviceStatus", envelope, cancellationToken);
+        // We use the common ElementStatus string as the topic key
+        var envelope = new MessageEnvelope("ElementStatus", snapshot);
+        return PublishAsync("ElementStatus", envelope, cancellationToken);
     }
 
     /// <summary>
@@ -132,35 +132,35 @@ public class DurableMessageBus : IMessageBus
 
     public async Task PublishAsync(string topic, MessageEnvelope messageEnvelope, CancellationToken ct = default)
     {
-        _auditLogger.LogMessage(messageEnvelope.Payload, topic);
+        _auditLogger.LogMessage(messageEnvelope.Payload, messageEnvelope.Header, topic);
         await _messageChannel.Writer.WriteAsync(new MessageWorkItem(topic, messageEnvelope), ct);
         Interlocked.Increment(ref _messagesPublished);
     }
 
-    public Task PublishStatusAsync(string topic, DeviceStatusMessage snapshot, CancellationToken ct)
+    public Task PublishStatusAsync(string topic, IElementStatus snapshot, CancellationToken ct)
     {
         if (snapshot == null) return Task.CompletedTask;
         var envelope = new MessageEnvelope(topic, snapshot);
         return PublishAsync(topic, envelope, ct);
     }
 
-    public Task PublishStatusAsync(MessageBusTopic topic, IDeviceStatus status)
+    public Task PublishStatusAsync(MessageBusTopic topic, IElementStatus status)
     {
         if (status == null) return Task.CompletedTask;
         var envelope = new MessageEnvelope(topic.ToString(), status);
         return PublishAsync(topic.ToString(), envelope);
     }
 
-    public Task PublishStatusAsync(string keyDeviceName, IDeviceStatus status)
+    public Task PublishStatusAsync(string keyElementName, IElementStatus status)
     {
-        var envelope = new MessageEnvelope(keyDeviceName, status);
-        return PublishAsync("DeviceStatus", envelope);
+        var envelope = new MessageEnvelope(keyElementName, status);
+        return PublishAsync("ElementStatus", envelope);
     }
 
-    public Task PublishStatusAsync(DeviceKey keyDevice, IDeviceStatus status)
+    public Task PublishStatusAsync(ElementKey keyElement, IElementStatus status)
     {
-        var envelope = new MessageEnvelope(keyDevice.DeviceName, status);
-        return PublishAsync("DeviceStatus", envelope);
+        var envelope = new MessageEnvelope(keyElement.ElementName, status);
+        return PublishAsync("ElementStatus", envelope);
     }
 
     // ---------------------------------------------------------------------

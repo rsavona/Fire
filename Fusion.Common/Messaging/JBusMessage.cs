@@ -6,7 +6,7 @@ namespace Fusion.Common;
 
 /// <summary>
 /// Represents a JBUS communication message, acting as the primary envelope 
-/// for the internal message bus to interface with JBUS devices.
+/// for the internal message bus to interface with JBUS elements.
 /// </summary>
 public record JBusMessage
 {

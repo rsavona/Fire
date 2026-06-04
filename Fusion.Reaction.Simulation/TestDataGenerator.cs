@@ -1,21 +1,21 @@
 ﻿using Fusion.Common;
-using Workflow.PrintAndApplyFrc;
 
-namespace Workflow.PrintAndAppySimulation.FRC;
+namespace Fusion.Reaction.Simulation;
 
 public static class TestDataGenerator
 {
     private static readonly Random Rng = new Random();
 
     // --- EXISTING LABEL GENERATOR (Kept for reference) ---
-    public static LabelDataFrcMessage? GenerateMockResponse(object request)
+    public static LabelDataFrcMessage? GenerateMockResponse(LabelRequestFrcMessage request)
     {
-       
-        List<string> bcs = MessageParser.GetBarcodes(request);
 
-        string barcode = bcs.FirstOrDefault() ?? "9999999999";
 
-        string mockExpectedScan = RandomBarcode(barcode);
+        List<string> bcs = request.Barcodes;
+
+        string barcode = bcs.FirstOrDefault() ?? "??????????";
+        string mockExpectedScan = barcode + "123";
+
 
         // 2. Generate a mock ZPL string for the printerData field
         string mockZpl = $@"<?xml version=""1.0"" encoding=""UTF-8""?>
@@ -28,8 +28,6 @@ public static class TestDataGenerator
                                 </labels>";
 
 
-        var controllerId = MessageParser.GetPart(request, "ControllerId") ?? "";
-        var lineId = MessageParser.GetPart(request, "LineId") ?? "";
         var statusCode = "OKAY"; // Using your specific 'OKAY' status
         var statusMessage = $"1 matched label for {barcode}";
         var labels = new List<LabelInfo>
@@ -41,8 +39,10 @@ public static class TestDataGenerator
             )
         };
         var g = Guid.NewGuid();
-        return new LabelDataFrcMessage(g, controllerId, lineId, bcs, statusCode, statusMessage, labels);
+        return new LabelDataFrcMessage(request.SessionId, request.ControllerId, request.LineId ?? "L1", bcs, statusCode,
+                statusMessage, labels);
     }
+
     public static string RandomBarcode(string barcode)
     {
         var random = new Random();

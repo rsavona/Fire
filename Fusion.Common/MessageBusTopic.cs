@@ -3,20 +3,21 @@ namespace Fusion.Common;
 
 public record MessageBusTopic
 {
-    public static readonly MessageBusTopic DeviceStatus = new MessageBusTopic("All_Devices", "StatusMessage");
-    public static readonly MessageBusTopic InternalError = new MessageBusTopic("All_Devices", "Exceptions");
-    public static readonly MessageBusTopic Discovery = new MessageBusTopic("All_Devices", "DiagDiscovery");
+    public static readonly MessageBusTopic ElementStatus = new MessageBusTopic("All_Elements", "StatusMessage");
+    public static readonly MessageBusTopic InternalError = new MessageBusTopic("All_Elements", "Exceptions");
+    public static readonly MessageBusTopic Discovery = new MessageBusTopic("All_Elements", "DiagDiscovery");
     public static readonly MessageBusTopic SystemControl = new MessageBusTopic("System", "Control");
+    public static readonly MessageBusTopic SystemTopology = new MessageBusTopic("System", "Topology");
     public static readonly MessageBusTopic ConsoleCommand = new MessageBusTopic("System", "ConsoleCommand");
     public static readonly MessageBusTopic DataFlow = new MessageBusTopic("System", "DataFlow");
     
-    public readonly string DeviceName;
+    public readonly string ElementName;
     public readonly string MessageType;
     public readonly string Discriminator;
     
-    public MessageBusTopic(string deviceName, string messageType, string discriminator = "")
+    public MessageBusTopic(string elementName, string messageType, string discriminator = "")
     {
-        DeviceName = deviceName;
+        ElementName = elementName;
         MessageType = messageType;
         Discriminator = discriminator;
 
@@ -29,7 +30,7 @@ public record MessageBusTopic
             throw new ArgumentException("Topic can not be empty");
         }
         var parts = strTopic.ToUpper().Split('.');
-        DeviceName = parts[0];
+        ElementName = parts[0];
         
         if (parts.Length > 1)
         {
@@ -47,7 +48,7 @@ public record MessageBusTopic
     public override string ToString()
     {
         return string.IsNullOrEmpty(Discriminator)
-            ? $"{DeviceName}.{MessageType}"
-            : $"{DeviceName}.{MessageType}.{Discriminator}";
+            ? $"{ElementName}.{MessageType}"
+            : $"{ElementName}.{MessageType}.{Discriminator}";
     }
 }

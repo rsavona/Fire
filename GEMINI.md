@@ -18,26 +18,61 @@ Fortna Fusion is a modular .NET 10 system designed for industrial automation and
 ## Key Commands
 
 - **Build:** `dotnet build`
-- **Run (Console):** `dotnet run --project DeviceSpace.Console`
+- **Run (Console):** `dotnet run --project Fusion.Console`
 - **Run (Tokamak):** `dotnet run --project Tokamak.AI` (AI-powered Blueprint Builder & Provisioner)
 - **Test:** `dotnet test`
 - **Clean:** `dotnet clean`
 
+## System Architecture
+
+```mermaid
+classDiagram
+    class Blueprint {
+        +List Elements
+        +List Reactions
+        +List Bonds
+    }
+    class Element {
+        +string Name
+        +string Type
+        +HandleIO()
+    }
+    class Reaction {
+        +string Name
+        +ProcessLogic()
+    }
+    class Bond {
+        +string Source
+        +string Destination
+    }
+    class MessageBus {
+        +Publish(topic, envelope)
+        +Subscribe(topic, handler)
+    }
+
+    Blueprint "1" *-- "many" Element
+    Blueprint "1" *-- "many" Reaction
+    Blueprint "1" *-- "many" Bond
+    Element ..> MessageBus : Pub/Sub
+    Reaction ..> MessageBus : Pub/Sub
+    Bond ..> MessageBus : Defines Flow
+```
+
 ## File & Folder Structure
 
-- `DeviceSpace.Common/`: Shared models, enums, exceptions, and core utilities (TCP, Logging).
-- `DeviceSpace.Core/`: Core orchestration logic, message bus, and factory implementations.
-- `Device.Plc.Suite/`: PLC-specific connectors, message parsing, and state machines.
-- `Device.Printer.Suite/`: Zebra and JetMark printer integration and ZPL handling.
-- `Device.ActiveMQ/`: ActiveMQ message consumer and manager logic.
-- `Workflow.*/`: Specific business logic implementations (Forces).
+- `Fusion.Common/`: Shared models, enums, exceptions, and core utilities (TCP, Logging).
+- `Fusion.Core/`: Core orchestration logic, message bus, and factory implementations.
+- `Fusion.Element.Plc.Suite/`: PLC-specific connectors, message parsing, and state machines.
+- `Fusion.Element.Printer.Suite/`: Zebra and JetMark printer integration and ZPL handling.
+- `Fusion.Element.ActiveMQ/`: ActiveMQ message consumer and manager logic.
+- `Fusion.Reaction.*/`: Specific business logic implementations (Reactions).
 - `Tokamak.AI/`: AI-driven Blueprint (.fusion) generator and hardware provisioner.
-- `DeviceSpace.Console/`: Primary entry point for the application dashboard.
+- `Fusion.Console/`: Primary entry point for the application dashboard.
 
 ## Naming Conventions (Fusion)
-- **Elements**: Hardware devices or external interfaces (formerly Devices).
-- **Forces**: Business logic workflows and orchestrators (formerly Workflows).
-- **Bonds**: Subscriptions and connections between elements and forces (formerly Routes).
+- **Elements**: Hardware elements or external interfaces (formerly Elements).
+- **Reactions**: Business logic reactions and orchestrators (formerly Reactions).
+- **Bonds**: Subscriptions and connections between elements and forces (formerly Bonds).
 - **Blueprints**: System configuration files using the `.fusion` extension (formerly Chamber files).
 
 ## Coding Style

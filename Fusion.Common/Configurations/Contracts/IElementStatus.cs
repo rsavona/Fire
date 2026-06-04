@@ -18,13 +18,13 @@ public interface IElementStatus : IElementMessage
     string State { get; }
 
     // HOW: The high-level health (e.g., "Unhealthy")
-    DeviceHealth Health { get; } // Renamed from HealthState
+    ElementHealth Health { get; } // Renamed from HealthState
 
     // WHY: A human-readable message
     string Comment { get; }
 
     
-    // These are required by DeviceStatusCollection.Summarize
+    // These are required by ElementStatusCollection.Summarize
     // The data comes *from* the tracker.
     int CountInbound { get; }
     int CountOutbound { get; }

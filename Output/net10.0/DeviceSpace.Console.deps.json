@@ -6,16 +6,17 @@
   "compilationOptions": {},
   "targets": {
     ".NETCoreApp,Version=v10.0": {
-      "DeviceSpace.Console/1.0.0": {
+      "Fusion.Console/1.0.0": {
         "dependencies": {
-          "Device.ActiveMQ": "1.0.0",
-          "Device.Api.Suite": "1.0.0",
-          "Device.Database.Suite": "1.0.0",
-          "Device.HostComm": "1.0.0",
-          "Device.Plc.Suite": "1.0.0",
-          "Device.Printer.Suite": "1.0.0",
-          "Device.Support.CLI": "1.0.0",
-          "DeviceSpace.Core": "1.0.0",
+          "Fusion.Element.ActiveMQ": "1.0.0",
+          "Fusion.Element.Api.Suite": "1.0.0",
+          "Fusion.Element.Database.Suite": "1.0.0",
+          "Fusion.Element.Enterprise.Suite": "1.0.0",
+          "Fusion.Element.HostComm": "1.0.0",
+          "Fusion.Element.Plc.Suite": "1.0.0",
+          "Fusion.Element.Printer.Suite": "1.0.0",
+          "Fusion.Element.Support.CLI": "1.0.0",
+          "Fusion.Core": "1.0.0",
           "Microsoft.Data.SqlClient": "7.0.1",
           "Microsoft.Extensions.Hosting.WindowsServices": "10.0.5",
           "Microsoft.Extensions.Logging": "10.0.7",
@@ -30,13 +31,13 @@
           "Serilog.Sinks.Map": "2.0.0",
           "Stateless": "5.20.1",
           "TuraHostTester": "1.0.0",
-          "Workflow.PrintAndApply.Frc": "1.0.0",
-          "Workflow.Simulation": "1.0.0",
-          "Workflow.Sort.Standard": "1.0.0",
-          "Workflow.Tura.HostComm": "1.0.0"
+          "Fusion.Reaction.PrintAndApply.Frc": "1.0.0",
+          "Fusion.Reaction.Simulation": "1.0.0",
+          "Fusion.Reaction.Sort.Standard": "1.0.0",
+          "Fusion.Reaction.Tura.HostComm": "1.0.0"
         },
         "runtime": {
-          "DeviceSpace.Console.dll": {}
+          "Fusion.Console.dll": {}
         }
       },
       "Apache.NMS/2.2.0": {
@@ -1536,6 +1537,81 @@
           }
         }
       },
+      "OpenTelemetry/1.15.3": {
+        "dependencies": {
+          "Microsoft.Extensions.Diagnostics.Abstractions": "10.0.7",
+          "Microsoft.Extensions.Logging.Configuration": "10.0.7",
+          "OpenTelemetry.Api.ProviderBuilderExtensions": "1.15.3"
+        },
+        "runtime": {
+          "lib/net10.0/OpenTelemetry.dll": {
+            "assemblyVersion": "1.0.0.0",
+            "fileVersion": "1.15.3.2017"
+          }
+        }
+      },
+      "OpenTelemetry.Api/1.15.3": {
+        "runtime": {
+          "lib/net10.0/OpenTelemetry.Api.dll": {
+            "assemblyVersion": "1.0.0.0",
+            "fileVersion": "1.15.3.2017"
+          }
+        }
+      },
+      "OpenTelemetry.Api.ProviderBuilderExtensions/1.15.3": {
+        "dependencies": {
+          "Microsoft.Extensions.DependencyInjection.Abstractions": "10.0.7",
+          "OpenTelemetry.Api": "1.15.3"
+        },
+        "runtime": {
+          "lib/net10.0/OpenTelemetry.Api.ProviderBuilderExtensions.dll": {
+            "assemblyVersion": "1.0.0.0",
+            "fileVersion": "1.15.3.2017"
+          }
+        }
+      },
+      "OpenTelemetry.Exporter.Console/1.15.3": {
+        "dependencies": {
+          "OpenTelemetry": "1.15.3"
+        },
+        "runtime": {
+          "lib/net10.0/OpenTelemetry.Exporter.Console.dll": {
+            "assemblyVersion": "1.0.0.0",
+            "fileVersion": "1.15.3.2017"
+          }
+        }
+      },
+      "OpenTelemetry.Exporter.OpenTelemetryProtocol/1.15.3": {
+        "dependencies": {
+          "OpenTelemetry": "1.15.3"
+        },
+        "runtime": {
+          "lib/net10.0/OpenTelemetry.Exporter.OpenTelemetryProtocol.dll": {
+            "assemblyVersion": "1.0.0.0",
+            "fileVersion": "1.15.3.2017"
+          }
+        }
+      },
+      "OpenTelemetry.Extensions.Hosting/1.15.3": {
+        "dependencies": {
+          "Microsoft.Extensions.Hosting.Abstractions": "10.0.7",
+          "OpenTelemetry": "1.15.3"
+        },
+        "runtime": {
+          "lib/net10.0/OpenTelemetry.Extensions.Hosting.dll": {
+            "assemblyVersion": "1.0.0.0",
+            "fileVersion": "1.15.3.2017"
+          }
+        }
+      },
+      "Pipelines.Sockets.Unofficial/2.2.16": {
+        "runtime": {
+          "lib/net9.0/Pipelines.Sockets.Unofficial.dll": {
+            "assemblyVersion": "1.0.0.0",
+            "fileVersion": "2.2.16.21791"
+          }
+        }
+      },
       "Serilog/4.3.1": {
         "runtime": {
           "lib/net10.0/Serilog.dll": {
@@ -1690,6 +1766,19 @@
           }
         }
       },
+      "StackExchange.Redis/2.13.1": {
+        "dependencies": {
+          "Microsoft.Extensions.Logging.Abstractions": "10.0.7",
+          "Pipelines.Sockets.Unofficial": "2.2.16",
+          "System.IO.Hashing": "10.0.2"
+        },
+        "runtime": {
+          "lib/net10.0/StackExchange.Redis.dll": {
+            "assemblyVersion": "2.0.0.0",
+            "fileVersion": "2.13.1.38939"
+          }
+        }
+      },
       "Stateless/5.20.1": {
         "runtime": {
           "lib/net10.0/Stateless.dll": {
@@ -1741,6 +1830,14 @@
           "lib/net10.0/System.IdentityModel.Tokens.Jwt.dll": {
             "assemblyVersion": "8.16.0.0",
             "fileVersion": "8.16.0.26043"
+          }
+        }
+      },
+      "System.IO.Hashing/10.0.2": {
+        "runtime": {
+          "lib/net10.0/System.IO.Hashing.dll": {
+            "assemblyVersion": "10.0.0.2",
+            "fileVersion": "10.0.225.61305"
           }
         }
       },
@@ -1798,11 +1895,11 @@
           }
         }
       },
-      "Device.ActiveMQ/1.0.0": {
+      "Fusion.Element.ActiveMQ/1.0.0": {
         "dependencies": {
           "Apache.NMS": "2.2.0",
           "Apache.NMS.ActiveMQ": "2.2.0",
-          "DeviceSpace.Common": "1.0.0",
+          "Fusion.Common": "1.0.0",
           "Microsoft.Extensions.Logging": "10.0.7",
           "Microsoft.Extensions.Logging.Abstractions": "10.0.7",
           "Serilog": "4.3.1",
@@ -1815,30 +1912,30 @@
           "Stateless": "5.20.1"
         },
         "runtime": {
-          "Device.ActiveMQ.dll": {
+          "Fusion.Element.ActiveMQ.dll": {
             "assemblyVersion": "1.0.0.0",
             "fileVersion": "1.0.0.0"
           }
         }
       },
-      "Device.Api.Suite/1.0.0": {
+      "Fusion.Element.Api.Suite/1.0.0": {
         "dependencies": {
-          "DeviceSpace.Common": "1.0.0",
+          "Fusion.Common": "1.0.0",
           "Microsoft.AspNetCore.Mvc": "2.3.9",
           "Microsoft.Extensions.Logging": "10.0.7",
           "System.Security.Cryptography.Xml": "10.0.6"
         },
         "runtime": {
-          "Device.Api.Suite.dll": {
+          "Fusion.Element.Api.Suite.dll": {
             "assemblyVersion": "1.0.0.0",
             "fileVersion": "1.0.0.0"
           }
         }
       },
-      "Device.Database.Suite/1.0.0": {
+      "Fusion.Element.Database.Suite/1.0.0": {
         "dependencies": {
           "Dapper": "2.1.72",
-          "DeviceSpace.Common": "1.0.0",
+          "Fusion.Common": "1.0.0",
           "Microsoft.Data.SqlClient": "7.0.1",
           "Microsoft.Extensions.Logging": "10.0.7",
           "MySqlConnector": "2.5.0",
@@ -1846,27 +1943,44 @@
           "Serilog": "4.3.1"
         },
         "runtime": {
-          "Device.Database.Suite.dll": {
+          "Fusion.Element.Database.Suite.dll": {
             "assemblyVersion": "1.0.0.0",
             "fileVersion": "1.0.0.0"
           }
         }
       },
-      "Device.HostComm/1.0.0": {
+      "Fusion.Element.Enterprise.Suite/1.0.0": {
         "dependencies": {
-          "DeviceSpace.Common": "1.0.0",
+          "Fusion.Common": "1.0.0",
+          "OpenTelemetry": "1.15.3",
+          "OpenTelemetry.Exporter.Console": "1.15.3",
+          "OpenTelemetry.Exporter.OpenTelemetryProtocol": "1.15.3",
+          "OpenTelemetry.Extensions.Hosting": "1.15.3",
+          "Serilog.Formatting.Compact": "3.0.0",
+          "StackExchange.Redis": "2.13.1"
+        },
+        "runtime": {
+          "Fusion.Element.Enterprise.Suite.dll": {
+            "assemblyVersion": "1.0.0.0",
+            "fileVersion": "1.0.0.0"
+          }
+        }
+      },
+      "Fusion.Element.HostComm/1.0.0": {
+        "dependencies": {
+          "Fusion.Common": "1.0.0",
           "Microsoft.Extensions.Logging": "10.0.7"
         },
         "runtime": {
-          "Device.HostComm.dll": {
+          "Fusion.Element.HostComm.dll": {
             "assemblyVersion": "1.0.0.0",
             "fileVersion": "1.0.0.0"
           }
         }
       },
-      "Device.Plc.Suite/1.0.0": {
+      "Fusion.Element.Plc.Suite/1.0.0": {
         "dependencies": {
-          "DeviceSpace.Common": "1.0.0",
+          "Fusion.Common": "1.0.0",
           "Microsoft.Extensions.Logging": "10.0.7",
           "Microsoft.Extensions.Logging.Console": "10.0.7",
           "Serilog": "4.3.1",
@@ -1881,15 +1995,15 @@
           "libplctag.NativeImport": "1.0.41"
         },
         "runtime": {
-          "Device.Plc.Suite.dll": {
+          "Fusion.Element.Plc.Suite.dll": {
             "assemblyVersion": "1.0.0.0",
             "fileVersion": "1.0.0.0"
           }
         }
       },
-      "Device.Printer.Suite/1.0.0": {
+      "Fusion.Element.Printer.Suite/1.0.0": {
         "dependencies": {
-          "DeviceSpace.Common": "1.0.0",
+          "Fusion.Common": "1.0.0",
           "Microsoft.Extensions.Logging": "10.0.7",
           "Microsoft.Extensions.Logging.Console": "10.0.7",
           "Serilog": "4.3.1",
@@ -1902,15 +2016,15 @@
           "Stateless": "5.20.1"
         },
         "runtime": {
-          "Device.Printer.Suite.dll": {
+          "Fusion.Element.Printer.Suite.dll": {
             "assemblyVersion": "1.0.0.0",
             "fileVersion": "1.0.0.0"
           }
         }
       },
-      "Device.Support.CLI/1.0.0": {
+      "Fusion.Element.Support.CLI/1.0.0": {
         "dependencies": {
-          "DeviceSpace.Common": "1.0.0",
+          "Fusion.Common": "1.0.0",
           "Microsoft.Extensions.Logging": "10.0.7",
           "Microsoft.Extensions.Logging.Console": "10.0.7",
           "Serilog": "4.3.1",
@@ -1923,13 +2037,13 @@
           "Stateless": "5.20.1"
         },
         "runtime": {
-          "Device.Support.CLI.dll": {
+          "Fusion.Element.Support.CLI.dll": {
             "assemblyVersion": "1.0.0.0",
             "fileVersion": "1.0.0.0"
           }
         }
       },
-      "DeviceSpace.Common/1.0.0": {
+      "Fusion.Common/1.0.0": {
         "dependencies": {
           "Apache.NMS.ActiveMQ": "2.2.0",
           "Microsoft.CodeAnalysis.CSharp.Scripting": "5.0.0",
@@ -1952,23 +2066,23 @@
           "Stateless": "5.20.1"
         },
         "runtime": {
-          "DeviceSpace.Common.dll": {
+          "Fusion.Common.dll": {
             "assemblyVersion": "1.0.0.0",
             "fileVersion": "1.0.0.0"
           }
         }
       },
-      "DeviceSpace.Core/1.0.0": {
+      "Fusion.Core/1.0.0": {
         "dependencies": {
           "Castle.Core": "5.2.1",
-          "Device.ActiveMQ": "1.0.0",
-          "Device.Api.Suite": "1.0.0",
-          "Device.Database.Suite": "1.0.0",
-          "Device.HostComm": "1.0.0",
-          "Device.Plc.Suite": "1.0.0",
-          "Device.Printer.Suite": "1.0.0",
-          "Device.Support.CLI": "1.0.0",
-          "DeviceSpace.Common": "1.0.0",
+          "Fusion.Element.ActiveMQ": "1.0.0",
+          "Fusion.Element.Api.Suite": "1.0.0",
+          "Fusion.Element.Database.Suite": "1.0.0",
+          "Fusion.Element.HostComm": "1.0.0",
+          "Fusion.Element.Plc.Suite": "1.0.0",
+          "Fusion.Element.Printer.Suite": "1.0.0",
+          "Fusion.Element.Support.CLI": "1.0.0",
+          "Fusion.Common": "1.0.0",
           "Microsoft.Extensions.Configuration": "10.0.7",
           "Microsoft.Extensions.DependencyInjection": "10.0.7",
           "Microsoft.Extensions.Hosting": "10.0.7",
@@ -1989,11 +2103,11 @@
           "Serilog.Sinks.File": "7.0.0",
           "Serilog.Sinks.Map": "2.0.0",
           "Stateless": "5.20.1",
-          "Workflow.PrintAndApply.Frc": "1.0.0",
-          "Workflow.Simulation": "1.0.0"
+          "Fusion.Reaction.PrintAndApply.Frc": "1.0.0",
+          "Fusion.Reaction.Simulation": "1.0.0"
         },
         "runtime": {
-          "DeviceSpace.Core.dll": {
+          "Fusion.Core.dll": {
             "assemblyVersion": "1.0.0.0",
             "fileVersion": "1.0.0.0"
           }
@@ -2007,9 +2121,9 @@
           }
         }
       },
-      "Workflow.PrintAndApply.Frc/1.0.0": {
+      "Fusion.Reaction.PrintAndApply.Frc/1.0.0": {
         "dependencies": {
-          "DeviceSpace.Common": "1.0.0",
+          "Fusion.Common": "1.0.0",
           "Microsoft.Extensions.Logging": "10.0.7",
           "Microsoft.Extensions.Logging.Console": "10.0.7",
           "Serilog": "4.3.1",
@@ -2022,15 +2136,15 @@
           "Stateless": "5.20.1"
         },
         "runtime": {
-          "Workflow.PrintAndApply.Frc.dll": {
+          "Fusion.Reaction.PrintAndApply.Frc.dll": {
             "assemblyVersion": "1.0.0.0",
             "fileVersion": "1.0.0.0"
           }
         }
       },
-      "Workflow.Simulation/1.0.0": {
+      "Fusion.Reaction.Simulation/1.0.0": {
         "dependencies": {
-          "DeviceSpace.Common": "1.0.0",
+          "Fusion.Common": "1.0.0",
           "Microsoft.Extensions.Logging": "10.0.7",
           "Microsoft.Extensions.Logging.Console": "10.0.7",
           "Serilog": "4.3.1",
@@ -2043,34 +2157,34 @@
           "Stateless": "5.20.1"
         },
         "runtime": {
-          "Workflow.Simulation.dll": {
+          "Fusion.Reaction.Simulation.dll": {
             "assemblyVersion": "1.0.0.0",
             "fileVersion": "1.0.0.0"
           }
         }
       },
-      "Workflow.Sort.Standard/1.0.0": {
+      "Fusion.Reaction.Sort.Standard/1.0.0": {
         "dependencies": {
           "Dapper": "2.1.72",
-          "DeviceSpace.Common": "1.0.0",
-          "DeviceSpace.Core": "1.0.0",
+          "Fusion.Common": "1.0.0",
+          "Fusion.Core": "1.0.0",
           "Microsoft.Data.SqlClient": "7.0.1",
           "Microsoft.Extensions.Logging": "10.0.7"
         },
         "runtime": {
-          "Workflow.Sort.Standard.dll": {
+          "Fusion.Reaction.Sort.Standard.dll": {
             "assemblyVersion": "1.0.0.0",
             "fileVersion": "1.0.0.0"
           }
         }
       },
-      "Workflow.Tura.HostComm/1.0.0": {
+      "Fusion.Reaction.Tura.HostComm/1.0.0": {
         "dependencies": {
-          "DeviceSpace.Common": "1.0.0",
+          "Fusion.Common": "1.0.0",
           "Serilog": "4.3.1"
         },
         "runtime": {
-          "Workflow.Tura.HostComm.dll": {
+          "Fusion.Reaction.Tura.HostComm.dll": {
             "assemblyVersion": "1.0.0.0",
             "fileVersion": "1.0.0.0"
           }
@@ -2079,7 +2193,7 @@
     }
   },
   "libraries": {
-    "DeviceSpace.Console/1.0.0": {
+    "Fusion.Console/1.0.0": {
       "type": "project",
       "serviceable": false,
       "sha512": ""
@@ -2812,6 +2926,55 @@
       "path": "npgsql/10.0.2",
       "hashPath": "npgsql.10.0.2.nupkg.sha512"
     },
+    "OpenTelemetry/1.15.3": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-N0i6WjPoHPbZyms1ugbDIFAJFuGlpeExJMU/+XSL0lQRUkg/D0utFkDoLXf8Z1km5B+xVZ2GyMXXiX8qdeNmPg==",
+      "path": "opentelemetry/1.15.3",
+      "hashPath": "opentelemetry.1.15.3.nupkg.sha512"
+    },
+    "OpenTelemetry.Api/1.15.3": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-fX+fkCysfPut+qCcT3bKqyX4QN9Saf4CgX8HLOHywEVD+Xr7sULtfuypITpoDysjx8R59dn/3mWhgimMH8cm/g==",
+      "path": "opentelemetry.api/1.15.3",
+      "hashPath": "opentelemetry.api.1.15.3.nupkg.sha512"
+    },
+    "OpenTelemetry.Api.ProviderBuilderExtensions/1.15.3": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-SYn0lqYDwLMWhv/zlNGsQcl2yX++yTumanX46bmOZE/ZDOd1WjPBO2kZaZgKLEZTZk48pavIFGJ6vOvxXgWVFQ==",
+      "path": "opentelemetry.api.providerbuilderextensions/1.15.3",
+      "hashPath": "opentelemetry.api.providerbuilderextensions.1.15.3.nupkg.sha512"
+    },
+    "OpenTelemetry.Exporter.Console/1.15.3": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-QBGOoPwLHDXX+hXeUpspOjsqEn4vMkLw672QN+MzVWFBzjf625DdxLxhzowS1J/dRtW93U34rRbJec+4808fkg==",
+      "path": "opentelemetry.exporter.console/1.15.3",
+      "hashPath": "opentelemetry.exporter.console.1.15.3.nupkg.sha512"
+    },
+    "OpenTelemetry.Exporter.OpenTelemetryProtocol/1.15.3": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-FEXJepcseTGbATiCkUfP7ipoFEYYfl/0UmmUwi0KxCPg9PaUA8ab2P1LGopK+/HExasJ1ZutFhZrN6WvUIR23g==",
+      "path": "opentelemetry.exporter.opentelemetryprotocol/1.15.3",
+      "hashPath": "opentelemetry.exporter.opentelemetryprotocol.1.15.3.nupkg.sha512"
+    },
+    "OpenTelemetry.Extensions.Hosting/1.15.3": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-u8n/W8yIlqv0BXZmvId1iVaeWXG42tGKdTkuLYg5g57Y/r9CeUNzqtrSHNdG5IoO8iPX79w3v+WsbAHgUQbfeg==",
+      "path": "opentelemetry.extensions.hosting/1.15.3",
+      "hashPath": "opentelemetry.extensions.hosting.1.15.3.nupkg.sha512"
+    },
+    "Pipelines.Sockets.Unofficial/2.2.16": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-nonu9l0YrZH6krVYbskBjE7uG0VMAnvOQ9PU+RmzUsy+++vHkqzzCkHRoP877OiA3iRTxJyNDLfpcU8hrJ3/YQ==",
+      "path": "pipelines.sockets.unofficial/2.2.16",
+      "hashPath": "pipelines.sockets.unofficial.2.2.16.nupkg.sha512"
+    },
     "Serilog/4.3.1": {
       "type": "package",
       "serviceable": true,
@@ -2910,6 +3073,13 @@
       "path": "sharpziplib/1.3.3",
       "hashPath": "sharpziplib.1.3.3.nupkg.sha512"
     },
+    "StackExchange.Redis/2.13.1": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-jC5wkRe8K6HPoDENUws+fl2d7+GKz+ky8SWEDzYzPx6hHt2EwxWm01gmYPWLzlT49jfYYap0guB5bExtyX9aIQ==",
+      "path": "stackexchange.redis/2.13.1",
+      "hashPath": "stackexchange.redis.2.13.1.nupkg.sha512"
+    },
     "Stateless/5.20.1": {
       "type": "package",
       "serviceable": true,
@@ -2937,6 +3107,13 @@
       "sha512": "sha512-rrs2u7DRMXQG2yh0oVyF/vLwosfRv20Ld2iEpYcKwQWXHjfV+gFXNQsQ9p008kR9Ou4pxBs68Q6/9zC8Gi1wjg==",
       "path": "system.identitymodel.tokens.jwt/8.16.0",
       "hashPath": "system.identitymodel.tokens.jwt.8.16.0.nupkg.sha512"
+    },
+    "System.IO.Hashing/10.0.2": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-AKJknIFi9O3+rGExxTry188JPvUoZAPcCtS2qdqyFhIzsxQ1Ap94BeGDG0VzVEHakhmRxmJtVih6TsHoghIt/g==",
+      "path": "system.io.hashing/10.0.2",
+      "hashPath": "system.io.hashing.10.0.2.nupkg.sha512"
     },
     "System.Security.Cryptography.Pkcs/10.0.6": {
       "type": "package",
@@ -2966,47 +3143,52 @@
       "path": "system.serviceprocess.servicecontroller/10.0.5",
       "hashPath": "system.serviceprocess.servicecontroller.10.0.5.nupkg.sha512"
     },
-    "Device.ActiveMQ/1.0.0": {
+    "Fusion.Element.ActiveMQ/1.0.0": {
       "type": "project",
       "serviceable": false,
       "sha512": ""
     },
-    "Device.Api.Suite/1.0.0": {
+    "Fusion.Element.Api.Suite/1.0.0": {
       "type": "project",
       "serviceable": false,
       "sha512": ""
     },
-    "Device.Database.Suite/1.0.0": {
+    "Fusion.Element.Database.Suite/1.0.0": {
       "type": "project",
       "serviceable": false,
       "sha512": ""
     },
-    "Device.HostComm/1.0.0": {
+    "Fusion.Element.Enterprise.Suite/1.0.0": {
       "type": "project",
       "serviceable": false,
       "sha512": ""
     },
-    "Device.Plc.Suite/1.0.0": {
+    "Fusion.Element.HostComm/1.0.0": {
       "type": "project",
       "serviceable": false,
       "sha512": ""
     },
-    "Device.Printer.Suite/1.0.0": {
+    "Fusion.Element.Plc.Suite/1.0.0": {
       "type": "project",
       "serviceable": false,
       "sha512": ""
     },
-    "Device.Support.CLI/1.0.0": {
+    "Fusion.Element.Printer.Suite/1.0.0": {
       "type": "project",
       "serviceable": false,
       "sha512": ""
     },
-    "DeviceSpace.Common/1.0.0": {
+    "Fusion.Element.Support.CLI/1.0.0": {
       "type": "project",
       "serviceable": false,
       "sha512": ""
     },
-    "DeviceSpace.Core/1.0.0": {
+    "Fusion.Common/1.0.0": {
+      "type": "project",
+      "serviceable": false,
+      "sha512": ""
+    },
+    "Fusion.Core/1.0.0": {
       "type": "project",
       "serviceable": false,
       "sha512": ""
@@ -3016,22 +3198,22 @@
       "serviceable": false,
       "sha512": ""
     },
-    "Workflow.PrintAndApply.Frc/1.0.0": {
+    "Fusion.Reaction.PrintAndApply.Frc/1.0.0": {
       "type": "project",
       "serviceable": false,
       "sha512": ""
     },
-    "Workflow.Simulation/1.0.0": {
+    "Fusion.Reaction.Simulation/1.0.0": {
       "type": "project",
       "serviceable": false,
       "sha512": ""
     },
-    "Workflow.Sort.Standard/1.0.0": {
+    "Fusion.Reaction.Sort.Standard/1.0.0": {
       "type": "project",
       "serviceable": false,
       "sha512": ""
     },
-    "Workflow.Tura.HostComm/1.0.0": {
+    "Fusion.Reaction.Tura.HostComm/1.0.0": {
       "type": "project",
       "serviceable": false,
       "sha512": ""

@@ -2,7 +2,7 @@
 using System.IO;
 using System.Runtime.InteropServices;
 
-namespace DeviceSpaceConsole;
+namespace FusionConsole;
 
 public interface ISplashScreen
 {
@@ -77,7 +77,7 @@ public static class ConsoleHelper
     /// Sets the console font to a specific font family and size.
     /// Recommended for ASCII Art: "Consolas", "Lucida Console", or "Cascadia Code".
     /// </summary>
-    /// <param name="fontName">Name of the font (must be installed on OS).</param>
+    /// <param name="fontName">CustomerName of the font (must be installed on OS).</param>
     /// <param name="fontSize">Size in pixels (e.g., 16, 24).</param>
     public static void SetConsoleFont(string fontName = "Consolas", short fontSize = 16)
     {

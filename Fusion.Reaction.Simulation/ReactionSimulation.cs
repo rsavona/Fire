@@ -1,17 +1,16 @@
 ﻿using Fusion.Common;
 using Fusion.Common.BaseClasses;
-using Blueprints;
 using Fusion.Common.Contracts;
 using Serilog;
 
-namespace Workflow.PrintAndAppySimulation.FRC;
+namespace Fusion.Reaction.Simulation;
 
-public class WorkflowSimulation : WorkflowBase
+public class ReactionSimulation : ReactionBase
 {
-    public WorkflowSimulation(IMessageBus bus, WorkflowConfig config, ILogger logger)
+    public ReactionSimulation(IMessageBus bus, IReactionBlueprint config, ILogger logger)
         : base(bus, config, logger)
     {
-        Logger.Information("[{Workflow}] Simulation Physics & Logic Initialized.", WorkflowKey.DeviceName);
+        Logger.Information("[{Reaction}] Simulation Physics & Logic Initialized.", ReactionKey.ElementName);
     }
 
     /// <summary>
@@ -20,27 +19,46 @@ public class WorkflowSimulation : WorkflowBase
     private async Task<object?>? HandleLabelRequest(MessageEnvelope messageEnvelope, CancellationToken ct)
     {
             var t = messageEnvelope.Payload?.GetType().Name;
-            Logger.Debug("[{Workflow}] Received message from Message Bus {msg}", WorkflowKey.DeviceName,
+            Logger.Debug("[{Reaction}] Received message from Message Bus {msg}", ReactionKey.ElementName,
                 messageEnvelope.Payload);
-          
-            var ld = TestDataGenerator.GenerateMockResponse(messageEnvelope.Payload);
+            
+            LabelRequestFrcMessage? labelRequest = messageEnvelope.Payload as LabelRequestFrcMessage;
 
-            Logger.Debug("[{Workflow}] Generated response {msg}", WorkflowKey.DeviceName, ld);
+            if (labelRequest == null && messageEnvelope.Payload is string mstr)
+            {
+                labelRequest = LabelRequestFrcMessage.FromJson(mstr);
+            }
+
+            if (labelRequest == null)
+            {
+                Logger.Warning("[{Reaction}] Failed to resolve LabelRequestFrcMessage from payload.", ReactionKey.ElementName);
+                return null;
+            }
+
+            if (labelRequest.Barcodes.FirstOrDefault() == "SIM-0400")
+            {
+                Logger.Information("[{Reaction}] Simulating delay for {Barcode}", "SIM-0400");
+                await Task.Delay(1500, ct);
+            }
+
+            var ld = TestDataGenerator.GenerateMockResponse(labelRequest);
+
+            Logger.Debug("[{Reaction}] Generated response {msg}", ReactionKey.ElementName, ld);
             
 
-            return ld; // MessageEnvelope(new MessageBusTopic(route.Destination), response);
+            return ld; // MessageEnvelope(new MessageBusTopic(bond.Destination), response);
     }
     private async Task<object?>? HandleLabelVerify(MessageEnvelope messageEnvelope, CancellationToken ct)
     {
             var t = messageEnvelope.Payload?.GetType().Name;
-            Logger.Debug("[{Workflow}] Received message from Message Bus {msg}", WorkflowKey.DeviceName,
+            Logger.Debug("[{Reaction}] Received message from Message Bus {msg}", ReactionKey.ElementName,
                 messageEnvelope.Payload);
           
             
 
-            Logger.Debug("[{Workflow}] Generated response {msg}", WorkflowKey.DeviceName, messageEnvelope.Payload);
+            Logger.Debug("[{Reaction}] Generated response {msg}", ReactionKey.ElementName, messageEnvelope.Payload);
             
 
-            return messageEnvelope.Payload; // MessageEnvelope(new MessageBusTopic(route.Destination), response);
+            return messageEnvelope.Payload; // MessageEnvelope(new MessageBusTopic(bond.Destination), response);
     }
 }

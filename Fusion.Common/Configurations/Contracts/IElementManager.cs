@@ -6,13 +6,17 @@ namespace Fusion.Common.Contracts
     public interface IElementManager
     {
         // Identification
-        public Task<bool> TakeDeviceOfflineAsync(string deviceName);
-        public Task ReinitializeDeviceAsync(string deviceName);
+        public Task<bool> TakeElementOfflineAsync(string elementName);
+        public Task ReinitializeElementAsync(string elementName);
 
+        /// <summary>
+        /// Returns the name of the test counterpart for this manager, if defined via TestCounterpartAttribute.
+        /// </summary>
+        string? TestCounterpart { get; }
     }
 }
 
-public interface IDeviceManagerFactory
+public interface IElementManagerFactory
 {
-    IElementManager CreateDeviceManager(string managerType);
+    IElementManager CreateElementManager(string managerType);
 }

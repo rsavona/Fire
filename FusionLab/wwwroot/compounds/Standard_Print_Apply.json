@@ -1,0 +1,27 @@
+{
+  "Name": "Standard Print & Apply",
+  "Elements": [
+    {
+      "Name": "PLC_1",
+      "Manager": "PlcElementManager",
+      "Enable": true,
+      "Properties": { "IPAddress": "127.0.0.1", "Port": 6999 }
+    },
+    {
+      "Name": "PRINTER_1",
+      "Manager": "PrinterManager",
+      "Enable": true,
+      "Properties": { "IPAddress": "127.0.0.1", "Port": 9100 }
+    }
+  ],
+  "Reactions": [
+    {
+      "Name": "PrintReaction",
+      "Type": "PrintAndApplyFrc",
+      "Enable": true,
+      "Bonds": [
+        { "Name": "PrintBond", "Source": "PLC.PrintReq", "Destination": "PRINTER.Print", "Handler": "StandardHandler" }
+      ]
+    }
+  ]
+}

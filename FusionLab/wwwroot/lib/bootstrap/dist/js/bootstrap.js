@@ -1279,7 +1279,7 @@
           return;
         }
 
-        // If it's a touch-enabled device, mouseenter/leave are fired as
+        // If it's a touch-enabled element, mouseenter/leave are fired as
         // part of the mouse compatibility events on first tap - the carousel
         // would stop cycling until user tapped out of it;
         // here, we listen for touchend, explicitly pause the carousel
@@ -1811,7 +1811,7 @@
       }
       this._createPopper();
 
-      // If this is a touch-enabled device we add extra
+      // If this is a touch-enabled element we add extra
       // empty mouseover listeners to the body's immediate children;
       // only needed because of broken event delegation on iOS
       // https://www.quirksmode.org/blog/archives/2014/02/mouse_event_bub.html
@@ -1855,7 +1855,7 @@
         return;
       }
 
-      // If this is a touch-enabled device we remove the extra
+      // If this is a touch-enabled element we remove the extra
       // empty mouseover listeners we added for iOS support
       if ('ontouchstart' in document.documentElement) {
         for (const element of [].concat(...document.body.children)) {
@@ -3336,7 +3336,7 @@
       this._popper = this._createPopper(tip);
       tip.classList.add(CLASS_NAME_SHOW$2);
 
-      // If this is a touch-enabled device we add extra
+      // If this is a touch-enabled element we add extra
       // empty mouseover listeners to the body's immediate children;
       // only needed because of broken event delegation on iOS
       // https://www.quirksmode.org/blog/archives/2014/02/mouse_event_bub.html
@@ -3365,7 +3365,7 @@
       const tip = this._getTipElement();
       tip.classList.remove(CLASS_NAME_SHOW$2);
 
-      // If this is a touch-enabled device we remove the extra
+      // If this is a touch-enabled element we remove the extra
       // empty mouseover listeners we added for iOS support
       if ('ontouchstart' in document.documentElement) {
         for (const element of [].concat(...document.body.children)) {

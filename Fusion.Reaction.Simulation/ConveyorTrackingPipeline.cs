@@ -2,7 +2,7 @@
 using Fusion.Common;
 using Serilog;
 
-namespace Workflow.PrintAndAppySimulation.FRC;
+namespace Fusion.Reaction.Simulation;
 
 public class ConveyorTrackingPipeline
 {

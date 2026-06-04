@@ -1,9 +1,9 @@
 {
   "AppSettings": {
-    "DeviceSpace": {
+    "Fusion": {
       "Name": "Simulation",
       "ColorConsole": true,
-      "DeviceList": [
+      "ElementList": [
         {
           "Name": "TBROKER",
           "Manager": "ActiveMQManager",
@@ -61,25 +61,25 @@
         },
         {
           "Name": "DIAG_SERVER",
-          "Manager": "DiagnosticDeviceManager",
+          "Manager": "DiagnosticElementManager",
           "Enable": false,
           "Properties": {
             "Port": 9999
           }
         }
       ],
-      "WorkflowList": [
+      "ReactionList": [
         {
-          "Name": "Workflow.Simulation",
-          "Type": "WorkflowSimulation",
+          "Name": "Fusion.Reaction.Simulation",
+          "Type": "ReactionSimulation",
           "Enable": true,
           "IsSimulation": true,
           "TotalTotes": 100,
           "InductionIntervalMs": 1000,
-          "Routes": [
+          "Bonds": [
             {
               "Mode": 1,
-              "Name": "Route1-LabelRequest",
+              "Name": "Bond1-LabelRequest",
               "Source": "TBROKER.LabelVerifyFrcMessage.AC.PNAX.LABELVERIFY",
               "Destination": "TBROKER.LabelVerifyFrcMessage.AC.PNAX.LABELVERIFY",
               "Handler": "HandleLabelVerify"

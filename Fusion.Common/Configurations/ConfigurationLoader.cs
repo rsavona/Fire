@@ -1,4 +1,5 @@
-﻿using Fusion.Common.Contracts;
+﻿using Fusion.Common.Blueprints;
+using Fusion.Common.Contracts;
 using Microsoft.Extensions.Configuration;
 
 namespace Fusion.Common.Configurations;
@@ -22,11 +23,11 @@ public static class ConfigurationLoader
             if (string.IsNullOrEmpty(fileName))
             {
                 var directory = Directory.GetCurrentDirectory();
-                var fusionFiles = Directory.GetFiles(directory, "*.fusion");
+                var fusionFiles = Directory.GetFiles(directory, "fbp_*.json");
 
                 if (fusionFiles.Length > 0)
                 {
-                    // Pick the most recently modified Fusion file
+                    // Pick the most recently modified Blueprint file
                     fileName = fusionFiles
                         .Select(f => new FileInfo(f))
                         .OrderByDescending(fi => fi.LastWriteTime)
@@ -35,8 +36,8 @@ public static class ConfigurationLoader
                 }
                 else
                 {
-                    // Fallback to the default .fusion name
-                    fileName = ".fusion";
+                    // Fallback to the default name
+                    fileName = "fbp_default.json";
                 }
             }
 
@@ -57,7 +58,7 @@ public static class ConfigurationLoader
         return _configuration;
     }
 
-    public static async Task UpdateDevicePropertyAsync(string deviceName, string propertyName, object value)
+    public static async Task UpdateElementPropertyAsync(string elementName, string propertyName, object value)
     {
         if (string.IsNullOrEmpty(_loadedFilePath) || !File.Exists(_loadedFilePath)) return;
 
@@ -66,7 +67,7 @@ public static class ConfigurationLoader
             var json = await File.ReadAllTextAsync(_loadedFilePath);
             var root = System.Text.Json.Nodes.JsonNode.Parse(json);
             
-            var cores = root?["AppSettings"]?["SystemBlueprintTemplate"]?["Cores"]?.AsArray();
+            var cores = root?["AppSettings"]?["Fusion"]?["Cores"]?.AsArray();
             if (cores == null) return;
 
             foreach (var core in cores)
@@ -74,114 +75,74 @@ public static class ConfigurationLoader
                 var elements = core?["Elements"]?.AsArray();
                 if (elements == null) continue;
 
-                var device = elements.FirstOrDefault(d => d?["CustomerName"]?.GetValue<string>() == deviceName);
-                if (device != null)
+                var element = elements.FirstOrDefault(d => d?["Name"]?.GetValue<string>() == elementName);
+                if (element != null)
                 {
-                    var properties = device["Properties"]?.AsObject();
+                    var properties = element["Properties"]?.AsObject();
                     if (properties == null) continue;
 
                     properties[propertyName] = System.Text.Json.Nodes.JsonValue.Create(value);
 
                     var options = new System.Text.Json.JsonSerializerOptions { WriteIndented = true };
-                    await File.WriteAllTextAsync(_loadedFilePath, root.ToJsonString(options));
+                    await File.WriteAllTextAsync(_loadedFilePath, root?.ToJsonString(options));
                     return;
                 }
             }
         }
         catch (Exception ex)
         {
-            Serilog.Log.Error(ex, "Failed to update device property {Prop} for {Dev} in {File}", propertyName, deviceName, _loadedFilePath);
+            Serilog.Log.Error(ex, "Failed to update element property {Prop} for {Dev} in {File}", propertyName, elementName, _loadedFilePath);
         }
     }
 
     public static ISystemBlueprintTemplate? GetSpaceConfig()
     {
-        var space = _configuration?.GetSection("AppSettings:SystemBlueprintTemplate").Get<SystemBlueprintTemplate>();
+        var space = _configuration?.GetSection("AppSettings:Fusion").Get<SystemBlueprintTemplate>();
         
-        if (space is { IsTestEnvironment: true })
-        {
-            InjectSimulationCore(space);
-        }
-
         return space;
     }
 
-    private static void InjectSimulationCore(SystemBlueprintTemplate space)
+    public static List<IElementBlueprint> GetAllElementConfig()
     {
-        // Don't inject twice if already present
-        if (space.Cores.Any(c => c.Name == "SIMULATION_CORE")) return;
-
-        var simCore = new CoreConfig { Name = "SIMULATION_CORE" };
-
-        // 1. Injected Verifier
-        simCore.Elements.Add(new DeviceConfig
-        {
-            Name = "TEST_VERIFIER",
-            Manager = "BlueprintVerifierManager",
-            Enable = true,
-            CoreName = "SIMULATION_CORE",
-            Properties = new Dictionary<string, object>
-            {
-                { "LogPath", "logs/fusion-bugs.md" },
-                { "TimeoutMs", 5000 }
-            }
-        });
-
-        // 2. Injected Virtual PLC (Stimulator)
-        // Find existing PLC configuration to mirror its endpoints if possible
-        var firstPlc = space.Cores.SelectMany(c => c.Elements).FirstOrDefault(e => e.Manager.Contains("Plc"));
-        var decisionPoints = firstPlc?.Properties.ContainsKey("DecisionPoints") == true 
-            ? firstPlc.Properties["DecisionPoints"] 
-            : "TEST_POINT:0";
-
-        simCore.Elements.Add(new DeviceConfig
-        {
-            Name = "TEST_STIMULATOR",
-            Manager = "VirtualPlcManager",
-            Enable = true,
-            CoreName = "SIMULATION_CORE",
-            Properties = new Dictionary<string, object>
-            {
-                { "IPAddress", "127.0.0.1" },
-                { "Port", 7999 },
-                { "DecisionPoints", decisionPoints },
-                { "TotalTotes", 999999 },
-                { "InductionFreq", 2000 } // Stimulate every 2 seconds
-            }
-        });
-
-        space.Cores.Add(simCore);
-        Serilog.Log.Information("[Configuration] Dynamic SIMULATION_CORE injected into Fusion Blueprint.");
-    }
-
-    public static List<IDeviceConfig> GetAllDeviceConfig()
-    {
-        var deviceSpaceConfig = GetSpaceConfig();
-        var allDevices = new List<IDeviceConfig>();
+        var elementSpaceConfig = GetSpaceConfig();
+        var allElementsMap = new Dictionary<string, IElementBlueprint>(StringComparer.OrdinalIgnoreCase);
         
-        if (deviceSpaceConfig?.Cores != null)
+        // 1. Load from Cores (Compound structure) - Priority
+        if (elementSpaceConfig?.Cores != null)
         {
-            foreach (var core in deviceSpaceConfig.Cores)
+            foreach (var core in elementSpaceConfig.Cores)
             {
-                if (core.Elements == null) continue;
                 foreach (var dev in core.Elements)
                 {
                     if (dev.Enable)
                     {
                         dev.CoreName = core.Name;
-                        allDevices.Add(dev);
+                        allElementsMap[dev.Name] = dev;
                     }
                 }
             }
         }
 
-        return allDevices;
+        // 2. Load from Legacy ElementList (Flat structure) - Only if not already present
+        if (elementSpaceConfig?.ElementList != null)
+        {
+            foreach (var dev in elementSpaceConfig.ElementList)
+            {
+                if (dev.Enable && !allElementsMap.ContainsKey(dev.Name))
+                {
+                    dev.CoreName ??= "System";
+                    allElementsMap[dev.Name] = dev;
+                }
+            }
+        }
+
+        return allElementsMap.Values.ToList();
     }
 
 
-public static T? GetRequiredConfig<T>(Dictionary<string, object> properties, string key)
+public static T GetRequiredConfig<T>(Dictionary<string, object> properties, string key)
 {
-    if (!properties.TryGetValue(key, out object? value) || value == null)
+    if (!properties.TryGetValue(key, out object? value))
     {
         throw new KeyNotFoundException($"Key '{key}' missing.");
     }
@@ -196,7 +157,7 @@ public static T? GetRequiredConfig<T>(Dictionary<string, object> properties, str
         Type u = Nullable.GetUnderlyingType(t) ?? t;
         
         // Convert.ChangeType works perfectly for string -> int, string -> bool, etc.
-        return (T)Convert.ChangeType(value.ToString(), u);
+        return (T)Convert.ChangeType(value.ToString(), u)!;
     }
     catch (Exception ex)
     {
@@ -213,7 +174,7 @@ public static T? GetRequiredConfig<T>(Dictionary<string, object> properties, str
     /// <returns></returns>
     public static T GetOptionalConfig<T>(Dictionary<string, object> properties, string key, T defaultValue)
     {
-        if (properties == null || !properties.TryGetValue(key, out object? value) || value == null)
+        if (!properties.TryGetValue(key, out object? value))
         {
             return defaultValue;
         }
@@ -243,56 +204,82 @@ public static T? GetRequiredConfig<T>(Dictionary<string, object> properties, str
     }
 
     /// <summary>
-    /// Retrieves all enabled workflows from the configuration.
+    /// Retrieves all enabled reactions from the configuration.
     /// </summary>
-    public static List<WorkflowConfig> GetAllWorkflowConfig()
+    public static List<ReactionBlueprint> GetAllReactionConfig()
     {
-        var deviceSpaceConfig = GetSpaceConfig();
-        var activeWorkflows = new List<WorkflowConfig>();
+        var elementSpaceConfig = GetSpaceConfig();
+        var activeReactionsMap = new Dictionary<string, ReactionBlueprint>(StringComparer.OrdinalIgnoreCase);
 
-        if (deviceSpaceConfig?.Cores != null)
+        // 1. Load from Cores
+        if (elementSpaceConfig?.Cores != null)
         {
-            foreach (var core in deviceSpaceConfig.Cores)
+            foreach (var core in elementSpaceConfig.Cores)
             {
-                if (core.Forces == null) continue;
-                foreach (var wf in core.Forces)
+                foreach (var wf in core.Reactions)
                 {
-                    if (wf.Enable && wf is WorkflowConfig wfc)
+                    if (wf.Enable && wf is ReactionBlueprint wfc)
                     {
                         wfc.CoreName = core.Name;
-                        activeWorkflows.Add(wfc);
+                        activeReactionsMap[wfc.Name] = wfc;
                     }
                 }
             }
         }
 
-        return activeWorkflows;
+        // 2. Load from Legacy ReactionList
+        if (elementSpaceConfig?.ReactionList != null)
+        {
+            foreach (var wf in elementSpaceConfig.ReactionList)
+            {
+                if (wf.Enable && wf is ReactionBlueprint wfc && !activeReactionsMap.ContainsKey(wfc.Name))
+                {
+                    wfc.CoreName ??= "System";
+                    activeReactionsMap[wfc.Name] = wfc;
+                }
+            }
+        }
+
+        return activeReactionsMap.Values.ToList();
     }
 
     /// <summary>
     /// Retrieves configuration for a specific type of Manager (e.g. "PlcManager").
     /// </summary>
-    public static List<IDeviceConfig> GetDeviceConfig(string type)
+    public static List<IElementBlueprint> GetElementConfig(string type)
     {
-        var deviceSpaceConfig = GetSpaceConfig();
-        var matchingDevices = new List<IDeviceConfig>();
+        var elementSpaceConfig = GetSpaceConfig();
+        var matchingElementsMap = new Dictionary<string, IElementBlueprint>(StringComparer.OrdinalIgnoreCase);
 
-        if (deviceSpaceConfig?.Cores != null)
+        // 1. Search in Cores
+        if (elementSpaceConfig?.Cores != null)
         {
-            foreach (var core in deviceSpaceConfig.Cores)
+            foreach (var core in elementSpaceConfig.Cores)
             {
-                if (core.Elements == null) continue;
                 foreach (var dev in core.Elements)
                 {
                     if (string.Equals(dev.Manager, type, StringComparison.OrdinalIgnoreCase))
                     {
                         dev.CoreName = core.Name;
-                        matchingDevices.Add(dev);
+                        matchingElementsMap[dev.Name] = dev;
                     }
                 }
             }
         }
 
-        return matchingDevices;
+        // 2. Search in Legacy ElementList
+        if (elementSpaceConfig?.ElementList != null)
+        {
+            foreach (var dev in elementSpaceConfig.ElementList)
+            {
+                if (string.Equals(dev.Manager, type, StringComparison.OrdinalIgnoreCase) && !matchingElementsMap.ContainsKey(dev.Name))
+                {
+                    dev.CoreName ??= "System";
+                    matchingElementsMap[dev.Name] = dev;
+                }
+            }
+        }
+
+        return matchingElementsMap.Values.ToList();
     }
 }

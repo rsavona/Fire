@@ -1,12 +1,12 @@
 {
   "AppSettings": {
-    "DeviceSpace": {
+    "Fusion": {
       "Name": "TuraHostSystem",
       "ColorConsole": true,
-      "DeviceList": [
+      "ElementList": [
         {
           "Name": "TURA_HOST",
-          "Manager": "TcpMessageServerDeviceManager",
+          "Manager": "TcpMessageServerElementManager",
           "Enable": true,
           "Properties": {
             "Port": "6601",
@@ -18,7 +18,7 @@
         },
         {
           "Name": "TURA_DB",
-          "Manager": "DatabaseDeviceManager",
+          "Manager": "DatabaseElementManager",
           "Enable": true,
           "Properties": {
             "ConnectionString": "Server=RSAVONA-LT1;Database=FortnaFire;Trusted_Connection=True;Encrypt=False;TrustServerCertificate=True;"
@@ -26,29 +26,29 @@
         },
         {
           "Name": "DIAG_SERVER",
-          "Manager": "DiagnosticDeviceManager",
+          "Manager": "DiagnosticElementManager",
           "Enable": true,
           "Properties": {
             "Port": 9999
           }
         }
       ],
-      "WorkflowList": [
+      "ReactionList": [
         {
-          "Name": "TuraHostWorkflow",
-          "Type": "TuraHostWorkflow",
+          "Name": "TuraHostReaction",
+          "Type": "TuraHostReaction",
           "Enable": true,
-          "Routes": [
+          "Bonds": [
             {
               "Mode": 1,
-              "Name": "TuraEchoRoute",
+              "Name": "TuraEchoBond",
               "Source": "TURA_HOST.Inbound",
               "Handler": "HandleTuraMessages",
               "Destination": "TURA_HOST.Outbound.Echo"
             },
             {
               "Mode": 1,
-              "Name": "TuraDbLogRoute",
+              "Name": "TuraDbLogBond",
               "Source": "TURA_HOST.Inbound",
               "Handler": "HandleDbLogging",
               "Destination": "TURA_DB.Log"

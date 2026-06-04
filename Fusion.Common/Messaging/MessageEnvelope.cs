@@ -3,11 +3,12 @@ using System.Text.Json.Nodes;
 
 namespace Fusion.Common;
 
-public readonly record struct SourceIdentifier(string DeviceKey, string SourcePath);
+public readonly record struct SourceIdentifier(string ElementKey, string SourcePath);
 
 public record MessageEnvelope
 {
     public MessageBusTopic Destination { get; init; }
+    public MessageHeader Header { get; init; } = new();
     public int Gin { get; init; }
     public bool IsHighPriority { get; init; }
     public string Client { get; init; }
@@ -15,18 +16,19 @@ public record MessageEnvelope
     public DateTime Created { get; init; } = DateTime.UtcNow;
 
     // Use a single Primary Constructor or chain them
-    public MessageEnvelope(MessageBusTopic dest, object payload, int gin = 0, string client = "", bool highPriority = true)
+    public MessageEnvelope(MessageBusTopic dest, object payload, int gin = 0, string client = "", bool highPriority = true, MessageHeader? header = null)
     {
         Destination = dest;
         Payload = payload;
+        Header = header ?? new MessageHeader { Source = client };
         Gin = gin;
         Client = client;
         IsHighPriority = highPriority;
     }
 
     // Helper for when you only have a string topic
-    public MessageEnvelope(string dest, object payload, int gin = 0, string client = "", bool highPriority = true)
-        : this(new MessageBusTopic(dest), payload, gin, client, highPriority)
+    public MessageEnvelope(string dest, object payload, int gin = 0, string client = "", bool highPriority = true, MessageHeader? header = null)
+        : this(new MessageBusTopic(dest), payload, gin, client, highPriority, header)
     {
     }
 }

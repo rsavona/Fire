@@ -1,0 +1,29 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <TargetFramework>net10.0</TargetFramework>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <Nullable>enable</Nullable>
+        <RootNamespace>Fusion.Reaction.Sort.Standard</RootNamespace>
+    </PropertyGroup>
+
+    <PropertyGroup Condition=" '$(Configuration)' == 'Debug' ">
+      <OutputPath>..\Output\</OutputPath>
+    </PropertyGroup>
+
+    <PropertyGroup Condition=" '$(Configuration)' == 'Release' ">
+      <OutputPath>..\Output\</OutputPath>
+    </PropertyGroup>
+
+    <ItemGroup>
+      <ProjectReference Include="..\Fusion.Common\Fusion.Common.csproj" />
+      <ProjectReference Include="..\Fusion.Core\Fusion.Core.csproj" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <PackageReference Include="Dapper" Version="2.1.72" />
+      <PackageReference Include="Microsoft.Data.SqlClient" Version="7.0.1" />
+      <PackageReference Include="Microsoft.Extensions.Logging" Version="10.0.7" />
+    </ItemGroup>
+
+</Project>

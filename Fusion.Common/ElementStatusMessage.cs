@@ -11,7 +11,7 @@ public record ElementStatusMessage : ElementMessageBase, IElementStatus
     public IElementKey ElementId { get; init; }
     public DateTime Timestamp { get; init; }
     public string State { get; init; }
-    public DeviceHealth Health { get; init; }
+    public ElementHealth Health { get; init; }
     public string Comment { get; init; }
     
     // --- Standard Metrics (Keep for UI Compatibility) ---
@@ -33,12 +33,12 @@ public record ElementStatusMessage : ElementMessageBase, IElementStatus
     public IReadOnlyDictionary<string, long> Metrics { get; init; }
 
     /// <summary>
-    /// Primary constructor used by the DeviceStatusTracker.
+    /// Primary constructor used by the StatusTracker.
     /// </summary>
     public ElementStatusMessage(
         IElementKey elementId, 
         string state, 
-        DeviceHealth health, 
+        ElementHealth health, 
         string comment,
         int countInbound, 
         int countOutbound, 
@@ -82,7 +82,7 @@ public record ElementStatusMessage : ElementMessageBase, IElementStatus
         var options = new JsonSerializerOptions { WriteIndented = true };
         var shortObj = new
         {
-            deviceId = ElementId.ToString(),
+            elementId = ElementId.ToString(),
             health = Health.ToString(),
             state = State,
             mainMetrics = new { In = CountInbound, InRate = InboundRate, Out = CountOutbound, OutRate = OutboundRate, Err = CountError },

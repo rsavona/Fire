@@ -3,6 +3,6 @@
   public interface IElementKey
   {
         string ScopeName { get; init; }
-        string DeviceName { get; init; }
+        string ElementName { get; init; }
         string CoreName { get; init; }
   }

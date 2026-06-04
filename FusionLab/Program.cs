@@ -1,13 +1,15 @@
-using FireBuilder.Components;
-using DeviceSpace.Core;
-using FireBuilder.Services;
+using FusionLab.Components;
+using Fusion.Core;
+using FusionLab.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
-builder.Services.AddSingleton<DeviceDiscoveryService>();
+builder.Services.AddSingleton<ElementDiscoveryService>();
+builder.Services.AddSingleton<AiBlueprintService>();
+builder.Services.AddSingleton<CompoundService>();
 builder = builder.AddCoreServices(); 
 
                    

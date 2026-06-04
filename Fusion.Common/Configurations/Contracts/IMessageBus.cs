@@ -23,7 +23,7 @@ public interface IMessageBus
     /// Subscribes an async handler to a specific topic.
     /// The handler receives the MessageEnvelope and a CancellationToken.
     /// </summary>
-    /// <param name="topic">The topic/route name.</param>
+    /// <param name="topic">The topic/bond name.</param>
     /// <param name="handler">The async function to execute upon message receipt.</param>
     Task<bool> SubscribeAsync(string topic, Delegate handler);
 
@@ -37,7 +37,7 @@ public interface IMessageBus
     /// Subscribes an async handler to a specific topic, using a type-safe message payload.
     /// </summary>
     /// <typeparam name="TMessage">The type of the message payload expected.</typeparam>
-    /// <param name="topic">The topic/route name.</param>
+    /// <param name="topic">The topic/bond name.</param>
     /// <param name="handler">The async function that receives the message payload.</param>
     Task<bool> SubscribeAsync<TMessage>(string topic, Func<TMessage, Task> handler);
 
@@ -46,7 +46,7 @@ public interface IMessageBus
     /// </summary>
     /// <typeparam name="TRequest">The type of the request message.</typeparam>
     /// <typeparam name="TResponse">The type of the expected response.</typeparam>
-    /// <param name="topic">The topic/route name.</param>
+    /// <param name="topic">The topic/bond name.</param>
     /// <param name="handler">The async function that receives a request and returns a response.</param>
     Task<bool> SubscribeAsync<TRequest, TResponse>(string topic, Func<TRequest, Task<TResponse>> handler);
 
@@ -57,7 +57,7 @@ public interface IMessageBus
     /// <summary>
     /// Unsubscribes a previously registered handler based on its topic and type signature.
     /// </summary>
-    /// <param name="topic">The topic/route name.</param>
+    /// <param name="topic">The topic/bond name.</param>
     /// <param name="handler">The specific handler function to remove.</param>
     void Unsubscribe(string topic, Delegate handler);
 
@@ -68,7 +68,7 @@ public interface IMessageBus
     /// <summary>
     /// Publishes a message to all subscribers of its topic.
     /// </summary>
-    /// <param name="topic">The topic/route name.</param>
+    /// <param name="topic">The topic/bond name.</param>
     /// <param name="messageEnvelope">The complete message envelope to publish.</param>
     /// <param name="cancellationToken">Token to observe for cancellation requests.</param>
     /// <returns>A Task representing the asynchronous publish operation.</returns>
@@ -77,7 +77,7 @@ public interface IMessageBus
     Task PublishAsync(MessageBusTopic topic, MessageEnvelope messageEnvelope,
         CancellationToken cancellationToken = default);
 
-    Task PublishStatusAsync(DeviceStatusMessage snapshot, CancellationToken cancellationToken = default);
+    Task PublishStatusAsync(IElementStatus snapshot, CancellationToken cancellationToken = default);
 
 
     // ---------------------------------------------------------------------

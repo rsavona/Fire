@@ -1,7 +1,7 @@
 ﻿using System.Diagnostics;
 using Apache.NMS;
 
-namespace Device.ActiveMQ
+namespace Fusion.Element.ActiveMQ
 {
     // when the session information needs to be persistent
     // this class sores the info and will be placed in a map

@@ -21,17 +21,17 @@ namespace Fusion.Common.Logging
         private readonly Serilog.ILogger _logger;
         private readonly IMessageBus? _messageBus;
         private readonly ILoggingBus? _loggingBus;
-        private string _deviceName = "System";
+        private string _elementName = "System";
 
         private const string DefaultValue = "-----";
         private static readonly ConcurrentDictionary<string, int> _sampleCounters = new();
 
-        public FireLogger(Serilog.ILogger logger, ILoggingBus? loggingBus = null, IMessageBus? messageBus = null, string deviceName = "System")
+        public FireLogger(Serilog.ILogger logger, ILoggingBus? loggingBus = null, IMessageBus? messageBus = null, string elementName = "System")
         {
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
             _loggingBus = loggingBus;
             _messageBus = messageBus;
-            _deviceName = deviceName;
+            _elementName = elementName;
         }
 
         public Serilog.ILogger GetRawLogger()
@@ -42,8 +42,8 @@ namespace Fusion.Common.Logging
         public IFireLogger WithContext(string propertyName, object value)
         {
             var newLogger = _logger.ForContext(propertyName, value);
-            var newDeviceName = propertyName == "DeviceName" ? value.ToString() ?? _deviceName : _deviceName;
-            return new FireLogger(newLogger, _loggingBus, _messageBus, newDeviceName);
+            var newElementName = propertyName == "ElementName" ? value.ToString() ?? _elementName : _elementName;
+            return new FireLogger(newLogger, _loggingBus, _messageBus, newElementName);
         }
 
         private string FormatMethodTag(string methodName)
@@ -112,7 +112,7 @@ namespace Fusion.Common.Logging
                 _ = _loggingBus.PublishAsync(new LogMessage
                 {
                     Level = level,
-                    Context = _deviceName,
+                    Context = _elementName,
                     MessageTemplate = safeTemplate,
                     Args = SanitizeArgs(args),
                     Exception = ex
@@ -121,26 +121,26 @@ namespace Fusion.Common.Logging
 
             if (_messageBus != null)
             {
-                var topic = $"{_deviceName}.{level}.Log";
+                var topic = $"{_elementName}.{level}.Log";
                 PublishToBus(topic, safeTemplate, args, ex);
             }
         }
 
         // 2. The Data Write (Used exclusively by LogConveyableEvent to track warehouse cartons)
-        private void WriteConveyableEvent(string device, string message, string? gin, List<string> barcodes, string? decisionPoint)
+        private void WriteConveyableEvent(string element, string message, string? gin, List<string> barcodes, string? decisionPoint)
         {
             var contextualLogger = _logger;
 
             contextualLogger = contextualLogger.ForContext("Context", "ConveyableEvents");
-            contextualLogger = contextualLogger.ForContext("DeviceName", device);
+            contextualLogger = contextualLogger.ForContext("ElementName", element);
             contextualLogger = contextualLogger.ForContext("GIN", gin);
             contextualLogger = contextualLogger.ForContext("Barcodes", barcodes);
             contextualLogger = contextualLogger.ForContext("DecisionPoint", decisionPoint);
 
 
-            string ginTag = (string.IsNullOrEmpty(device) || device == DefaultValue)
+            string ginTag = (string.IsNullOrEmpty(element) || element == DefaultValue)
                 ? ""
-                : $"[{device.PadLeft(3, ' ')}]" +
+                : $"[{element.PadLeft(3, ' ')}]" +
                   ((string.IsNullOrEmpty(gin) || gin == DefaultValue) ? "" : $"[GIN:{gin.PadLeft(3, '0')}] ") +
                   $"[BC:{string.Join(", ", barcodes)}]" +
                   (string.IsNullOrEmpty(decisionPoint) ? "" : $" [DP:{decisionPoint}] ");
@@ -159,8 +159,8 @@ namespace Fusion.Common.Logging
                 {
                     Level = LogEventLevel.Information,
                     Context = "CONVEYABLE_EVENTS",
-                    MessageTemplate = "[{Device}][GIN:{GIN}] {Message}",
-                    Args = new object[] { device, gin ?? "0", message },
+                    MessageTemplate = "[{Element}][GIN:{GIN}] {Message}",
+                    Args = new object[] { element, gin ?? "0", message },
                     FormattedMessage = $"{ginTag}{message}"
                 });
             }
@@ -185,7 +185,7 @@ namespace Fusion.Common.Logging
 
                 var logPayload = new
                 {
-                    Device = _deviceName,
+                    Element = _elementName,
                     Timestamp = DateTime.UtcNow,
                     Message = formattedMessage,
                     Exception = ex?.ToString(),
@@ -261,9 +261,9 @@ namespace Fusion.Common.Logging
         public void Information(string message, params object?[] args) =>
             Write(LogEventLevel.Information, null, "", message, args);
 
-        public void LogConveyableEvent(string device, string message, string? gin, List<string> barcodes, string? decisionPoint = "")
+        public void LogConveyableEvent(string element, string message, string? gin, List<string> barcodes, string? decisionPoint = "")
         {
-            WriteConveyableEvent(device, message , gin, barcodes, decisionPoint);
+            WriteConveyableEvent(element, message , gin, barcodes, decisionPoint);
         }
 
   

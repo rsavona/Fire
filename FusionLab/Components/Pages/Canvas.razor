@@ -1,113 +1,132 @@
 @using System.Text.Json
-@using DeviceSpace.Common.Contracts 
-@using DeviceSpace.Common 
-@using DeviceSpace.Common.Configurations
+@using Fusion.Common.Blueprints
 @using Microsoft.AspNetCore.Components.Forms
+@using FusionLab.Services
 @inject IJSRuntime JSRuntime
+@inject CompoundService CompoundService
+@inject AiBlueprintService AiService
 
-<div class="d-flex flex-row flex-grow-1 w-100" style="overflow: hidden;">
-    
+<div class="d-flex flex-row flex-grow-1 w-100" style="overflow: hidden; height: calc(100vh - 48px);">
+
     <!-- LEFT SIDEBAR: TOOLKIT -->
-    <div class="left-sidebar">
-        <ToolkitSidebar OnItemDragStart="OnDragStart" />
-    </div>
+    <ToolkitSidebar OnItemDragStart="OnDragStart" />
 
     <!-- MAIN CANVAS AREA -->
-    <div class="flex-grow-1 p-4 bg-light h-100 d-flex flex-column" style="position: relative;">
-        <div class="d-flex justify-content-between align-items-center mb-3">
-            <h5 class="text-dark fw-bold m-0"><i class="bi bi-layers-half"></i> Designer Canvas</h5>
+    <div class="flex-grow-1 p-4 h-100 d-flex flex-column" style="position: relative;">
+        <div class="d-flex justify-content-between align-items-center designer-header">
+            <h5 class="designer-title m-0"><i class="bi bi-layers-half text-warning"></i> PROJECT BLUEPRINT BUILDER</h5>
             <div class="d-flex gap-2">
-                <button class="btn btn-sm btn-outline-secondary" @onclick="CollapseAll">Collapse All</button>
-                <button class="btn btn-sm btn-outline-danger" @onclick="() => { _systemBlueprintTemplate.DeviceList.Clear(); _systemBlueprintTemplate.WorkflowList.Clear(); }">Clear Canvas</button>
-                
-                <div class="ms-3 border-start ps-3 d-flex gap-2">
-                    <button class="btn btn-sm btn-@( _isJsonVisible ? "secondary" : "info")" @onclick="() => _isJsonVisible = !_isJsonVisible">
-                        <i class="bi @(_isJsonVisible ? "bi-eye-slash" : "bi-code-slash")"></i> 
-                        @(_isJsonVisible ? "Hide JSON" : "Show JSON")
+                <button class="btn-fusion btn-fusion-outline" style="border-color: var(--fusion-accent); color: var(--fusion-accent);" @onclick="() => _showAiModal = true">
+                    <i class="bi bi-robot"></i> AI BUILDER
+                </button>
+                <button class="btn-fusion btn-fusion-outline" @onclick="CollapseAll">COLLAPSE ALL</button>
+                <button class="btn-fusion btn-fusion-outline" style="border-color: #ef4444; color: #ef4444;" @onclick="ClearCanvas">CLEAR CANVAS</button>
+
+                <div class="ms-2 border-start border-secondary ps-3 d-flex gap-2">
+                    <button class="btn-fusion btn-fusion-outline" @onclick="() => _isJsonVisible = !_isJsonVisible">
+                        <i class="bi @(_isJsonVisible ? "bi-eye-slash" : "bi-code-slash")"></i>
+                        @(_isJsonVisible ? "HIDE JSON" : "SHOW JSON")
                     </button>
                 </div>
             </div>
         </div>
 
-        <div class="canvas-container rounded p-4 flex-grow-1 overflow-auto" @ondragover:preventDefault @ondrop="OnDrop">
-            @foreach (var device in _systemBlueprintTemplate.DeviceList)
+        <div class="canvas-container p-4 flex-grow-1 overflow-auto" @ondragover:preventDefault @ondrop="OnDrop">
+            @foreach (var core in _systemBlueprintTemplate.Compounds)
             {
-                <div class="card mb-3 border-0 border-start border-4 border-danger shadow-sm">
-                    <div class="card-header bg-white pt-2 pb-2 d-flex justify-content-between align-items-center collapse-header" @onclick="() => ToggleCollapse(device)">
+                <div class="core-section mb-4 p-3 border rounded shadow-sm">
+                    <div class="d-flex justify-content-between align-items-center mb-3 border-bottom border-secondary pb-2">
                         <div class="d-flex align-items-center gap-2">
-                            <i class="bi @(IsCollapsed(device) ? "bi-chevron-right" : "bi-chevron-down") text-secondary"></i>
-                            <h6 class="m-0 text-danger fw-bold small">
-                                <i class="bi @GetIconForManager(device.Manager) me-1"></i>
-                                @device.Name 
-                                <span class="text-muted fw-normal small ms-2" style="font-size: 0.7rem;">(@device.Manager)</span>
-                            </h6>
+                            <h6 class="core-title m-0 fw-bold">PROJECT:</h6>
+                            <input class="prop-input-fusion text-start fw-bold" style="border-bottom: 1px solid var(--fusion-border); font-size: 1rem; width: 250px; background: transparent; color: white;" @bind="core.Name" placeholder="Project Name" />
                         </div>
-                        <button class="btn btn-sm text-secondary p-0" @onclick:stopPropagation @onclick="() => RemoveDevice(device)"><i class="bi bi-x-lg"></i></button>
+                        <div class="text-info" style="font-size: 0.9rem;">
+                            <i class="bi bi-clock-history"></i> <strong>Est. Commission Time:</strong> @(_estimatedCommissionTime)
+                        </div>
                     </div>
-                    @if (!IsCollapsed(device))
-                    {
-                        <div class="card-body pt-2 pb-2 border-top bg-white">
-                            <div class="row g-2 mb-2">
-                                <div class="col-12"><input class="form-control form-control-sm border-danger-subtle" @bind="device.CustomerName" placeholder="Device CustomerName" /></div>
-                            </div>
-                            @if(device.Properties != null)
+
+                    <div class="row">
+                        <div class="col-md-6">
+                            <label class="section-label">ELEMENTS</label>
+                            @foreach (var element in core.Elements)
                             {
-                                <div class="bg-light p-2 rounded border">
-                                    @foreach(var key in device.Properties.Keys.ToList())
+                                <div class="fusion-item-card border rounded p-1 mb-2 shadow-sm" style="border: 1px solid #ef4444 !important; border-left: 4px solid #ef4444 !important; max-width: 95%;">
+                                    <div class="card-header-fusion d-flex align-items-center justify-content-between p-2" style="cursor: pointer; background: rgba(255,255,255,0.05);" @onclick="() => ToggleCollapse(element)">
+                                        <div class="d-flex align-items-center gap-2 flex-grow-1">
+                                            <i class="bi @(IsCollapsed(element) ? "bi-chevron-right" : "bi-chevron-down") text-muted"></i>
+                                            <i class="bi @GetIconForManager(element.Manager)"></i>
+                                            <input class="form-control-fusion flex-grow-1 m-0 p-1 fw-bold" style="max-width: 250px; background: transparent; border: 1px solid var(--fusion-border); color: white;" @bind="element.Name" @onclick:stopPropagation placeholder="Element Name" />
+                                            <span class="text-muted fw-normal ms-2" style="font-size: 0.75rem;">(@element.Manager)</span>
+                                        </div>
+                                        <button class="btn text-muted p-0 hover-danger ms-2" @onclick:stopPropagation @onclick="() => RemoveElement(core, element)"><i class="bi bi-x-lg"></i></button>
+                                    </div>
+                                    @if (!IsCollapsed(element))
                                     {
-                                        <div class="d-flex justify-content-between align-items-center prop-row">
-                                            <span class="prop-label">@key</span>
-                                            <input class="prop-input text-end" value="@device.Properties[key]" @onchange="@((ChangeEventArgs e) => UpdateProperty(device, key, e.Value))" />
+                                        <div class="card-body-fusion p-2">
+                                            @if(element.Properties != null)
+                                            {
+                                                <div class="mt-2">
+                                                    @foreach(var key in element.Properties.Keys.ToList())
+                                                    {
+                                                        <div class="prop-row-fusion">
+                                                            <span class="prop-label-fusion">@key</span>
+                                                            <input class="prop-input-fusion" value="@element.Properties[key]" @onchange="@((ChangeEventArgs e) => UpdateProperty(element, key, e.Value))" />
+                                                        </div>
+                                                    }
+                                                </div>
+                                            }
                                         </div>
                                     }
                                 </div>
                             }
                         </div>
-                    }
-                </div>
-            }
 
-            @foreach (var wf in _systemBlueprintTemplate.WorkflowList)
-            {
-                <div class="card mb-3 border-0 border-start border-4 border-warning shadow-sm">
-                    <div class="card-header bg-white pt-2 pb-2 d-flex justify-content-between align-items-center collapse-header" @onclick="() => ToggleCollapse(wf)">
-                        <div class="d-flex align-items-center gap-2">
-                            <i class="bi @(IsCollapsed(wf) ? "bi-chevron-right" : "bi-chevron-down") text-secondary"></i>
-                            <h6 class="m-0 text-warning fw-bold small">
-                                <i class="bi bi-diagram-3-fill me-1"></i> @wf.Name
-                            </h6>
-                        </div>
-                        <button class="btn btn-sm text-secondary p-0" @onclick:stopPropagation @onclick="() => RemoveWorkflow(wf)"><i class="bi bi-x-lg"></i></button>
-                    </div>
-                    @if (!IsCollapsed(wf))
-                    {
-                        <div class="card-body pt-2 pb-2 border-top bg-white">
-                            <div class="d-flex justify-content-between align-items-center mb-2">
-                                <small class="fw-bold text-muted">Bonds</small>
-                                <button class="btn btn-xs btn-outline-warning text-dark py-0" style="font-size: 0.6rem;" @onclick="() => AddAdapter(wf)">+ Add Bond</button>
-                            </div>
-                            @foreach(var route in wf.Bonds)
+                        <div class="col-md-6">
+                            <label class="section-label">REACTIONS</label>
+                            @foreach (var reaction in core.Reactions)
                             {
-                                <div class="p-2 bg-light border rounded mb-2 shadow-sm">
-                                    <div class="input-group input-group-sm mb-1">
-                                        <span class="input-group-text bg-light text-muted" style="width: 45px;">In</span>
-                                        <input type="text" class="form-control" @bind="route.Source">
-                                        <button class="btn btn-outline-secondary" @onclick="() => OpenTopicBuilder(route, true)"><i class="bi bi-tools"></i></button>
+                                <div class="fusion-item-card border rounded p-1 mb-2 shadow-sm" style="border: 1px solid var(--fusion-accent) !important; border-left: 4px solid var(--fusion-accent) !important; max-width: 95%;">
+                                    <div class="card-header-fusion d-flex align-items-center justify-content-between p-2" style="cursor: pointer; background: rgba(255,255,255,0.05);" @onclick="() => ToggleCollapse(reaction)">
+                                        <div class="d-flex align-items-center gap-2 flex-grow-1">
+                                            <i class="bi @(IsCollapsed(reaction) ? "bi-chevron-right" : "bi-chevron-down") text-muted"></i>
+                                            <i class="bi bi-diagram-3-fill text-warning"></i>
+                                            <input class="form-control-fusion flex-grow-1 m-0 p-1 fw-bold" style="max-width: 250px; background: transparent; border: 1px solid var(--fusion-border); color: white;" @bind="reaction.Name" @onclick:stopPropagation placeholder="Reaction Name" />
+                                        </div>
+                                        <button class="btn text-muted p-0 hover-danger ms-2" @onclick:stopPropagation @onclick="() => RemoveReaction(core, reaction)"><i class="bi bi-x-lg"></i></button>
                                     </div>
-                                    <div class="input-group input-group-sm mb-1">
-                                        <span class="input-group-text bg-light text-muted" style="width: 45px;">Out</span>
-                                        <input type="text" class="form-control" @bind="route.Destination">
-                                        <button class="btn btn-outline-secondary" @onclick="() => OpenTopicBuilder(route, false)"><i class="bi bi-tools"></i></button>
-                                    </div>
-                                    <div class="input-group input-group-sm">
-                                        <span class="input-group-text"><i class="bi bi-shuffle"></i></span>
-                                        <input type="text" class="form-control" @bind="route.Handler">
-                                        <button class="btn btn-warning" @onclick="() => OpenHandlerBuilder(route)"><i class="bi bi-magic"></i></button>
-                                    </div>
+                                    @if (!IsCollapsed(reaction))
+                                    {
+                                        <div class="card-body-fusion p-2">
+                                            <div class="d-flex justify-content-between align-items-center mb-2 mt-2 border-bottom border-secondary pb-1">
+                                                <small class="section-label mb-0" style="font-size: 0.6rem;">BONDS</small>
+                                                <button class="btn-fusion btn-fusion-outline btn-xs" @onclick="() => AddBond(reaction)">+ ADD BOND</button>
+                                            </div>
+                                            @foreach(var bond in reaction.Bonds)
+                                            {
+                                                <div class="p-2 mb-2" style="background: rgba(255,255,255,0.02); border: 1px solid var(--fusion-border); border-radius: var(--fusion-radius);">
+                                                    <div class="input-group input-group-sm mb-1">
+                                                        <span class="input-group-text bg-transparent border-0 text-muted" style="width: 35px; font-size: 0.65rem;">IN</span>
+                                                        <input type="text" class="form-control-fusion flex-grow-1" @bind="bond.Source">
+                                                        <button class="btn btn-fusion btn-fusion-outline p-1" @onclick="() => OpenBondBuilder(bond, true)"><i class="bi bi-tools"></i></button>
+                                                    </div>
+                                                    <div class="input-group input-group-sm mb-1">
+                                                        <span class="input-group-text bg-transparent border-0 text-muted" style="width: 35px; font-size: 0.65rem;">OUT</span>
+                                                        <input type="text" class="form-control-fusion flex-grow-1" @bind="bond.Destination">
+                                                        <button class="btn btn-fusion btn-fusion-outline p-1" @onclick="() => OpenBondBuilder(bond, false)"><i class="bi bi-tools"></i></button>
+                                                    </div>
+                                                    <div class="input-group input-group-sm">
+                                                        <span class="input-group-text bg-transparent border-0 text-muted" style="width: 35px;"><i class="bi bi-shuffle"></i></span>
+                                                        <input type="text" class="form-control-fusion flex-grow-1" @bind="bond.Handler">
+                                                        <button class="btn-fusion btn-fusion-primary p-1" @onclick="() => OpenHandlerBuilder(bond)"><i class="bi bi-magic"></i></button>
+                                                    </div>
+                                                </div>
+                                            }
+                                        </div>
+                                    }
                                 </div>
                             }
                         </div>
-                    }
+                    </div>
                 </div>
             }
         </div>
@@ -117,17 +136,17 @@
     @if (_isJsonVisible)
     {
         <div class="right-sidebar">
-            <div class="sidebar-section-header d-flex justify-content-between align-items-center">
-                <span>Live JSON Output</span>
+            <div class="sidebar-section-header">
+                <span>LIVE BLUEPRINT JSON</span>
             </div>
-            <textarea readonly class="form-control json-textarea p-3">@GetJson()</textarea>
+            <textarea @ref="_jsonTextarea" readonly class="json-textarea-fusion">@GetJson()</textarea>
             
-            <div class="save-load-bar">
-                <button class="btn btn-xs btn-success w-100" @onclick="SaveJson">
-                    <i class="bi bi-download"></i> Save
+            <div class="p-2 d-flex gap-2 bg-dark-subtle border-top border-secondary">
+                <button class="btn-fusion btn-fusion-primary flex-grow-1" @onclick="SaveJson">
+                    <i class="bi bi-download"></i> SAVE
                 </button>
-                <label class="btn btn-xs btn-primary w-100 m-0">
-                    <i class="bi bi-upload"></i> Load
+                <label class="btn-fusion btn-fusion-outline flex-grow-1 m-0 text-center pointer">
+                    <i class="bi bi-upload"></i> LOAD
                     <InputFile OnChange="LoadJson" class="d-none" />
                 </label>
             </div>
@@ -136,13 +155,13 @@
 
 </div>
 
-@if (_showTopicModal)
+@if (_showBondModal)
 {
-    <TopicBuilderModal 
-        Devices="@_systemBlueprintTemplate.DeviceList.Select(d => d.Name)"
-        InitialDevice="@_systemBlueprintTemplate.DeviceList.FirstOrDefault()?.Name"
-        OnApply="ApplyTopic"
-        OnClose="() => _showTopicModal = false" />
+    <BondBuilderModal 
+        Elements="@_systemBlueprintTemplate.Compounds.SelectMany(c => c.Elements).Select(d => d.Name)"
+        InitialElement="@_systemBlueprintTemplate.Compounds.SelectMany(c => c.Elements).FirstOrDefault()?.Name"
+        OnApply="ApplyBondTopic"
+        OnClose="() => _showBondModal = false" />
 }
 
 @if (_showHandlerModal)
@@ -153,39 +172,60 @@
         OnClose="() => _showHandlerModal = false" />
 }
 
+@if (_showAiModal)
+{
+    <AiBuilderModal 
+        OnBlueprintGenerated="OnAiBlueprintGenerated"
+        OnClose="() => _showAiModal = false" />
+}
+
 @code {
-    private SystemBlueprintTemplate _systemBlueprintTemplate = new SystemBlueprintTemplate();
+    private SystemBlueprintTemplate _systemBlueprintTemplate = new SystemBlueprintTemplate { Compounds = new List<CompoundBlueprint> { new CompoundBlueprint { Name = "Default" } } };
     private string _draggedType;
     private bool _isJsonVisible = false;
+    private bool _showAiModal = false;
+    private string _estimatedCommissionTime = "";
     private HashSet<object> _collapsedItems = new HashSet<object>();
+    private ElementReference _jsonTextarea;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_isJsonVisible)
+        {
+            await JSRuntime.InvokeVoidAsync("autoResizeTextarea", _jsonTextarea);
+        }
+    }
 
     private Dictionary<string, List<string>> _messageSchemas = new() {
         { "DReqM", new() { "Gin", "Sku", "Qty", "StationId" } },
         { "LabelToPrint", new() { "PrinterName", "RawData", "JobId" } },
-        { "StatusUpdate", new() { "DeviceId", "Code", "Message" } }
+        { "StatusUpdate", new() { "ElementId", "Code", "Message" } }
     };
 
-    private bool _showTopicModal, _showHandlerModal, _isEditingSource;
-    private ForceBond _editingRoute;
+    private bool _showBondModal, _showHandlerModal, _isEditingSource;
+    private BondBlueprint _editingBond;
 
     public string GetJson() => JsonSerializer.Serialize(new { 
         AppSettings = new { 
-            DeviceSpace = new {
-                Name = _systemBlueprintTemplate.CustomerName,
-                Devices = _systemBlueprintTemplate.DeviceList.ToDictionary(d => d.Name, d => d), 
-                Workflows = _systemBlueprintTemplate.WorkflowList.ToDictionary(w => w.Name, w => w) 
-            }
+            Fusion = _systemBlueprintTemplate
         } 
     }, new JsonSerializerOptions { WriteIndented = true });
 
     private async Task SaveJson()
     {
         var json = GetJson();
-        await JSRuntime.InvokeVoidAsync("downloadFile", "SystemBlueprintTemplate.json", json);
+        await JSRuntime.InvokeVoidAsync("downloadFile", $"{_systemBlueprintTemplate.CustomerName}_Blueprint.json", json);
     }
 
-    private async Task LoadJson(InputFileChangeEventArgs e)
+    private void ClearCanvas()
     {
+        _systemBlueprintTemplate.Compounds.Clear();
+        _systemBlueprintTemplate.Compounds.Add(new CompoundBlueprint { Name = "Default" });
+    }
+
+    public async Task LoadJson(InputFileChangeEventArgs e)
+    {
+        Console.WriteLine($"Attempting to load file: {e.File.Name}");
         try
         {
             using var reader = new StreamReader(e.File.OpenReadStream());
@@ -193,30 +233,26 @@
             var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
             
             var root = JsonDocument.Parse(content);
-            var appSettings = root.RootElement.GetProperty("AppSettings").GetProperty("SystemBlueprintTemplate");
-            
-            _systemBlueprintTemplate.DeviceList.Clear();
-            _systemBlueprintTemplate.WorkflowList.Clear();
-
-            if (appSettings.TryGetProperty("Devices", out var devices))
+            if (!root.RootElement.TryGetProperty("AppSettings", out var appSettings) || 
+                !appSettings.TryGetProperty("Fusion", out var fusion))
             {
-                foreach (var devProp in devices.EnumerateObject())
-                {
-                    var dev = devProp.Value.Deserialize<DeviceConfig>(options);
-                    if (dev != null) _systemBlueprintTemplate.DeviceList.Add(dev);
-                }
+                Console.WriteLine("Error: JSON structure missing AppSettings.Fusion root.");
+                return;
             }
 
-            if (appSettings.TryGetProperty("Workflows", out var workflows))
-            {
-                foreach (var wfProp in workflows.EnumerateObject())
-                {
-                    var wf = wfProp.Value.Deserialize<WorkflowConfig>(options);
-                    if (wf != null) _systemBlueprintTemplate.WorkflowList.Add(wf);
-                }
-            }
+            var loadedTemplate = JsonSerializer.Deserialize<SystemBlueprintTemplate>(fusion.GetRawText(), options);
             
-            StateHasChanged();
+            if (loadedTemplate != null)
+            {
+                _systemBlueprintTemplate.CustomerName = loadedTemplate.CustomerName;
+                _systemBlueprintTemplate.Compounds = loadedTemplate.Compounds ?? new List<CompoundBlueprint>();
+                
+                if (!_systemBlueprintTemplate.Compounds.Any())
+                    _systemBlueprintTemplate.Compounds.Add(new CompoundBlueprint { Name = "Default" });
+
+                Console.WriteLine($"Successfully loaded blueprint for: {_systemBlueprintTemplate.CustomerName}");
+                StateHasChanged();
+            }
         }
         catch (Exception ex)
         {
@@ -226,61 +262,74 @@
 
     private void OnDragStart(string type) => _draggedType = type;
 
-    private void OnDrop()
-    {
-        if (string.IsNullOrEmpty(_draggedType)) return;
+    private void OnDrop() => AddItemToCanvas(_draggedType);
 
-        if (_draggedType == "Workflow") {
-            _systemBlueprintTemplate.WorkflowList.Add(new WorkflowConfig { Name = $"Workflow_{_systemBlueprintTemplate.WorkflowList.Count + 1}", Enable = true });
-        } else {
-            var newDev = new DeviceConfig { Name = "New_Device", Manager = "UnknownManager", Enable = true, Properties = new() };
-            
-            switch (_draggedType) {
-                case "PlcServerDevice":
-                case "PlcDevice":
-                    newDev.Name = $"PLC_{_systemBlueprintTemplate.DeviceList.Count + 1}";
-                    newDev.Manager = "PlcDeviceManager";
-                    newDev.Properties = new() { { "DevicePort", "6999" }, { "DeviceTimeout", "10000" } };
-                    break;
-                case "ActiveMqDevice":
-                    newDev.Name = $"Broker_{_systemBlueprintTemplate.DeviceList.Count + 1}";
-                    newDev.Manager = "ActiveMQManager";
-                    newDev.Properties = new() { { "ConnectionString", "tcp://localhost:61616" }, { "DoubleQueue", true } };
-                    break;
-                case "PrintClientDeviceZebra":
-                case "PrinterDevice":
-                    newDev.Name = $"P{(_systemBlueprintTemplate.DeviceList.Count + 1).ToString("D3")}";
-                    newDev.Manager = "PrinterManager";
-                    newDev.Properties = new() { { "IPAddress", "127.0.0.1" }, { "PrintPort", 9100 }, { "Brand", "Zebra" } };
-                    break;
-                case "VirtualPlcDevice":
-                    newDev.Name = $"VirtPLC_{_systemBlueprintTemplate.DeviceList.Count + 1}";
-                    newDev.Manager = "VirtualPlcManager";
-                    newDev.Properties = new() { { "IPAddress", "127.0.0.1" }, { "Port", 5000 } };
-                    break;
-                case "VirtualPrinterDevice":
-                    newDev.Name = $"VirtP{(_systemBlueprintTemplate.DeviceList.Count + 1).ToString("D3")}";
-                    newDev.Manager = "VirtualPrinterManager";
-                    newDev.Properties = new() { { "Port", 9100 } };
-                    break;
-                case "MsSqlDatabaseDevice":
-                case "MySqlDatabaseDevice":
-                case "PostgreSqlDatabaseDevice":
-                    newDev.Name = $"DB_{_systemBlueprintTemplate.DeviceList.Count + 1}";
-                    newDev.Manager = "DatabaseDeviceManager";
-                    newDev.Properties = new() { { "ConnectionString", "" }, { "DatabaseType", _draggedType.Replace("DatabaseDevice", "") } };
-                    break;
-                case "SocketServerDevice":
-                    newDev.Name = $"Socket_{_systemBlueprintTemplate.DeviceList.Count + 1}";
-                    newDev.Manager = "SocketManager"; 
-                    newDev.Properties = new() { { "Port", 8080 }, { "TerminationType", "DELIMITED" }, { "Delimiter", "\\n" } };
-                    break;
-                default:
-                    newDev.Name = $"{_draggedType}_{_systemBlueprintTemplate.DeviceList.Count + 1}";
-                    newDev.Manager = $"{_draggedType}Manager";
-                    break;
+    private void AddItemToCanvas(string type)
+    {
+        if (string.IsNullOrEmpty(type)) return;
+        
+        if (!_systemBlueprintTemplate.Compounds.Any())
+            _systemBlueprintTemplate.Compounds.Add(new CompoundBlueprint { Name = "Default" });
+
+        var targetCore = _systemBlueprintTemplate.Compounds[0];
+
+        if (type.StartsWith("Compound:"))
+        {
+            var compoundName = type.Substring(9);
+            var compound = CompoundService.GetDiscoveredCompounds().FirstOrDefault(c => c.Name == compoundName);
+            if (compound != null)
+            {
+                // Deep copy elements and reactions into the current core
+                foreach (var e in compound.Elements)
+                {
+                    var newElement = new ElementBlueprint { 
+                        Name = $"{e.Name}_{targetCore.Elements.Count + 1}", 
+                        Manager = e.Manager, 
+                        Enable = true, 
+                        Properties = new Dictionary<string, object>(e.Properties) 
+                    };
+                    targetCore.Elements.Add(newElement);
+                }
+                foreach (var r in compound.Reactions)
+                {
+                    var newReaction = new ReactionBlueprint { 
+                        Name = $"{r.Name}_{targetCore.Reactions.Count + 1}", 
+                        Type = r.Type, 
+                        Enable = true,
+                        Bonds = r.Bonds.Select(b => new BondBlueprint { 
+                            Name = b.Name, 
+                            Source = b.Source, 
+                            Destination = b.Destination, 
+                            Handler = b.Handler,
+                            Mode = b.Mode
+                        }).ToList()
+                    };
+                    targetCore.Reactions.Add(newReaction);
+                }
             }
-            _systemBlueprintTemplate.DeviceList.Add(newDev);
+        }
+        else if (type == "Reaction") {
+            targetCore.Reactions.Add(new ReactionBlueprint { Name = $"Reaction_{targetCore.Reactions.Count + 1}", Enable = true });
+        } else {
+            var newElement = new ElementBlueprint { 
+                Name = type.Replace("Manager", "").ToUpper() + "_" + (targetCore.Elements.Count + 1), 
+                Manager = type, 
+                Enable = true, 
+                Properties = new() 
+            };
+            
+            // Add basic defaults for known types
+            if (type.Contains("Plc")) {
+                newElement.Properties["ElementPort"] = 6999;
+                newElement.Properties["IPAddress"] = "127.0.0.1";
+            } else if (type.Contains("ActiveMq")) {
+                newElement.Properties["ConnectionString"] = "tcp://localhost:61616";
+            } else if (type.Contains("Printer")) {
+                newElement.Properties["IPAddress"] = "127.0.0.1";
+                newElement.Properties["Port"] = 9100;
+            }
+            
+            targetCore.Elements.Add(newElement);
         }
         StateHasChanged();
     }
@@ -298,41 +347,80 @@
     
     private void CollapseAll()
     {
-        foreach(var d in _systemBlueprintTemplate.DeviceList) _collapsedItems.Add(d);
-        foreach(var w in _systemBlueprintTemplate.WorkflowList) _collapsedItems.Add(w);
+        foreach(var core in _systemBlueprintTemplate.Compounds) {
+            foreach(var element in core.Elements) _collapsedItems.Add(element);
+            foreach(var reaction in core.Reactions) _collapsedItems.Add(reaction);
+        }
     }
 
-    private void UpdateProperty(DeviceConfig d, string k, object v) { if(d.Properties.ContainsKey(k)) d.Properties[k] = v; }
-    private void RemoveDevice(DeviceConfig d) => _systemBlueprintTemplate.DeviceList.Remove(d);
+    private void UpdateProperty(ElementBlueprint d, string k, object v) { if(d.Properties.ContainsKey(k)) d.Properties[k] = v; }
+    private void RemoveElement(CompoundBlueprint core, ElementBlueprint element) => core.Elements.Remove(element);
     
-    private void AddAdapter(WorkflowConfig wf) => wf.Bonds.Add(new ForceBond { Source = "In", Destination = "Out", Handler = "DefaultHandler" });
-    private void RemoveWorkflow(WorkflowConfig w) => _systemBlueprintTemplate.WorkflowList.Remove(w);
+    private void AddBond(ReactionBlueprint reaction) => reaction.Bonds.Add(new BondBlueprint { Name = "New Bond", Source = "In", Destination = "Out", Handler = "DefaultHandler" });
+    private void RemoveReaction(CompoundBlueprint core, ReactionBlueprint reaction) => core.Reactions.Remove(reaction);
 
-    private void OpenTopicBuilder(ForceBond r, bool isSrc) 
+    private void OpenBondBuilder(BondBlueprint bond, bool isSrc) 
     { 
-        _editingRoute = r; 
+        _editingBond = bond; 
         _isEditingSource = isSrc; 
-        _showTopicModal = true; 
+        _showBondModal = true; 
     }
 
-    private async Task ApplyTopic(string topicString) 
+    private async Task ApplyBondTopic(string topicString) 
     { 
-        if (_isEditingSource) _editingRoute.Source = topicString; 
-        else _editingRoute.Destination = topicString; 
-        _showTopicModal = false; 
+        if (_isEditingSource) _editingBond.Source = topicString; 
+        else _editingBond.Destination = topicString; 
+        _showBondModal = false; 
         await Task.CompletedTask;
     }
 
-    private void OpenHandlerBuilder(ForceBond r) 
+    private void OpenHandlerBuilder(BondBlueprint reaction) 
     { 
-        _editingRoute = r; 
+        _editingBond = reaction; 
         _showHandlerModal = true; 
     }
 
     private async Task ApplyHandler(string handlerString) 
     { 
-        _editingRoute.Handler = handlerString; 
+        _editingBond.Handler = handlerString; 
         _showHandlerModal = false; 
         await Task.CompletedTask;
+    }
+
+    private async Task OnAiBlueprintGenerated(string json)
+    {
+        try
+        {
+            var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+            var root = JsonDocument.Parse(json);
+            var fusion = root.RootElement.GetProperty("AppSettings").GetProperty("Fusion");
+            
+            _systemBlueprintTemplate.CustomerName = fusion.GetProperty("Name").GetString();
+            _systemBlueprintTemplate.Compounds.Clear();
+            
+            if (fusion.TryGetProperty("Cores", out var coresElement))
+            {
+                foreach (var coreElement in coresElement.EnumerateArray())
+                {
+                    var core = JsonSerializer.Deserialize<CompoundBlueprint>(coreElement.GetRawText(), options);
+                    if (core != null) _systemBlueprintTemplate.Compounds.Add(core);
+                }
+            }
+
+            if (!_systemBlueprintTemplate.Compounds.Any())
+                _systemBlueprintTemplate.Compounds.Add(new CompoundBlueprint { Name = "Default" });
+
+            _showAiModal = false;
+            _estimatedCommissionTime = "Evaluating AI Commission Estimate...";
+            StateHasChanged();
+
+            // Fetch AI estimate
+            _estimatedCommissionTime = await AiService.GetCommissionEstimateAsync(json);
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error parsing AI blueprint: {ex.Message}");
+        }
     }
 }

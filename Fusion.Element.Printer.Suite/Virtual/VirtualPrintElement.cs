@@ -24,7 +24,7 @@ public class VirtualPrintElement : TcpServerElementBase<PrintMessageProcessor>
             terminalStr: new SequenceTerminationStrategy(
                 Encoding.ASCII.GetBytes("~HS"),
                 Encoding.ASCII.GetBytes("^XZ"),
-                Encoding.ASCII.GetBytes(" </labels> ")),
+                Encoding.ASCII.GetBytes("</labels>")),
             maxClients: 10)
     {
         Logger.Information($"ConfigName: {config.Name}");
@@ -41,6 +41,7 @@ public class VirtualPrintElement : TcpServerElementBase<PrintMessageProcessor>
             await Machine.FireAsync(Event.MessageReceived);
             
             string payload = envelope.Payload?.ToString() ?? string.Empty;
+            Logger.Information($"[{Config.Name}] Raw Label Data Received: {payload}");
             ProcessLabelJob(payload);
         }
     }
@@ -129,49 +130,26 @@ public class VirtualPrintElement : TcpServerElementBase<PrintMessageProcessor>
 
             // Determine if this is Printer 1 or Printer 2 based on the name suffix
             bool isPrinter2 = Config.Name.EndsWith("152") || Config.Name.EndsWith("2");
+            bool wasError = false;
 
             while (!ct.IsCancellationRequested)
             {
                 double? elapsed = SimulationCoordinator.ElapsedSeconds;
                 if (elapsed == null) { await Task.Delay(500, ct); continue; }
 
-                // Reset statuses
-                bool wasError = _isPaperOut || _isHeadOpen || _isPaused;
-                _isPaperOut = false;
-                _isHeadOpen = false;
-                _isPaused = false;
-                string comment = "ready";
-                ElementHealth health = ElementHealth.Normal;
+                // Get status from coordinator
+                var (isFaulted, reason) = SimulationCoordinator.GetSimulatedHardwareStatus(Config.Name, elapsed);
+                
+                // Update local status flags
+                _isPaperOut = reason == "out of paper";
+                _isHeadOpen = reason == "head open";
+                _isPaused = reason == "paused";
 
-                if (elapsed < 10) // 0-10s: P1 Paper Out
+                if (isFaulted != wasError || elapsed < 61)
                 {
-                    if (!isPrinter2) { _isPaperOut = true; comment = "out of paper"; health = ElementHealth.Warning; }
-                }
-                else if (elapsed < 20) // 10-20s: P2 Paper Out
-                {
-                    if (isPrinter2) { _isPaperOut = true; comment = "out of paper"; health = ElementHealth.Warning; }
-                }
-                else if (elapsed < 30) // 20-30s: P1 Head Open
-                {
-                    if (!isPrinter2) { _isHeadOpen = true; comment = "head open"; health = ElementHealth.Warning; }
-                }
-                else if (elapsed < 40) // 30-40s: P2 Head Open
-                {
-                    if (isPrinter2) { _isHeadOpen = true; comment = "head open"; health = ElementHealth.Warning; }
-                }
-                else if (elapsed < 50) // 40-50s: P1 Paused
-                {
-                    if (!isPrinter2) { _isPaused = true; comment = "paused"; health = ElementHealth.Warning; }
-                }
-                else if (elapsed < 60) // 50-60s: P2 Paused
-                {
-                    if (isPrinter2) { _isPaused = true; comment = "paused"; health = ElementHealth.Warning; }
-                }
-
-                bool isError = _isPaperOut || _isHeadOpen || _isPaused;
-                if (isError != wasError || elapsed < 61) // Update status on change or during cycle
-                {
-                    UpdateStatus(Machine.State, isError ? Event.ServerError : Event.ServerStarted, health, comment);
+                    ElementHealth health = isFaulted ? ElementHealth.Warning : ElementHealth.Normal;
+                    UpdateStatus(Machine.State, isFaulted ? Event.ServerError : Event.ServerStarted, health, reason);
+                    wasError = isFaulted;
                 }
 
                 if (elapsed >= 60)
@@ -197,21 +175,56 @@ public class VirtualPrintElement : TcpServerElementBase<PrintMessageProcessor>
     }
 
 
-    private void ProcessLabelJob(string zpl)
+    private void ProcessLabelJob(string payload)
     {
-        string gin = GetGinFromPayload(zpl);
-        Tracker.Increment(ElementMetric.Labels);
-        Logger.Information($"[{Config.Name}] Label Received: {zpl}");
+        // 1. Identify and count all labels in this payload
+        // We count ZPL start tags (^XA) and XML label tags (<label)
+        int labelCount = 0;
+        
+        // Count ^XA (Case-insensitive just in case, though standard is uppercase)
+        int zplIndex = 0;
+        while ((zplIndex = payload.IndexOf("^XA", zplIndex, StringComparison.OrdinalIgnoreCase)) != -1)
+        {
+            labelCount++;
+            zplIndex += 3;
+        }
+
+        // Count <label (Case-insensitive to handle various XML styles)
+        int xmlIndex = 0;
+        while ((xmlIndex = payload.IndexOf("<label", xmlIndex, StringComparison.OrdinalIgnoreCase)) != -1)
+        {
+            // Avoid double counting if someone uses <labels><label>...
+            // We look for the start of an actual label element
+            labelCount++;
+            xmlIndex += 6;
+        }
+
+        // Fallback: If no tags found but we got here, it's at least one blob of data
+        if (labelCount == 0 && !string.IsNullOrWhiteSpace(payload)) labelCount = 1;
+
+        for (int i = 0; i < labelCount; i++)
+        {
+            Tracker.Increment(ElementMetric.Labels);
+        }
+
+        string gin = GetGinFromPayload(payload);
+        Logger.Information($"[{Config.Name}] Label(s) Received: {labelCount} in block. GIN: {gin}");
+        
+        // Log the full payload for debugging if it's not too huge
+        if (payload.Length < 1000)
+        {
+            Logger.Debug($"[{Config.Name}] Raw Payload: {payload}");
+        }
 
         if (_isPaused || _isPaperOut || _isHeadOpen)
         {
             string reason = _isPaperOut ? "out of paper" : (_isPaused ? "paused" : "head open");
             Logger.Warning($"[{Config.Name}] Print Failed: {reason}", gin);
-            Machine.Fire(Event.ServerError);
+        
         }
         else
         {
-            Logger.Information($"[{Config.Name}] Processing Label Job...", gin);
+            Logger.Information($"[{Config.Name}] Processing {labelCount} Label(s)...", gin);
             Task.Delay(300).ContinueWith(_ => Logger.Debug($"[{Config.Name}] Job Printed Successfully.", gin));
         }
     }

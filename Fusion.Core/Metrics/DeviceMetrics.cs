@@ -38,14 +38,14 @@ public class MetricsInterceptor : IInterceptor
             };
 
             // 1. Record the duration
-            DeviceMetrics.MethodDuration.Record(duration, tags);
+            ElementMetrics.MethodDuration.Record(duration, tags);
 
             // 2. Record the count
-            DeviceMetrics.MethodCalls.Add(1, tags);
+            ElementMetrics.MethodCalls.Add(1, tags);
         }
     }
 }
-public static class DeviceMetrics
+public static class ElementMetrics
 {
     // 1. Create a "Meter" - this is the source of all your metrics
     public static readonly Meter WcsMeter = new Meter("FireServer", "1.0.0");

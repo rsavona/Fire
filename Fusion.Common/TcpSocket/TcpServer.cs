@@ -1,5 +1,6 @@
-﻿using System.Buffers;
+using System.Buffers;
 using System.Collections.Concurrent;
+using System.IO.Pipelines;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
@@ -49,7 +50,7 @@ namespace Fusion.Common.TcpSocket
             IFireLogger logger,
             ITerminationStrategy? termStrat = null,
             int timeoutMs = -1,
-            int maxBufferSize = 1000)
+            int maxBufferSize = 65535)
         {
             // Assign the default strategy if none was provided
             _listenPort = listenPort;
@@ -59,8 +60,8 @@ namespace Fusion.Common.TcpSocket
             TerminationStrategy = termStrat;
             _timeoutMs = timeoutMs;
 
-            _logger.Information("[Server:{Port}] Initialized with Strategy: {Strategy}",
-                _listenPort, TerminationStrategy?.GetType().Name);
+            _logger.Information("[Server:{Port}] Initialized with Strategy: {Strategy}. Max Buffer: {MaxBuffer}",
+                _listenPort, TerminationStrategy?.GetType().Name, _maxBufferSize);
         }
 
         private async Task StartSocketWatchdogAsync(CancellationToken token)
@@ -81,16 +82,15 @@ namespace Fusion.Common.TcpSocket
                         {
                             if (now - kvp.Value.LastSeen > timeout)
                             {
-                                // Try to ping before giving up
-                                string ip = kvp.Key.Split(':')[0];
-                                if (await TryPingAsync(ip))
+                                // Test the actual TCP socket instead of ICMP Ping
+                                if (IsSocketAlive(kvp.Value.Client))
                                 {
-                                    _logger.Information("[{ClientKey}] Watchdog: No messages, but host responded to Ping. Keeping connection alive.", kvp.Key);
+                                    _logger.Information("[{ClientKey}] Watchdog: No messages, but TCP connection is still active. Keeping connection alive.", kvp.Key);
                                     _connectedClients[kvp.Key] = kvp.Value with { LastSeen = DateTime.UtcNow };
                                     continue;
                                 }
 
-                                _logger.Warning("[{ClientKey}] Watchdog: No heartbeat detected and Ping failed. Terminating.", kvp.Key);
+                                _logger.Warning("[{ClientKey}] Watchdog: No heartbeat detected and TCP socket is dead. Terminating.", kvp.Key);
                                 _ = CleanupClient(kvp.Key);
                             }
                         }
@@ -107,15 +107,30 @@ namespace Fusion.Common.TcpSocket
             }
         }
 
-        private async Task<bool> TryPingAsync(string ip)
+        private bool IsSocketAlive(TcpClient client)
         {
             try
             {
-                using var pinger = new Ping();
-                var reply = await pinger.SendPingAsync(ip, 1000); // 1s timeout
-                return reply.Status == IPStatus.Success;
+                if (client == null || !client.Connected || client.Client == null)
+                    return false;
+
+                // Check if the socket has been closed gracefully by the remote host
+                if (client.Client.Poll(0, SelectMode.SelectRead))
+                {
+                    byte[] checkConn = new byte[1];
+                    if (client.Client.Receive(checkConn, SocketFlags.Peek) == 0)
+                    {
+                        return false; // Connection closed
+                    }
+                }
+
+                return true;
             }
-            catch
+            catch (SocketException)
+            {
+                return false;
+            }
+            catch (ObjectDisposedException)
             {
                 return false;
             }
@@ -126,114 +141,88 @@ namespace Fusion.Common.TcpSocket
 
         private async Task ListenForClientDataAsync(TcpClient client, string clientKey, CancellationToken token)
         {
-            _logger.Debug("[{ClientKey}] Read loop started.", clientKey);
-
-            // 1. Rent buffers from the shared pool
-            byte[] readBuffer = ArrayPool<byte>.Shared.Rent(_maxBufferSize);
-            byte[] messageBuffer = ArrayPool<byte>.Shared.Rent(_maxBufferSize);
-            int messageLength = 0;
+            _logger.Debug("[{ClientKey}] Read loop (Pipelines) started.", clientKey);
+            
+            var stream = client.GetStream();
+            var reader = PipeReader.Create(stream, new StreamPipeReaderOptions(bufferSize: _maxBufferSize));
 
             try
             {
-                await using NetworkStream stream = client.GetStream();
-
                 while (client.Connected && !token.IsCancellationRequested)
                 {
-                    // Read into the rented buffer
-                    var bytesRead = await stream.ReadAsync(readBuffer, 0, readBuffer.Length, token);
+                    ReadResult result = await reader.ReadAsync(token);
+                    ReadOnlySequence<byte> buffer = result.Buffer;
 
-                    if (bytesRead == 0)
+                    while (true)
                     {
-                        _logger.Warning("[{ClientKey}] Remote host closed connection (Read returned 0 bytes).", clientKey);
-                        DisconnectClient(clientKey);
-                        break;
-                    }
+                        // DEEP TRACE: Print the current raw buffer content being evaluated
+                        var rawTrace = Encoding.ASCII.GetString(buffer.ToArray());
+                        _logger.Verbose("[{ClientKey}] DEEP TRACE | Raw Buffer Evaluation ({Length} bytes): {Raw}", clientKey, buffer.Length, rawTrace.Replace("\r", "\\r").Replace("\n", "\\n"));
 
-                    _logger.Verbose("[{ClientKey}] Received {Count} bytes from socket.", clientKey, bytesRead);
+                        var position = TerminationStrategy?.FindTerminator(buffer);
 
-                    if (_connectedClients.TryGetValue(clientKey, out var conn))
-                    {
-                        _connectedClients[clientKey] = conn with { LastSeen = DateTime.UtcNow }; // Switched to UtcNow
-                    }
-
-                    // Process byte-by-byte
-                    for (int i = 0; i < bytesRead; i++)
-                    {
-                        byte b = readBuffer[i];
-                        messageBuffer[messageLength++] = b;
-
-                        // 2. Create a lightweight span of the current message state
-                        var currentSpan = new ReadOnlySpan<byte>(messageBuffer, 0, messageLength);
-
-                        if (TerminationStrategy != null)
+                        if (position != null)
                         {
-                            bool isComplete = TerminationStrategy.IsMessageComplete(currentSpan, b);
+                            // Found a message
+                            var message = buffer.Slice(0, position.Value);
+                            
+                            _logger.Verbose("[{ClientKey}] Message Detected. Size: {Size}", clientKey, message.Length);
 
-                            if (isComplete)
+                            if (_connectedClients.TryGetValue(clientKey, out var conn))
                             {
-                                _logger.Information("[{ClientKey}] Message Terminator Detected (0x{Byte:X2}). Processing {Size} bytes.", clientKey, b,
-                                    messageLength);
-                                
-                                // Log the raw string for debugging
-                                var rawStr = Encoding.ASCII.GetString(messageBuffer, 0, messageLength);
-                                _logger.Debug("[{ClientKey}] Raw Message Content: {Content}", clientKey, rawStr);
+                                _connectedClients[clientKey] = conn with { LastSeen = DateTime.UtcNow };
+                            }
 
-                                // 3. Pass the rented array directly. No more .ToArray()!
-                                var success = await _messageProcessor.ProcessMessageAsync(
-                                    stream,
-                                    messageBuffer,
-                                    messageLength,
-                                    clientKey,
-                                    token);
+                            // Process message
+                            var success = await _messageProcessor.ProcessMessageAsync(
+                                message, 
+                                clientKey, 
+                                (payload) => SendResponseAsync(string.Empty, clientKey, payload, token),
+                                token);
 
-                                if (success)
-                                {
-                                    _logger.Debug("[{ClientKey}] Message processor successfully completed.", clientKey);
-                                    messageLength = 0; // Reset index for the next message
-                                }
-                                else
-                                {
-                                    _logger.Warning("[{ClientKey}] Processor returned failure. Disconnecting.", clientKey);
-                                    DisconnectClient(clientKey);
-                                    break;
-                                }
+                            if (success)
+                            {
+                                // Advance the buffer past the message
+                                buffer = buffer.Slice(position.Value);
+                            }
+                            else
+                            {
+                                _logger.Warning("[{ClientKey}] Processor returned failure. Disconnecting.", clientKey);
+                                DisconnectClient(clientKey);
+                                return;
                             }
                         }
-
-                        if (messageLength >= _maxBufferSize)
+                        else
                         {
-                            string utf8String = Encoding.UTF8.GetString(messageBuffer, 0, messageLength);
-                            _logger.Error("[{ClientKey}] Buffer overflow. Clearing. {str}", clientKey, utf8String);
-                            messageLength = 0;
-                            DisconnectClient(clientKey);
+                            // No more complete messages in the current buffer
                             break;
                         }
                     }
+
+                    // Tell the PipeReader how much of the buffer has been consumed and how much has been examined.
+                    reader.AdvanceTo(buffer.Start, buffer.End);
+
+                    if (result.IsCompleted)
+                    {
+                        _logger.Information("[{ClientKey}] PipeReader completed.", clientKey);
+                        break;
+                    }
                 }
-            }
-            catch (System.IO.IOException IOex) when (IOex.InnerException is SocketException se &&
-                                                     se.SocketErrorCode == SocketError.ConnectionReset)
-            {
-                _logger.Warning("[{ClientKey}] Connection reset by peer.", clientKey);
-                DisconnectClient(clientKey);
             }
             catch (OperationCanceledException)
             {
-                // This is normal. It means the Watchdog timed out or the server is shutting down.
                 _logger.Debug("[{ClientKey}] Read loop canceled gracefully.", clientKey);
-                
             }
             catch (Exception ex)
             {
-                _logger.Error(ex, "[{ClientKey}] Error in read loop.", clientKey);
+                _logger.Error(ex, "[{ClientKey}] Error in Pipeline read loop.", clientKey);
                 NotifyError($"Error on connection {clientKey}", ex);
                 DisconnectClient(clientKey);
             }
             finally
             {
-                // 4. Critically important: Return the arrays to the pool when the connection ends
-                ArrayPool<byte>.Shared.Return(readBuffer);
-                ArrayPool<byte>.Shared.Return(messageBuffer);
+                await reader.CompleteAsync();
+                _logger.Debug("[{ClientKey}] Pipeline reader completed and stream closed.", clientKey);
             }
         }
 

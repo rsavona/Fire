@@ -3,6 +3,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Fusion.Common;
 
 
 namespace Fusion.Core;
@@ -29,7 +30,7 @@ public class BusAuditLogger : BackgroundService
     /// Call this to log a message from the bus.
     /// The 'Async' sink in Serilog ensures this does not block the calling thread.
     /// </summary>
-    public void LogMessage(object? message, string topic = "Global")
+    public void LogMessage(object? message, MessageHeader header, string topic = "Global")
     {
         if (message == null) return;
 
@@ -40,8 +41,15 @@ public class BusAuditLogger : BackgroundService
 
         // Log using the "AuditLog" property.
         // The Serilog config in Program.cs looks for this property 
-        // to route it to the specific audit file.
-        using (_logger.BeginScope(new Dictionary<string, object> { { "AuditLog", true } }))
+        // to bond it to the specific audit file.
+        var scopeProperties = new Dictionary<string, object>
+        {
+            { "AuditLog", true },
+            { "CorrelationId", header.CorrelationId },
+            { "MessageId", header.MessageId }
+        };
+
+        using (_logger.BeginScope(scopeProperties))
         {
             // We use structured logging "{@Payload}" to serialize the object to JSON automatically
             _logger.LogInformation($"[{topic,-40}] [{messageType,-15}]  {message}");
