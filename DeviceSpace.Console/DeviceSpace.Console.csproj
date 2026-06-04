@@ -18,7 +18,7 @@
     </PropertyGroup>
 
       <ItemGroup>
-      <ProjectReference Include="..\Device.ActiveMQ\Device.ActiveMQ.csproj" />
+      <ProjectReference Include="..\Fusion.Element.ActiveMQ\Fusion.Element.ActiveMQ.csproj" />
       <ProjectReference Include="..\Device.Api.Suite\Device.Api.Suite.csproj" />
       <ProjectReference Include="..\Device.Database.Suite\Device.Database.Suite.csproj" />
       <ProjectReference Include="..\Device.HostComm\Device.HostComm.csproj" />
@@ -27,14 +27,16 @@
       <ProjectReference Include="..\Device.Printer.Suite\Device.Printer.Suite.csproj" />
       <ProjectReference Include="..\Device.Support.CLI\Device.Support.CLI.csproj" />
       <ProjectReference Include="..\Tools\TuraHostTester\TuraHostTester.csproj" />
-      <ProjectReference Include="..\Workflow.PrintAndApply.Frc\Workflow.PrintAndApply.Frc.csproj" />
+      <ProjectReference Include="..\Fusion.Reactions.PandA\Fusion.Reactions.PandA.csproj" />
       <ProjectReference Include="..\Workflow.Simulation\Workflow.Simulation.csproj" />
       <ProjectReference Include="..\Workflow.Sort.Standard\Workflow.Sort.Standard.csproj" />
-          <ProjectReference Include="..\DeviceSpace.Core\DeviceSpace.Core.csproj" />
+          <ProjectReference Include="..\Fusion.Core\Fusion.Core.csproj" />
           
           <ProjectReference Include="..\Workflow.Sort.Standard\Workflow.Sort.Standard.csproj" />
           
           <ProjectReference Include="..\Workflow.Tura.HostComm\Workflow.Tura.HostComm.csproj" />
+          
+          <ProjectReference Include="..\Device.Enterprise.Suite\Device.Enterprise.Suite.csproj" />
   
      </ItemGroup>
     
@@ -43,6 +45,24 @@
         <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       </None>
       <None Update="*.fusion">
+        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      </None>
+      <None Update="Project Config\SimSort.fusion">
+        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      </None>
+      <None Update="Project Config\Simulaton.fusion">
+        <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+      </None>
+      <None Update="Project Config\TuraHost.fusion">
+        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      </None>
+      <None Update="Project Config\Tura.fusion">
+        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      </None>
+      <None Update="Project Config\TargetDekalb1.fusion">
+        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      </None>
+      <None Update="Project Config\TargetDekalb.fusion">
         <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       </None>
     </ItemGroup>

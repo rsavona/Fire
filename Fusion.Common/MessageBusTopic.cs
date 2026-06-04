@@ -1,0 +1,53 @@
+﻿
+namespace Fusion.Common;
+
+public record MessageBusTopic
+{
+    public static readonly MessageBusTopic DeviceStatus = new MessageBusTopic("All_Devices", "StatusMessage");
+    public static readonly MessageBusTopic InternalError = new MessageBusTopic("All_Devices", "Exceptions");
+    public static readonly MessageBusTopic Discovery = new MessageBusTopic("All_Devices", "DiagDiscovery");
+    public static readonly MessageBusTopic SystemControl = new MessageBusTopic("System", "Control");
+    public static readonly MessageBusTopic ConsoleCommand = new MessageBusTopic("System", "ConsoleCommand");
+    public static readonly MessageBusTopic DataFlow = new MessageBusTopic("System", "DataFlow");
+    
+    public readonly string DeviceName;
+    public readonly string MessageType;
+    public readonly string Discriminator;
+    
+    public MessageBusTopic(string deviceName, string messageType, string discriminator = "")
+    {
+        DeviceName = deviceName;
+        MessageType = messageType;
+        Discriminator = discriminator;
+
+    }
+    
+    public MessageBusTopic(string strTopic) 
+    {
+        if (string.IsNullOrEmpty(strTopic))
+        {
+            throw new ArgumentException("Topic can not be empty");
+        }
+        var parts = strTopic.ToUpper().Split('.');
+        DeviceName = parts[0];
+        
+        if (parts.Length > 1)
+        {
+            MessageType = parts[1];
+            // Join everything from index 2 to the end using "." as the separator
+            Discriminator = string.Join(".", parts.Skip(2));
+        }
+        else
+        {
+            MessageType = "DEFAULT";
+            Discriminator = string.Empty;
+        }
+    }
+
+    public override string ToString()
+    {
+        return string.IsNullOrEmpty(Discriminator)
+            ? $"{DeviceName}.{MessageType}"
+            : $"{DeviceName}.{MessageType}.{Discriminator}";
+    }
+}

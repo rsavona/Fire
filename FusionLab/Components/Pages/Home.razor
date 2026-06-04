@@ -1,0 +1,31 @@
+@page "/"
+
+<PageTitle>Fire Builder Configurator</PageTitle>
+
+@inject IJSRuntime JSRuntime
+
+<div class="container-fluid d-flex flex-column p-0" style="height: 100vh; overflow: hidden;">
+    
+    <NavBar OnExportClicked="DownloadJson" />
+
+    <Canvas @ref="_fireBuilderComponent" />
+
+</div>
+
+@code {
+    // This creates a reference hook to your child component
+    private Canvas _fireBuilderComponent;
+
+    // This method fires when the NavBar button is clicked
+    private async Task DownloadJson()
+    {
+        if (_fireBuilderComponent != null)
+        {
+            // Reaches into Canvas.razor to get the JSON string
+            var jsonText = _fireBuilderComponent.GetJson();
+            
+            // Triggers the browser download
+            await JSRuntime.InvokeVoidAsync("downloadFile", "SystemBlueprintTemplate.json", jsonText);
+        }
+    }
+}
