@@ -13,10 +13,14 @@
 
     <ItemGroup>
       <ProjectReference Include="..\Fusion.Common\Fusion.Common.csproj" />
+      <ProjectReference Include="..\Fusion.Element.Plc.Suite\Fusion.Element.Plc.Suite.csproj" />
     </ItemGroup>
 
     <ItemGroup>
       <None Update="TestFusion.json">
+        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      </None>
+      <None Update="TestCases\**\*.*">
         <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       </None>
     </ItemGroup>

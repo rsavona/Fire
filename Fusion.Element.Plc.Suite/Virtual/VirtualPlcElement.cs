@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Fusion.Common.BaseClasses;
 using Fusion.Common.Contracts;
 using Serilog;
@@ -33,12 +34,19 @@ public class ScannerClientConfig
 
 public class VirtualPlcElement : TcpClientElementBase, IMessageProvider
 {
+    private static readonly ITerminationStrategy PlcFrameTerminationStrategy =
+        new DelimiterSetStrategy((byte)PlcControlChars.ETX);
+
     private CancellationTokenSource _simCts = new();
     private readonly int _inductionFeq;
-    private readonly List<List<DecisionStep>> _myChain;
+    private List<List<DecisionStep>> _myChain;
     private readonly int _totalTotes;
+    private readonly int _decisionResponseTimeoutMs;
     private readonly List<string>? _barcodes;
     private int _barcodeIndex = -1;
+    private readonly SemaphoreSlim _lifecycleOrderGate = new(1, 1);
+    private readonly ConcurrentDictionary<(int Gin, string DecisionPoint), TaskCompletionSource<DecisionResponsePayload>>
+        _pendingDecisionResponses = new();
 
     private readonly List<ScannerClientConfig> _scannerConfigs = new();
     private readonly ConcurrentDictionary<string, ConcurrentQueue<string>> _scannerBuffers = new();
@@ -47,11 +55,23 @@ public class VirtualPlcElement : TcpClientElementBase, IMessageProvider
     private int _manualGin = 9000;
     private int _currentGin = 0; // Elevated to class-level to survive disconnects
 
+    protected override ITerminationStrategy? ReceiveTerminationStrategy => PlcFrameTerminationStrategy;
+
     public void TriggerManualRelease()
     {
         int gin = Interlocked.Increment(ref _manualGin);
         Logger.Information("[{Dev}] MANUAL RELEASE triggered. GIN: {Gin}", Config.Name, gin);
-        _ = Task.Run(() => ProcessToteLifecycleAsync(gin, _myChain, _simCts.Token));
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await ProcessToteLifecycleInGlobalOrderAsync(gin, _myChain, _simCts.Token);
+            }
+            catch (OperationCanceledException)
+            {
+                // Normal during shutdown or reconnect.
+            }
+        });
     }
 
     private PlcMessageParser _parser = new();
@@ -59,8 +79,10 @@ public class VirtualPlcElement : TcpClientElementBase, IMessageProvider
     private readonly ConcurrentDictionary<int, List<string>?> _ginRouting;
     private readonly ConcurrentDictionary<int, string?> _ginBarcode;
     private readonly ConcurrentDictionary<int, long> _decisionRequestTimestamps = new();
-    private readonly string _printer1;
-    private readonly string _printer2;
+    private string _printer1;
+    private string _printer2;
+    private readonly ScriptedPlcScenario? _scriptedScenario;
+    private readonly string? _scriptedScenarioPath;
     public event Func<object, object, Task>? MessageReceived;
 
     public VirtualPlcElement(
@@ -132,6 +154,43 @@ public class VirtualPlcElement : TcpClientElementBase, IMessageProvider
 
         _inductionFeq = ConfigurationLoader.GetOptionalConfig(Config.Properties, "InductionFreq", 1000);
         _totalTotes = ConfigurationLoader.GetOptionalConfig(Config.Properties, "TotalTotes", 0);
+        _decisionResponseTimeoutMs =
+            ConfigurationLoader.GetOptionalConfig(Config.Properties, "DecisionResponseTimeoutMs", 15000);
+
+        _scriptedScenarioPath = ConfigurationLoader.GetOptionalConfig<string?>(Config.Properties, "ScriptedScenarioFile", null);
+        if (!string.IsNullOrWhiteSpace(_scriptedScenarioPath))
+        {
+            var resolvedScenarioPath = ResolveScenarioPath(_scriptedScenarioPath);
+            if (resolvedScenarioPath == null)
+            {
+                Logger.Error("[{Dev}] Scripted scenario file was configured but not found: {Path}",
+                    Config.Name, _scriptedScenarioPath);
+            }
+            else
+            {
+                _scriptedScenario = ScriptedPlcScenario.Load(resolvedScenarioPath);
+                Logger.Information("[{Dev}] Loaded scripted PLC scenario {Scenario} from {Path}",
+                    Config.Name, _scriptedScenario.Name, resolvedScenarioPath);
+
+                var scenarioProperties = _scriptedScenario.VirtualPlcProperties;
+                if (!string.IsNullOrWhiteSpace(scenarioProperties?.DecisionPoints))
+                {
+                    _myChain = ParseChainFromString(scenarioProperties.DecisionPoints);
+                    Logger.Information("[{Dev}] Scripted scenario decision chain loaded: {Raw}",
+                        Config.Name, scenarioProperties.DecisionPoints);
+                }
+
+                if (!string.IsNullOrWhiteSpace(scenarioProperties?.Printer1))
+                {
+                    _printer1 = scenarioProperties.Printer1;
+                }
+
+                if (!string.IsNullOrWhiteSpace(scenarioProperties?.Printer2))
+                {
+                    _printer2 = scenarioProperties.Printer2;
+                }
+            }
+        }
 
         // Load optional barcode list (support string, string list, or JsonElement array)
         if (Config.Properties.TryGetValue("BarcodeList", out var bcObj))
@@ -151,7 +210,7 @@ public class VirtualPlcElement : TcpClientElementBase, IMessageProvider
                     _barcodes = je.EnumerateArray().Select(e => e.GetString() ?? string.Empty).ToList();
                 else if (je.ValueKind == System.Text.Json.JsonValueKind.String)
                     _barcodes = je.GetString()?.Split(new[] { ',', ';' }, StringSplitOptions.RemoveEmptyEntries)
-                                .Select(s => s.Trim()).ToList();
+                        .Select(s => s.Trim()).ToList();
             }
             else if (bcObj is object[] objArray)
             {
@@ -175,7 +234,7 @@ public class VirtualPlcElement : TcpClientElementBase, IMessageProvider
     protected override Task OnStartAsync(CancellationToken ct)
     {
         Logger.Information("[{Dev}] WCS Service Starting...", Config.Name);
-        
+
         foreach (var sc in _scannerConfigs)
         {
             _scannerTasks.Add(Task.Run(() => RunInternalScannerAsync(sc, _simCts.Token), _simCts.Token));
@@ -187,7 +246,7 @@ public class VirtualPlcElement : TcpClientElementBase, IMessageProvider
     protected override async Task ElementConnectedAsync()
     {
         Logger.Information("[{Dev}] Connection established. Launching simulation chain.", Config.Name);
-        
+
         // Cancel any previous simulation just in case
         await _simCts.CancelAsync();
         _simCts.Dispose();
@@ -201,8 +260,15 @@ public class VirtualPlcElement : TcpClientElementBase, IMessageProvider
                 _scannerTasks.Add(Task.Run(() => RunInternalScannerAsync(sc, _simCts.Token), _simCts.Token));
         }
 
-        _ = Task.Run(() => RunChainSimulationAsync(_totalTotes, _inductionFeq, _myChain, _simCts.Token));
-        
+        if (_scriptedScenario != null)
+        {
+            _ = Task.Run(() => RunScriptedScenarioAsync(_scriptedScenario, _myChain, _simCts.Token));
+        }
+        else
+        {
+            _ = Task.Run(() => RunChainSimulationAsync(_totalTotes, _inductionFeq, _myChain, _simCts.Token));
+        }
+
         await base.ElementConnectedAsync();
     }
 
@@ -213,13 +279,124 @@ public class VirtualPlcElement : TcpClientElementBase, IMessageProvider
         await base.ElementDisconnectedAsync();
     }
 
+    private static string? ResolveScenarioPath(string configuredPath)
+    {
+        if (string.IsNullOrWhiteSpace(configuredPath))
+        {
+            return null;
+        }
+
+        if (File.Exists(configuredPath))
+        {
+            return Path.GetFullPath(configuredPath);
+        }
+
+        var candidates = new[]
+        {
+            Path.Combine(Directory.GetCurrentDirectory(), configuredPath),
+            Path.Combine(AppContext.BaseDirectory, configuredPath),
+            Path.Combine(Directory.GetCurrentDirectory(), "Fusion.Reaction.Simulation", "TestCases", configuredPath),
+            Path.Combine(AppContext.BaseDirectory, "TestCases", configuredPath)
+        };
+
+        foreach (var candidate in candidates)
+        {
+            if (File.Exists(candidate))
+            {
+                return Path.GetFullPath(candidate);
+            }
+        }
+
+        var fileName = Path.GetFileName(configuredPath);
+        if (string.IsNullOrWhiteSpace(fileName))
+        {
+            return null;
+        }
+
+        foreach (var root in EnumerateSearchRoots())
+        {
+            try
+            {
+                var match = Directory
+                    .EnumerateFiles(root, fileName, SearchOption.AllDirectories)
+                    .FirstOrDefault(path =>
+                        path.Contains($"{Path.DirectorySeparatorChar}TestCases{Path.DirectorySeparatorChar}",
+                            StringComparison.OrdinalIgnoreCase));
+
+                if (match != null)
+                {
+                    return Path.GetFullPath(match);
+                }
+            }
+            catch
+            {
+                // Ignore roots we cannot enumerate.
+            }
+        }
+
+        return null;
+    }
+
+    private static IEnumerable<string> EnumerateSearchRoots()
+    {
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var current = new DirectoryInfo(Directory.GetCurrentDirectory());
+
+        while (current != null)
+        {
+            if (seen.Add(current.FullName))
+            {
+                yield return current.FullName;
+            }
+
+            current = current.Parent;
+        }
+
+        var baseDirectory = new DirectoryInfo(AppContext.BaseDirectory);
+        while (baseDirectory != null)
+        {
+            if (seen.Add(baseDirectory.FullName))
+            {
+                yield return baseDirectory.FullName;
+            }
+
+            baseDirectory = baseDirectory.Parent;
+        }
+    }
+
+    private static JsonObject? CloneMetadata(JsonObject? source)
+    {
+        if (source == null)
+        {
+            return null;
+        }
+
+        return JsonNode.Parse(source.ToJsonString())?.AsObject();
+    }
+
+    private static string FormatSequenceAnomaly(string anomaly)
+    {
+        if (string.IsNullOrWhiteSpace(anomaly))
+        {
+            return anomaly;
+        }
+
+        var parts = anomaly.Split('-', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (parts.Length == 3 && int.TryParse(parts[2], out _))
+        {
+            return $"{parts[0]} {parts[1].ToUpperInvariant()} {parts[2]}";
+        }
+
+        return anomaly.Replace('-', ' ');
+    }
+
     private async Task RunInternalScannerAsync(ScannerClientConfig config, CancellationToken ct)
     {
-        Logger.Information("[{Dev}] Internal Scanner Client starting for {DP} -> {Host}:{Port}", 
+        Logger.Information("[{Dev}] Internal Scanner Client starting for {DP} -> {Host}:{Port}",
             Config.Name, config.DecisionPoint, config.IPAddress, config.Port);
 
         byte[] delimiter = Encoding.ASCII.GetBytes(config.TerminationChar);
-        var strategy = new DelimiterSetStrategy(delimiter);
+        var strategy = new SequenceTerminationStrategy(delimiter);
 
         while (!ct.IsCancellationRequested)
         {
@@ -228,7 +405,7 @@ public class VirtualPlcElement : TcpClientElementBase, IMessageProvider
                 using var client = new TcpClient();
                 await client.ConnectAsync(config.IPAddress, config.Port, ct);
                 using var stream = client.GetStream();
-                
+
                 Logger.Information("[{Dev}] Internal Scanner connected for {DP}", Config.Name, config.DecisionPoint);
 
                 var buffer = new byte[4096];
@@ -256,15 +433,19 @@ public class VirtualPlcElement : TcpClientElementBase, IMessageProvider
                                 Logger.Debug("[{Dev}] Internal Scanner {DP} buffered barcode: {BC}",
                                     Config.Name, config.DecisionPoint, barcode);
                             }
+
                             incoming.Clear();
                         }
                     }
                 }
             }
-            catch (OperationCanceledException) { break; }
+            catch (OperationCanceledException)
+            {
+                break;
+            }
             catch (Exception ex)
             {
-                Logger.Warning("[{Dev}] Internal Scanner {DP} connection error: {Msg}. Retrying...", 
+                Logger.Warning("[{Dev}] Internal Scanner {DP} connection error: {Msg}. Retrying...",
                     Config.Name, config.DecisionPoint, ex.Message);
                 await Task.Delay(5000, ct);
             }
@@ -277,70 +458,47 @@ public class VirtualPlcElement : TcpClientElementBase, IMessageProvider
         {
             return barcode;
         }
+
         return null;
     }
 
     protected override Task HandleReceivedDataAsync(string incomingData)
     {
         Logger.Information("[{Dev}] Received : {Data}", Config.Name, incomingData);
-        var msg = _parser.Parse(incomingData);
-        if (msg is PlcMessage plcmsg && plcmsg.Payload is DecisionResponsePayload resp)
+
+        if (!_parser.TryParseToPlcMessage(incomingData, out var msg) || msg == null)
         {
-            _ginRouting[resp.Gin] = resp.DecisionPoints;
-            Logger.Information("[{Gin}] stored : {Action}", resp.Gin, resp.DecisionPoints);
+            Logger.Error("[{Dev}] Failed to parse PLC message: {Data}", Config.Name, incomingData);
+            return Task.CompletedTask;
+        }
 
-            // Calculate and log the round trip time
-            if (_decisionRequestTimestamps.TryRemove(resp.Gin, out long startTimestamp))
-            {
-                var elapsedMs = (Stopwatch.GetTimestamp() - startTimestamp) * 1000.0 / Stopwatch.Frequency;
-                Tracker.AddProcessTime(elapsedMs);
-                Logger.Information("[{Dev}] WCS Response Time for GIN {Gin}: {ElapsedMs:F2} ms", Config.Name, resp.Gin, elapsedMs);
-            }
+        if (msg.Payload is not DecisionResponsePayload resp)
+        {
+            Logger.Error("[{Dev}] Unknown PLC payload type: {type}", Config.Name, msg.Payload.GetType().Name);
+            return Task.CompletedTask;
+        }
 
-            // Execute DecisionUpdate functionality in parallel for each decision point in the list
-            if (resp.DecisionPoints != null)
-            {
-                foreach (var dp in resp.DecisionPoints)
-                {
-                    _ = Task.Run(async () =>
-                    {
-                        // Generate a random delay between 2 and 10 seconds for each update
-                        int delayMs = Random.Shared.Next(2000, 10001);
-                        await Task.Delay(delayMs);
+        _ginRouting[resp.Gin] = resp.DecisionPoints;
+        Logger.Information("[{Gin}] stored : {Action}", resp.Gin, resp.DecisionPoints);
 
-                        string? effectiveBarcode = GetEffectiveBarcode(resp.Gin, resp.DecisionPoint);
-                        
-                        string action = dp;
-                        int reasonCode = 0;
-                        
-                        // Sorter Simulation Mode: Infer from name (not PNA)
-                        if (!resp.DecisionPoint.Contains("PNA", StringComparison.OrdinalIgnoreCase))
-                        {
-                            if (Random.Shared.Next(100) < 5) // 5% chance of mis-divert
-                            {
-                                action = "REJECT";
-                                reasonCode = 99;
-                            }
-                        }
-
-                        var updateMsg = PlcMessageParser.CreateDecisionUpdate(
-                            Key.ElementName,
-                            resp.DecisionPoint,
-                            resp.Gin,
-                            action,
-                            effectiveBarcode != null ? new List<string> { effectiveBarcode } : null,
-                            reasonCode);
-
-                        await SendAsync(updateMsg.ToString(), CancellationToken.None);
-                        Logger.Information("[{Dev}] Sent DecisionUpdate for Gin: {Gin} Action: {Action} after {Delay}ms", 
-                            Config.Name, resp.Gin, dp, delayMs);
-                    });
-                }
-            }
+        var responseKey = (resp.Gin, resp.DecisionPoint);
+        if (_pendingDecisionResponses.TryRemove(responseKey, out var pendingResponse))
+        {
+            pendingResponse.TrySetResult(resp);
         }
         else
         {
-            Logger.Error("[{Dev}] Unknown message type: {type}", Config.Name, msg?.GetType().Name);
+            Logger.Warning("[{Dev}] Received DecisionResponse for GIN {Gin} at {DP}, but no lifecycle is waiting.",
+                Config.Name, resp.Gin, resp.DecisionPoint);
+        }
+
+        // Calculate and log the round trip time
+        if (_decisionRequestTimestamps.TryRemove(resp.Gin, out long startTimestamp))
+        {
+            var elapsedMs = (Stopwatch.GetTimestamp() - startTimestamp) * 1000.0 / Stopwatch.Frequency;
+            Tracker.AddProcessTime(elapsedMs);
+            Logger.Information("[{Dev}] WCS Response Time for GIN {Gin}: {ElapsedMs:F2} ms", Config.Name,
+                resp.Gin, elapsedMs);
         }
 
         return Task.CompletedTask;
@@ -366,16 +524,16 @@ public class VirtualPlcElement : TcpClientElementBase, IMessageProvider
         {
             while (!token.IsCancellationRequested && (totalTotes == 0 || _currentGin < totalTotes))
             {
-                _currentGin++;
+                int gin = Interlocked.Increment(ref _currentGin);
 
-                SimulationCoordinator.UpdateGin(_currentGin);
+                SimulationCoordinator.UpdateGin(gin);
 
-                // Fire and forget the lifecycle of THIS specific tote
-                // This allows multiple totes to be "on the wire" at once
-                _ = Task.Run(() => ProcessToteLifecycleAsync(_currentGin, decisionPhases, token), token);
+                await ProcessToteLifecycleInGlobalOrderAsync(gin, decisionPhases, token);
 
-                // Wait for the next induction interval
-                await Task.Delay(inductIntervalMs, token);
+                if (inductIntervalMs > 0)
+                {
+                    await Task.Delay(inductIntervalMs, token);
+                }
             }
         }
         catch (OperationCanceledException)
@@ -384,22 +542,233 @@ public class VirtualPlcElement : TcpClientElementBase, IMessageProvider
         }
     }
 
+    private async Task RunScriptedScenarioAsync(
+        ScriptedPlcScenario scenario,
+        List<List<DecisionStep>> decisionPhases,
+        CancellationToken token)
+    {
+        try
+        {
+            Logger.Information("[{Dev}] Starting scripted PLC scenario {Scenario} with {StageCount} stages.",
+                Config.Name, scenario.Name, scenario.Stages.Count);
+
+            foreach (var stage in scenario.Stages.OrderBy(s => s.Stage))
+            {
+                var totes = stage.ExpandTotes().ToList();
+                if (totes.Count == 0)
+                {
+                    Logger.Warning("[{Dev}] Scripted stage {Stage} {Name} has no totes.",
+                        Config.Name, stage.Stage, stage.Name);
+                    continue;
+                }
+
+                Logger.Information("[{Dev}] Starting scripted stage {Stage} {Name} with {Count} totes.",
+                    Config.Name, stage.Stage, stage.Name, totes.Count);
+
+                var stageTasks = totes
+                    .Select(tote => Task.Run(
+                        () => RunScriptedToteAfterDelayAsync(tote, decisionPhases, token),
+                        token))
+                    .ToArray();
+
+                await Task.WhenAll(stageTasks);
+
+                Logger.Information("[{Dev}] Completed scripted stage {Stage} {Name}.",
+                    Config.Name, stage.Stage, stage.Name);
+            }
+
+            Logger.Information("[{Dev}] Scripted PLC scenario {Scenario} completed.",
+                Config.Name, scenario.Name);
+        }
+        catch (OperationCanceledException)
+        {
+            // Normal during shutdown or reconnect.
+        }
+        catch (Exception ex)
+        {
+            Logger.Error(ex, "[{Dev}] Scripted PLC scenario {Scenario} failed.",
+                Config.Name, scenario.Name);
+        }
+    }
+
+    private async Task RunScriptedToteAfterDelayAsync(
+        ScriptedPlcTote tote,
+        List<List<DecisionStep>> phases,
+        CancellationToken token)
+    {
+        try
+        {
+            if (tote.InductAtMs > 0)
+            {
+                await Task.Delay(tote.InductAtMs, token);
+            }
+
+            if (!string.IsNullOrWhiteSpace(tote.SequenceAnomaly))
+            {
+                Logger.Warning("[{Dev}] sequence anomaly: {Anomaly}",
+                    Config.Name, FormatSequenceAnomaly(tote.SequenceAnomaly));
+            }
+
+            SimulationCoordinator.UpdateGin(tote.Gin);
+            Logger.Information("[{Dev}] Scripted stage {Stage} inducting GIN {Gin} barcode {Barcode}.",
+                Config.Name, tote.Stage, tote.Gin, tote.Barcode);
+
+            await ProcessToteLifecycleAsync(
+                tote.Gin,
+                phases,
+                token,
+                tote.Barcode,
+                CloneMetadata(tote.InductMetadata));
+        }
+        catch (OperationCanceledException)
+        {
+            // Normal during shutdown or reconnect.
+        }
+        catch (Exception ex)
+        {
+            Logger.Error(ex, "[{Dev}] Scripted tote failed. Stage {Stage}, GIN {Gin}, Barcode {Barcode}",
+                Config.Name, tote.Stage, tote.Gin, tote.Barcode);
+        }
+        finally
+        {
+            CancelPendingResponsesForGin(tote.Gin);
+        }
+    }
+
     // Define this at the class level for thread-safe round-robin routing
     private int _roundRobinIndex = 0;
 
+    private async Task ProcessToteLifecycleInGlobalOrderAsync(
+        int gin,
+        List<List<DecisionStep>> phases,
+        CancellationToken token)
+    {
+        await _lifecycleOrderGate.WaitAsync(token);
+        try
+        {
+            await ProcessToteLifecycleAsync(gin, phases, token);
+        }
+        finally
+        {
+            CancelPendingResponsesForGin(gin);
+            _lifecycleOrderGate.Release();
+        }
+    }
 
-    private async Task ProcessToteLifecycleAsync(int gin, List<List<DecisionStep>> phases, CancellationToken token)
+    private TaskCompletionSource<DecisionResponsePayload> RegisterPendingDecisionResponse(
+        int gin,
+        string decisionPoint)
+    {
+        var key = (gin, decisionPoint);
+        var pendingResponse =
+            new TaskCompletionSource<DecisionResponsePayload>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        if (_pendingDecisionResponses.TryRemove(key, out var existing))
+        {
+            existing.TrySetCanceled();
+        }
+
+        _pendingDecisionResponses[key] = pendingResponse;
+        return pendingResponse;
+    }
+
+    private async Task<DecisionResponsePayload?> WaitForDecisionResponseAsync(
+        int gin,
+        string decisionPoint,
+        TaskCompletionSource<DecisionResponsePayload> pendingResponse,
+        CancellationToken token)
+    {
+        try
+        {
+            if (_decisionResponseTimeoutMs > 0)
+            {
+                using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(token);
+                timeoutCts.CancelAfter(_decisionResponseTimeoutMs);
+                return await pendingResponse.Task.WaitAsync(timeoutCts.Token);
+            }
+
+            return await pendingResponse.Task.WaitAsync(token);
+        }
+        catch (OperationCanceledException) when (!token.IsCancellationRequested && _decisionResponseTimeoutMs > 0)
+        {
+            Logger.Warning(
+                "[{Dev}] Timed out waiting {Timeout}ms for DecisionResponse. GIN {Gin}, DP {DP}",
+                Config.Name, _decisionResponseTimeoutMs, gin, decisionPoint);
+            return null;
+        }
+        finally
+        {
+            _pendingDecisionResponses.TryRemove((gin, decisionPoint), out _);
+        }
+    }
+
+    private void CancelPendingResponsesForGin(int gin)
+    {
+        foreach (var key in _pendingDecisionResponses.Keys.Where(k => k.Gin == gin))
+        {
+            if (_pendingDecisionResponses.TryRemove(key, out var pendingResponse))
+            {
+                pendingResponse.TrySetCanceled();
+            }
+        }
+    }
+
+    private async Task SendDecisionUpdatesAsync(DecisionResponsePayload resp, CancellationToken token)
+    {
+        if (resp.DecisionPoints == null || resp.DecisionPoints.Count == 0)
+        {
+            return;
+        }
+
+        foreach (var dp in resp.DecisionPoints)
+        {
+            string? effectiveBarcode = GetEffectiveBarcode(resp.Gin, resp.DecisionPoint);
+
+            string action = dp;
+            int reasonCode = 0;
+
+            // Sorter Simulation Mode: Infer from name (not PNA)
+            if (!resp.DecisionPoint.Contains("PNA", StringComparison.OrdinalIgnoreCase) &&
+                Random.Shared.Next(100) < 5)
+            {
+                action = "REJECT";
+                reasonCode = 99;
+            }
+
+            var updateMsg = PlcMessageParser.CreateDecisionUpdate(
+                Key.ElementName,
+                resp.DecisionPoint,
+                resp.Gin,
+                action,
+                effectiveBarcode != null ? new List<string> { effectiveBarcode } : null,
+                reasonCode);
+
+            await SendAsync(updateMsg.ToString(), token);
+            Logger.Information(
+                "[{Dev}] Sent DecisionUpdate for Gin: {Gin} Action: {Action}",
+                Config.Name, resp.Gin, action);
+        }
+    }
+
+
+    private async Task ProcessToteLifecycleAsync(
+        int gin,
+        List<List<DecisionStep>> phases,
+        CancellationToken token,
+        string? scriptedBarcode = null,
+        JsonObject? inductMetadata = null)
     {
         if (phases == null || phases.Count == 0) return;
 
         var conveyorClock = new Stopwatch();
         string destination = null;
-        
+
         try
         {
             for (int i = 0; i < phases.Count; i++)
             {
-                Logger.Information("[Beginning of loop : phases {phases}] Gin: {gin} Message: {i}", phases.Count, gin, i);
+                Logger.Information("[Beginning of loop : phases {phases}] Gin: {gin} Message: {i}", phases.Count, gin,
+                    i);
                 var currentPhaseOptions = phases[i];
                 if (currentPhaseOptions.Count == 0) continue;
 
@@ -415,12 +784,16 @@ public class VirtualPlcElement : TcpClientElementBase, IMessageProvider
                         conveyorClock.Start(); // Start clock the moment it passes induct
 
                         // Prioritize barcode from internal scanner
-                        string? barcode = TryGetScannerBarcode(targetStep.DecisionPoint);
-                        
+                        string? barcode = scriptedBarcode ?? TryGetScannerBarcode(targetStep.DecisionPoint);
+
                         if (barcode == null)
                         {
-                            // Fallback to static list or generated SIM barcode
-                            if (_barcodes != null && _barcodes.Count > 0)
+                            // --- SIMULATION OVERRIDES ---
+                            if (gin == 20) barcode = "?????";
+                            else if (gin == 21) barcode = "****";
+                            else if (gin == 22) barcode = "?????";
+                            else if (gin == 24) barcode = "*****";
+                            else if (_barcodes != null && _barcodes.Count > 0)
                             {
                                 int bcIndex = Interlocked.Increment(ref _barcodeIndex) % _barcodes.Count;
                                 barcode = _barcodes[Math.Abs(bcIndex)];
@@ -431,16 +804,39 @@ public class VirtualPlcElement : TcpClientElementBase, IMessageProvider
                             }
                         }
 
+                        // --- SKIP OVERRIDE ---
+                        if (scriptedBarcode == null && gin == 25)
+                        {
+                            Logger.Warning(
+                                "[{Dev}] SIMULATION OVERRIDE: Skipping DecisionRequest (No Label) for GIN {Gin}",
+                                Config.Name, gin);
+                            return; // Stop lifecycle for this tote
+                        }
+
                         // create the decision request message
                         string? effectiveBarcode = GetEffectiveBarcode(gin, targetStep.DecisionPoint, barcode);
-                        var msg = PlcMessageParser.CreateDecisionRequest(Key.ElementName, targetStep.DecisionPoint, gin, effectiveBarcode, null, _printer1, _printer2);
+                        var msg = PlcMessageParser.CreateDecisionRequest(Key.ElementName, targetStep.DecisionPoint, gin,
+                            effectiveBarcode, CloneMetadata(inductMetadata), _printer1, _printer2);
                         _ginBarcode[gin] = barcode;
                         var str = msg.ToString();
-                        Logger.Information(" Gin: {gin} barcode: {barcode} (Source: {Src})", 
-                            gin, _ginBarcode[gin], barcode.StartsWith("SIM-") ? "Generated" : "Scanner/List");
-                        
+                        Logger.Information(" Gin: {gin} barcode: {barcode} (Source: {Src})",
+                            gin, _ginBarcode[gin], scriptedBarcode != null
+                                ? "Scripted"
+                                : barcode.StartsWith("SIM-")
+                                    ? "Generated"
+                                    : "Scanner/List");
+
+                        var pendingResponse = RegisterPendingDecisionResponse(gin, targetStep.DecisionPoint);
                         _decisionRequestTimestamps[gin] = Stopwatch.GetTimestamp();
                         await SendAsync(str, token);
+
+                        var routingResponse =
+                            await WaitForDecisionResponseAsync(gin, targetStep.DecisionPoint, pendingResponse, token);
+                        if (routingResponse != null)
+                        {
+                            await SendDecisionUpdatesAsync(routingResponse, token);
+                        }
+
                         break;
 
                     case 1:
@@ -461,11 +857,13 @@ public class VirtualPlcElement : TcpClientElementBase, IMessageProvider
 
                         if (!_ginRouting.TryGetValue(gin, out var bondList))
                         {
-                            Logger.Warning("[PHASE 2 :gin was not in _ginRouting  {gin} count in list {count}", gin, _ginRouting.Count());
+                            Logger.Warning("[PHASE 2 :gin was not in _ginRouting  {gin} count in list {count}", gin,
+                                _ginRouting.Count());
                             break;
                         }
 
-                        Logger.Debug("[PHASE 2 : _ginRouting {ele} {gin} count in list {count}", bondList.FirstOrDefault(), gin, _ginRouting.Count());
+                        Logger.Debug("[PHASE 2 : _ginRouting {ele} {gin} count in list {count}",
+                            bondList.FirstOrDefault(), gin, _ginRouting.Count());
 
                         // 2. The tote has reached the physical divert. Determine the target.
                         if (currentPhaseOptions.Count == 0 || bondList == null)
@@ -479,43 +877,42 @@ public class VirtualPlcElement : TcpClientElementBase, IMessageProvider
                         {
                             Logger.Debug("[PHASE 2 : {Dev}] Gin: {gin} Target: {target}", Config.Name, gin,
                                 targetStep.DecisionPoint);
-                            
+
                             // Check for downstream scanner update
                             string? scBarcode = TryGetScannerBarcode(targetStep.DecisionPoint);
                             if (scBarcode != null) _ginBarcode[gin] = scBarcode;
 
                             var msgx = PlcMessageParser.CreateDecisionRequest(Key.ElementName, targetStep.DecisionPoint,
-                                 gin, GetEffectiveBarcode(gin, targetStep.DecisionPoint), null, _printer1, _printer2);
+                                gin, GetEffectiveBarcode(gin, targetStep.DecisionPoint), null, _printer1, _printer2);
                             // 4. Fire the PLC message for this specific step
                             _decisionRequestTimestamps[gin] = Stopwatch.GetTimestamp();
                             await SendAsync(msgx.ToString(), token);
                             Logger.Debug("[PHASE 2 : sent: {msg}", msgx);
                         }
 
-                        await Task.Delay(1000, token);
                         if (currentPhaseOptions.Count > 1 && wantedStep == currentPhaseOptions[1].DecisionPoint)
                         {
                             Logger.Debug("[PHASE 2 : {Dev}] Gin: {gin} Target: {target}", Config.Name, gin,
-                               currentPhaseOptions[1].DecisionPoint);
-                            
+                                currentPhaseOptions[1].DecisionPoint);
+
                             // Check for downstream scanner update
                             string? scBarcode = TryGetScannerBarcode(currentPhaseOptions[1].DecisionPoint);
                             if (scBarcode != null) _ginBarcode[gin] = scBarcode;
 
                             var msgx = PlcMessageParser.CreateDecisionRequest(Key.ElementName, wantedStep,
-                                 gin, GetEffectiveBarcode(gin, wantedStep), null, _printer1, _printer2);
+                                gin, GetEffectiveBarcode(gin, wantedStep), null, _printer1, _printer2);
                             // 4. Fire the PLC message for this specific step
                             _decisionRequestTimestamps[gin] = Stopwatch.GetTimestamp();
                             await SendAsync(msgx.ToString(), token);
-
                         }
+
                         break;
 
                     default:
                         if (i == phases.Count - 1)
                         {
                             targetStep = currentPhaseOptions.Last();
-                            
+
                             // 3. Wait the specific travel time for this final physical step
                             if (targetStep.DistanceMs > 0)
                             {
@@ -529,11 +926,12 @@ public class VirtualPlcElement : TcpClientElementBase, IMessageProvider
                             var msgx = PlcMessageParser.CreateDecisionRequest(Key.ElementName, targetStep.DecisionPoint,
                                 gin, GetEffectiveBarcode(gin, targetStep.DecisionPoint), null, _printer1, _printer2);
                             Logger.Information("[PHASE 3 : {Dev}] Gin: {gin} Target: {target}", Config.Name, gin,
-                                   targetStep.DecisionPoint);
+                                targetStep.DecisionPoint);
                             // 4. Fire the PLC message for this specific step
                             _decisionRequestTimestamps[gin] = Stopwatch.GetTimestamp();
                             await SendAsync(msgx.ToString(), token);
                         }
+
                         break;
                 }
             }
@@ -572,6 +970,7 @@ public class VirtualPlcElement : TcpClientElementBase, IMessageProvider
         {
             return baseBarcode + "123";
         }
+
         return baseBarcode;
     }
 

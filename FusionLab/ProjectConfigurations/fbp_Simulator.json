@@ -9,12 +9,12 @@
           "Manager": "ActiveMQManager",
           "Enable": true,
           "Properties": {
-            "ConnectionString": "tcp://127.0.0.1:61616?useKeepAlive=true",
-            "DoubleQueue": true
+            "ConnectionString": "tcp://127.0.0.1:61616?KeepAlive=true",
+            "DoubleQueue": false
           }
         },
         {
-          "Name": "TNA2",
+          "Name": "TPAN2",
           "Manager": "VirtualPlcManager",
           "Enable": true,
           "Properties": {
@@ -22,9 +22,10 @@
             "Port": 6999,
             "HeartbeatTimeoutMs": 0,
             "HeartbeatIntervalMs": 0,
-            "DecisionPoints": "PNALINE-2:0;PNA2_151:500|PNA2_152:1000;PNA2_Verify:1000",
-            "TotalTotes": 500,
-            "InductionFreq": 2000,
+            "DecisionPoints": "PNALINE-2:0;PNA2_151:3000|PNA2_152:3000;PNA2_Verify:3000",
+            "ScriptedScenarioFile": "print-and-apply-real-world.json",
+            "TotalTotes": 105,
+            "InductionFreq": 0,
             "Printer1": "PNA2_151",
             "Printer2": "PNA2_152"
           }
@@ -72,7 +73,7 @@
         {
           "Name": "SIM_VALIDATOR",
           "Manager": "SimulationValidationManager",
-          "Enable": true,
+          "Enable": false,
           "Properties": {}
         }
       ],
@@ -88,8 +89,8 @@
             {
               "Mode": 1,
               "Name": "Bond1-LabelRequest",
-              "Source": "TBROKER.LabelRequest.AC.PNAX.LABELREQUEST",
-              "Destination": "TBROKER.LabelDataMessage.AC.PNAX.LABELDATA",
+              "Source": "TBROKER.LabelRequestFrcMessage.AC.PNA.LABELREQUEST",
+              "Destination": "TBROKER.LabelDataFrcMessage.AC.PNA.LABELDATA",
               "Handler": "HandleLabelRequest"
             }
           ]

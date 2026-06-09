@@ -1,0 +1,354 @@
+{
+  "name": "print-and-apply-real-world",
+  "description": "Print and Apply real-world timing test suite. Stage 1 validates one-box-at-a-time timing. Later stages add overlapping happy-path boxes, no-read scans, side-by-side reads, and printer availability cycle scenarios.",
+  "physicalModel": {
+    "lineLengthFeet": 12,
+    "boxLengthFeet": 2,
+    "conveyorSpeedFeetPerSecond": 2,
+    "timingBasis": "lead-edge",
+    "notes": [
+      "12 feet at 2 feet per second gives 6 seconds from induct to verification.",
+      "A 2 foot box has a 1 second body length at this conveyor speed.",
+      "The 6 second spacing validates the simple one-box-at-a-time baseline before adding overlapping boxes."
+    ]
+  },
+  "virtualPlcProperties": {
+    "DecisionPoints": "PNALINE-2:0;PNA2_151:3000|PNA2_152:3000;PNA2_Verify:3000",
+    "TotalTotes": 105,
+    "InductionFreq": 0,
+    "Printer1": "PNA2_151",
+    "Printer2": "PNA2_152",
+    "BarcodeList": [
+      "PNA-STG1-0001",
+      "PNA-STG1-0002",
+      "PNA-STG1-0003",
+      "PNA-STG1-0004",
+      "PNA-STG1-0005"
+    ]
+  },
+  "testRunnerNotes": [
+    "The current Virtual PLC lifecycle is globally ordered. These cases describe the target real-world scripted behavior where multiple boxes can be between induct and verification at the same time.",
+    "A scripted runner should induct new boxes based on each stage's inductionSpacingMs instead of waiting for the previous box lifecycle to finish.",
+    "Stages with random fault placement use fixed positions here so log validation is repeatable."
+  ],
+  "stages": [
+    {
+      "stage": 1,
+      "name": "single-box-baseline",
+      "barcodeCount": 5,
+      "inductionSpacingMs": 6000,
+      "expectedFlow": "Each box should complete induct, print station, and verification before the next barcode is inducted.",
+      "stationOffsetsMs": {
+        "induct": 0,
+        "printStation": 3000,
+        "verification": 6000
+      },
+      "barcodes": [
+        {
+          "gin": 1,
+          "barcode": "PNA-STG1-0001",
+          "inductAtMs": 0,
+          "expectedPrintStationAtMs": 3000,
+          "expectedVerificationAtMs": 6000,
+          "expectedVerificationBarcode": "PNA-STG1-0001123",
+          "expectedOutcome": "ship"
+        },
+        {
+          "gin": 2,
+          "barcode": "PNA-STG1-0002",
+          "inductAtMs": 6000,
+          "expectedPrintStationAtMs": 9000,
+          "expectedVerificationAtMs": 12000,
+          "expectedVerificationBarcode": "PNA-STG1-0002123",
+          "expectedOutcome": "ship"
+        },
+        {
+          "gin": 3,
+          "barcode": "PNA-STG1-0003",
+          "inductAtMs": 12000,
+          "expectedPrintStationAtMs": 15000,
+          "expectedVerificationAtMs": 18000,
+          "expectedVerificationBarcode": "PNA-STG1-0003123",
+          "expectedOutcome": "ship"
+        },
+        {
+          "gin": 4,
+          "barcode": "PNA-STG1-0004",
+          "inductAtMs": 18000,
+          "expectedPrintStationAtMs": 21000,
+          "expectedVerificationAtMs": 24000,
+          "expectedVerificationBarcode": "PNA-STG1-0004123",
+          "expectedOutcome": "ship"
+        },
+        {
+          "gin": 5,
+          "barcode": "PNA-STG1-0005",
+          "inductAtMs": 24000,
+          "expectedPrintStationAtMs": 27000,
+          "expectedVerificationAtMs": 30000,
+          "expectedVerificationBarcode": "PNA-STG1-0005123",
+          "expectedOutcome": "ship"
+        }
+      ]
+    },
+    {
+      "stage": 2,
+      "name": "happy-path-overlap-round-robin",
+      "barcodeCount": 20,
+      "inductionSpacingMs": 1000,
+      "expectedFlow": "Twenty boxes are inducted one second apart. All printers are available and every box should print and verify successfully. Selected printers should alternate in round-robin order.",
+      "stationOffsetsMs": {
+        "induct": 0,
+        "printStation": 3000,
+        "verification": 6000
+      },
+      "inductMetadata": {
+        "PNA2_151": "1",
+        "PNA2_152": "1"
+      },
+      "barcodes": [
+        { "gin": 6, "barcode": "PNA-HP-0001", "inductAtMs": 0, "expectedPrintStationAtMs": 3000, "expectedVerificationAtMs": 6000, "expectedPrinter": "PNA2_151", "expectedVerificationBarcode": "PNA-HP-0001123", "expectedOutcome": "ship" },
+        { "gin": 7, "barcode": "PNA-HP-0002", "inductAtMs": 1000, "expectedPrintStationAtMs": 4000, "expectedVerificationAtMs": 7000, "expectedPrinter": "PNA2_152", "expectedVerificationBarcode": "PNA-HP-0002123", "expectedOutcome": "ship" },
+        { "gin": 8, "barcode": "PNA-HP-0003", "inductAtMs": 2000, "expectedPrintStationAtMs": 5000, "expectedVerificationAtMs": 8000, "expectedPrinter": "PNA2_151", "expectedVerificationBarcode": "PNA-HP-0003123", "expectedOutcome": "ship" },
+        { "gin": 9, "barcode": "PNA-HP-0004", "inductAtMs": 3000, "expectedPrintStationAtMs": 6000, "expectedVerificationAtMs": 9000, "expectedPrinter": "PNA2_152", "expectedVerificationBarcode": "PNA-HP-0004123", "expectedOutcome": "ship" },
+        { "gin": 10, "barcode": "PNA-HP-0005", "inductAtMs": 4000, "expectedPrintStationAtMs": 7000, "expectedVerificationAtMs": 10000, "expectedPrinter": "PNA2_151", "expectedVerificationBarcode": "PNA-HP-0005123", "expectedOutcome": "ship" },
+        { "gin": 11, "barcode": "PNA-HP-0006", "inductAtMs": 5000, "expectedPrintStationAtMs": 8000, "expectedVerificationAtMs": 11000, "expectedPrinter": "PNA2_152", "expectedVerificationBarcode": "PNA-HP-0006123", "expectedOutcome": "ship" },
+        { "gin": 12, "barcode": "PNA-HP-0007", "inductAtMs": 6000, "expectedPrintStationAtMs": 9000, "expectedVerificationAtMs": 12000, "expectedPrinter": "PNA2_151", "expectedVerificationBarcode": "PNA-HP-0007123", "expectedOutcome": "ship" },
+        { "gin": 13, "barcode": "PNA-HP-0008", "inductAtMs": 7000, "expectedPrintStationAtMs": 10000, "expectedVerificationAtMs": 13000, "expectedPrinter": "PNA2_152", "expectedVerificationBarcode": "PNA-HP-0008123", "expectedOutcome": "ship" },
+        { "gin": 14, "barcode": "PNA-HP-0009", "inductAtMs": 8000, "expectedPrintStationAtMs": 11000, "expectedVerificationAtMs": 14000, "expectedPrinter": "PNA2_151", "expectedVerificationBarcode": "PNA-HP-0009123", "expectedOutcome": "ship" },
+        { "gin": 15, "barcode": "PNA-HP-0010", "inductAtMs": 9000, "expectedPrintStationAtMs": 12000, "expectedVerificationAtMs": 15000, "expectedPrinter": "PNA2_152", "expectedVerificationBarcode": "PNA-HP-0010123", "expectedOutcome": "ship" },
+        { "gin": 16, "barcode": "PNA-HP-0011", "inductAtMs": 10000, "expectedPrintStationAtMs": 13000, "expectedVerificationAtMs": 16000, "expectedPrinter": "PNA2_151", "expectedVerificationBarcode": "PNA-HP-0011123", "expectedOutcome": "ship" },
+        { "gin": 17, "barcode": "PNA-HP-0012", "inductAtMs": 11000, "expectedPrintStationAtMs": 14000, "expectedVerificationAtMs": 17000, "expectedPrinter": "PNA2_152", "expectedVerificationBarcode": "PNA-HP-0012123", "expectedOutcome": "ship" },
+        { "gin": 18, "barcode": "PNA-HP-0013", "inductAtMs": 12000, "expectedPrintStationAtMs": 15000, "expectedVerificationAtMs": 18000, "expectedPrinter": "PNA2_151", "expectedVerificationBarcode": "PNA-HP-0013123", "expectedOutcome": "ship" },
+        { "gin": 19, "barcode": "PNA-HP-0014", "inductAtMs": 13000, "expectedPrintStationAtMs": 16000, "expectedVerificationAtMs": 19000, "expectedPrinter": "PNA2_152", "expectedVerificationBarcode": "PNA-HP-0014123", "expectedOutcome": "ship" },
+        { "gin": 20, "barcode": "PNA-HP-0015", "inductAtMs": 14000, "expectedPrintStationAtMs": 17000, "expectedVerificationAtMs": 20000, "expectedPrinter": "PNA2_151", "expectedVerificationBarcode": "PNA-HP-0015123", "expectedOutcome": "ship" },
+        { "gin": 21, "barcode": "PNA-HP-0016", "inductAtMs": 15000, "expectedPrintStationAtMs": 18000, "expectedVerificationAtMs": 21000, "expectedPrinter": "PNA2_152", "expectedVerificationBarcode": "PNA-HP-0016123", "expectedOutcome": "ship" },
+        { "gin": 22, "barcode": "PNA-HP-0017", "inductAtMs": 16000, "expectedPrintStationAtMs": 19000, "expectedVerificationAtMs": 22000, "expectedPrinter": "PNA2_151", "expectedVerificationBarcode": "PNA-HP-0017123", "expectedOutcome": "ship" },
+        { "gin": 23, "barcode": "PNA-HP-0018", "inductAtMs": 17000, "expectedPrintStationAtMs": 20000, "expectedVerificationAtMs": 23000, "expectedPrinter": "PNA2_152", "expectedVerificationBarcode": "PNA-HP-0018123", "expectedOutcome": "ship" },
+        { "gin": 24, "barcode": "PNA-HP-0019", "inductAtMs": 18000, "expectedPrintStationAtMs": 21000, "expectedVerificationAtMs": 24000, "expectedPrinter": "PNA2_151", "expectedVerificationBarcode": "PNA-HP-0019123", "expectedOutcome": "ship" },
+        { "gin": 25, "barcode": "PNA-HP-0020", "inductAtMs": 19000, "expectedPrintStationAtMs": 22000, "expectedVerificationAtMs": 25000, "expectedPrinter": "PNA2_152", "expectedVerificationBarcode": "PNA-HP-0020123", "expectedOutcome": "ship" }
+      ]
+    },
+    {
+      "stage": 3,
+      "name": "induct-no-read-faults",
+      "barcodeCount": 10,
+      "inductionSpacingMs": 1000,
+      "faultPlacement": {
+        "type": "deterministic-random",
+        "positions": [4, 8],
+        "barcodeValue": "?????"
+      },
+      "expectedFlow": "Ten boxes are inducted one second apart. Two induct scans are no-reads and should fail before a valid label is printed.",
+      "stationOffsetsMs": {
+        "induct": 0,
+        "printStation": 3000,
+        "verification": 6000
+      },
+      "inductMetadata": {
+        "PNA2_151": "1",
+        "PNA2_152": "1"
+      },
+      "barcodes": [
+        { "gin": 26, "barcode": "PNA-NR-0001", "inductAtMs": 0, "expectedPrintStationAtMs": 3000, "expectedVerificationAtMs": 6000, "expectedVerificationBarcode": "PNA-NR-0001123", "expectedOutcome": "ship" },
+        { "gin": 27, "barcode": "PNA-NR-0002", "inductAtMs": 1000, "expectedPrintStationAtMs": 4000, "expectedVerificationAtMs": 7000, "expectedVerificationBarcode": "PNA-NR-0002123", "expectedOutcome": "ship" },
+        { "gin": 28, "barcode": "PNA-NR-0003", "inductAtMs": 2000, "expectedPrintStationAtMs": 5000, "expectedVerificationAtMs": 8000, "expectedVerificationBarcode": "PNA-NR-0003123", "expectedOutcome": "ship" },
+        { "gin": 29, "barcode": "?????", "inductAtMs": 3000, "expectedPrintStationAtMs": 6000, "expectedVerificationAtMs": 9000, "expectedVerificationBarcode": "", "expectedOutcome": "no-read-exception" },
+        { "gin": 30, "barcode": "PNA-NR-0005", "inductAtMs": 4000, "expectedPrintStationAtMs": 7000, "expectedVerificationAtMs": 10000, "expectedVerificationBarcode": "PNA-NR-0005123", "expectedOutcome": "ship" },
+        { "gin": 31, "barcode": "PNA-NR-0006", "inductAtMs": 5000, "expectedPrintStationAtMs": 8000, "expectedVerificationAtMs": 11000, "expectedVerificationBarcode": "PNA-NR-0006123", "expectedOutcome": "ship" },
+        { "gin": 32, "barcode": "PNA-NR-0007", "inductAtMs": 6000, "expectedPrintStationAtMs": 9000, "expectedVerificationAtMs": 12000, "expectedVerificationBarcode": "PNA-NR-0007123", "expectedOutcome": "ship" },
+        { "gin": 33, "barcode": "?????", "inductAtMs": 7000, "expectedPrintStationAtMs": 10000, "expectedVerificationAtMs": 13000, "expectedVerificationBarcode": "", "expectedOutcome": "no-read-exception" },
+        { "gin": 34, "barcode": "PNA-NR-0009", "inductAtMs": 8000, "expectedPrintStationAtMs": 11000, "expectedVerificationAtMs": 14000, "expectedVerificationBarcode": "PNA-NR-0009123", "expectedOutcome": "ship" },
+        { "gin": 35, "barcode": "PNA-NR-0010", "inductAtMs": 9000, "expectedPrintStationAtMs": 12000, "expectedVerificationAtMs": 15000, "expectedVerificationBarcode": "PNA-NR-0010123", "expectedOutcome": "ship" }
+      ]
+    },
+    {
+      "stage": 4,
+      "name": "induct-side-by-side-faults",
+      "barcodeCount": 10,
+      "inductionSpacingMs": 1000,
+      "faultPlacement": {
+        "type": "deterministic-random",
+        "positions": [3, 9],
+        "barcodeValue": "***8",
+        "meaning": "Two codes read at induct."
+      },
+      "expectedFlow": "Ten boxes are inducted one second apart. Two induct scans report the side-by-side read marker and should fail before a valid label is printed.",
+      "stationOffsetsMs": {
+        "induct": 0,
+        "printStation": 3000,
+        "verification": 6000
+      },
+      "inductMetadata": {
+        "PNA2_151": "1",
+        "PNA2_152": "1"
+      },
+      "barcodes": [
+        { "gin": 36, "barcode": "PNA-SBS-0001", "inductAtMs": 0, "expectedPrintStationAtMs": 3000, "expectedVerificationAtMs": 6000, "expectedVerificationBarcode": "PNA-SBS-0001123", "expectedOutcome": "ship" },
+        { "gin": 37, "barcode": "PNA-SBS-0002", "inductAtMs": 1000, "expectedPrintStationAtMs": 4000, "expectedVerificationAtMs": 7000, "expectedVerificationBarcode": "PNA-SBS-0002123", "expectedOutcome": "ship" },
+        { "gin": 38, "barcode": "***8", "inductAtMs": 2000, "expectedPrintStationAtMs": 5000, "expectedVerificationAtMs": 8000, "expectedVerificationBarcode": "", "expectedOutcome": "side-by-side-exception" },
+        { "gin": 39, "barcode": "PNA-SBS-0004", "inductAtMs": 3000, "expectedPrintStationAtMs": 6000, "expectedVerificationAtMs": 9000, "expectedVerificationBarcode": "PNA-SBS-0004123", "expectedOutcome": "ship" },
+        { "gin": 40, "barcode": "PNA-SBS-0005", "inductAtMs": 4000, "expectedPrintStationAtMs": 7000, "expectedVerificationAtMs": 10000, "expectedVerificationBarcode": "PNA-SBS-0005123", "expectedOutcome": "ship" },
+        { "gin": 41, "barcode": "PNA-SBS-0006", "inductAtMs": 5000, "expectedPrintStationAtMs": 8000, "expectedVerificationAtMs": 11000, "expectedVerificationBarcode": "PNA-SBS-0006123", "expectedOutcome": "ship" },
+        { "gin": 42, "barcode": "PNA-SBS-0007", "inductAtMs": 6000, "expectedPrintStationAtMs": 9000, "expectedVerificationAtMs": 12000, "expectedVerificationBarcode": "PNA-SBS-0007123", "expectedOutcome": "ship" },
+        { "gin": 43, "barcode": "PNA-SBS-0008", "inductAtMs": 7000, "expectedPrintStationAtMs": 10000, "expectedVerificationAtMs": 13000, "expectedVerificationBarcode": "PNA-SBS-0008123", "expectedOutcome": "ship" },
+        { "gin": 44, "barcode": "***8", "inductAtMs": 8000, "expectedPrintStationAtMs": 11000, "expectedVerificationAtMs": 14000, "expectedVerificationBarcode": "", "expectedOutcome": "side-by-side-exception" },
+        { "gin": 45, "barcode": "PNA-SBS-0010", "inductAtMs": 9000, "expectedPrintStationAtMs": 12000, "expectedVerificationAtMs": 15000, "expectedVerificationBarcode": "PNA-SBS-0010123", "expectedOutcome": "ship" }
+      ]
+    },
+    {
+      "stage": 5,
+      "name": "printer-availability-and-hardware-cycle",
+      "barcodeCount": 40,
+      "inductionSpacingMs": 1000,
+      "cycleLength": 5,
+      "expectedFlow": "Forty boxes are inducted one second apart. Every five boxes the induct metadata changes to force one printer unavailable. The active printer should receive all print work for that cycle.",
+      "stationOffsetsMs": {
+        "induct": 0,
+        "printStation": 3000,
+        "verification": 6000
+      },
+      "cycles": [
+        {
+          "cycle": 1,
+          "positions": "1-5",
+          "description": "First printer offline.",
+          "inductMetadata": { "PNA2_151": "0", "PNA2_152": "1" },
+          "expectedPrinter": "PNA2_152"
+        },
+        {
+          "cycle": 2,
+          "positions": "6-10",
+          "description": "Second printer offline.",
+          "inductMetadata": { "PNA2_151": "1", "PNA2_152": "0" },
+          "expectedPrinter": "PNA2_151"
+        },
+        {
+          "cycle": 3,
+          "positions": "11-15",
+          "description": "First printer reports paper out.",
+          "inductMetadata": { "PNA2_151": "out of paper", "PNA2_152": "1" },
+          "expectedPrinter": "PNA2_152"
+        },
+        {
+          "cycle": 4,
+          "positions": "16-20",
+          "description": "Second printer reports paper out.",
+          "inductMetadata": { "PNA2_151": "1", "PNA2_152": "out of paper" },
+          "expectedPrinter": "PNA2_151"
+        },
+        {
+          "cycle": 5,
+          "positions": "21-25",
+          "description": "First printer reports paused.",
+          "inductMetadata": { "PNA2_151": "paused", "PNA2_152": "1" },
+          "expectedPrinter": "PNA2_152"
+        },
+        {
+          "cycle": 6,
+          "positions": "26-30",
+          "description": "Second printer reports paused.",
+          "inductMetadata": { "PNA2_151": "1", "PNA2_152": "paused" },
+          "expectedPrinter": "PNA2_151"
+        },
+        {
+          "cycle": 7,
+          "positions": "31-35",
+          "description": "First printer reports head open.",
+          "inductMetadata": { "PNA2_151": "head open", "PNA2_152": "1" },
+          "expectedPrinter": "PNA2_152"
+        },
+        {
+          "cycle": 8,
+          "positions": "36-40",
+          "description": "Second printer reports head open.",
+          "inductMetadata": { "PNA2_151": "1", "PNA2_152": "head open" },
+          "expectedPrinter": "PNA2_151"
+        }
+      ],
+      "barcodePattern": {
+        "ginStart": 46,
+        "ginEnd": 85,
+        "barcodePrefix": "PNA-CYC-",
+        "expectedOutcome": "ship"
+      }
+    },
+    {
+      "stage": 6,
+      "name": "gin-sequence-anomalies",
+      "barcodeCount": 10,
+      "inductionSpacingMs": 1000,
+      "expectedFlow": "Ten boxes are inducted one second apart. The PLC skips one GIN value and later duplicates one GIN value so log validation can confirm sequence anomaly detection.",
+      "stationOffsetsMs": {
+        "induct": 0,
+        "printStation": 3000,
+        "verification": 6000
+      },
+      "inductMetadata": {
+        "PNA2_151": "1",
+        "PNA2_152": "1"
+      },
+      "barcodes": [
+        { "messageIndex": 1, "gin": 86, "barcode": "PNA-GIN-0001", "inductAtMs": 0, "expectedOutcome": "ship" },
+        { "messageIndex": 2, "gin": 87, "barcode": "PNA-GIN-0002", "inductAtMs": 1000, "expectedOutcome": "ship" },
+        { "messageIndex": 3, "gin": 88, "barcode": "PNA-GIN-0003", "inductAtMs": 2000, "expectedOutcome": "ship" },
+        { "messageIndex": 4, "gin": 90, "barcode": "PNA-GIN-0004", "inductAtMs": 3000, "sequenceAnomaly": "skipped-gin-89", "expectedOutcome": "gin-skip-detected" },
+        { "messageIndex": 5, "gin": 91, "barcode": "PNA-GIN-0005", "inductAtMs": 4000, "expectedOutcome": "ship" },
+        { "messageIndex": 6, "gin": 92, "barcode": "PNA-GIN-0006", "inductAtMs": 5000, "expectedOutcome": "ship" },
+        { "messageIndex": 7, "gin": 92, "barcode": "PNA-GIN-0007", "inductAtMs": 6000, "sequenceAnomaly": "duplicate-gin-92", "expectedOutcome": "duplicate-gin-detected" },
+        { "messageIndex": 8, "gin": 93, "barcode": "PNA-GIN-0008", "inductAtMs": 7000, "expectedOutcome": "ship" },
+        { "messageIndex": 9, "gin": 94, "barcode": "PNA-GIN-0009", "inductAtMs": 8000, "expectedOutcome": "ship" },
+        { "messageIndex": 10, "gin": 95, "barcode": "PNA-GIN-0010", "inductAtMs": 9000, "expectedOutcome": "ship" }
+      ]
+    },
+    {
+      "stage": 7,
+      "name": "label-data-never-arrives",
+      "barcodeCount": 10,
+      "inductionSpacingMs": 1000,
+      "expectedFlow": "Ten boxes are inducted one second apart and routed to an available printer, but ActiveMQ never returns label data. Each box should fail at print handoff because usable label data is not available in cache.",
+      "stationOffsetsMs": {
+        "induct": 0,
+        "printStation": 3000,
+        "verification": 6000
+      },
+      "inductMetadata": {
+        "PNA2_151": "1",
+        "PNA2_152": "1"
+      },
+      "activeMqBehavior": {
+        "labelDataResponse": "none",
+        "description": "Suppress the LabelData response for every barcode in this stage."
+      },
+      "barcodes": [
+        { "gin": 96, "barcode": "PNA-NOLABEL-0001", "inductAtMs": 0, "expectedPrintStationAtMs": 3000, "expectedOutcome": "label-data-missing" },
+        { "gin": 97, "barcode": "PNA-NOLABEL-0002", "inductAtMs": 1000, "expectedPrintStationAtMs": 4000, "expectedOutcome": "label-data-missing" },
+        { "gin": 98, "barcode": "PNA-NOLABEL-0003", "inductAtMs": 2000, "expectedPrintStationAtMs": 5000, "expectedOutcome": "label-data-missing" },
+        { "gin": 99, "barcode": "PNA-NOLABEL-0004", "inductAtMs": 3000, "expectedPrintStationAtMs": 6000, "expectedOutcome": "label-data-missing" },
+        { "gin": 100, "barcode": "PNA-NOLABEL-0005", "inductAtMs": 4000, "expectedPrintStationAtMs": 7000, "expectedOutcome": "label-data-missing" },
+        { "gin": 101, "barcode": "PNA-NOLABEL-0006", "inductAtMs": 5000, "expectedPrintStationAtMs": 8000, "expectedOutcome": "label-data-missing" },
+        { "gin": 102, "barcode": "PNA-NOLABEL-0007", "inductAtMs": 6000, "expectedPrintStationAtMs": 9000, "expectedOutcome": "label-data-missing" },
+        { "gin": 103, "barcode": "PNA-NOLABEL-0008", "inductAtMs": 7000, "expectedPrintStationAtMs": 10000, "expectedOutcome": "label-data-missing" },
+        { "gin": 104, "barcode": "PNA-NOLABEL-0009", "inductAtMs": 8000, "expectedPrintStationAtMs": 11000, "expectedOutcome": "label-data-missing" },
+        { "gin": 105, "barcode": "PNA-NOLABEL-0010", "inductAtMs": 9000, "expectedPrintStationAtMs": 12000, "expectedOutcome": "label-data-missing" }
+      ]
+    }
+  ],
+  "logValidation": {
+    "expectedEventsFile": "print-and-apply-real-world-expected.csv",
+    "requiredMarkers": [
+      "Gin: {gin} barcode: {barcode}",
+      "Label data stored for Barcode: {barcode}",
+      "Sending Label to printer : {barcode}",
+      "[Verification SUCCESS] GIN {gin} matches expected barcode {expectedVerificationBarcode}"
+    ],
+    "failureMarkersThatShouldNotAppear": [
+      "Label data rejected",
+      "Missing expected scan",
+      "Missing printer data",
+      "Malformed printer data",
+      "[Verification MISMATCH]",
+      "[Verification FAILED]"
+    ]
+  }
+}

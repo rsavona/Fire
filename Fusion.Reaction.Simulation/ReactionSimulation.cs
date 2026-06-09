@@ -1,6 +1,8 @@
-﻿using Fusion.Common;
+﻿using System.Text.Json.Nodes;
+using Fusion.Common;
 using Fusion.Common.BaseClasses;
 using Fusion.Common.Contracts;
+using Fusion.Element.Plc.Suite.Messages;
 using Serilog;
 
 namespace Fusion.Reaction.Simulation;
@@ -35,30 +37,47 @@ public class ReactionSimulation : ReactionBase
                 return null;
             }
 
-            if (labelRequest.Barcodes.FirstOrDefault() == "SIM-0400")
-            {
-                Logger.Information("[{Reaction}] Simulating delay for {Barcode}", "SIM-0400");
-                await Task.Delay(1500, ct);
-            }
-
             var ld = TestDataGenerator.GenerateMockResponse(labelRequest);
+
+            if (ld == null)
+            {
+                Logger.Warning("[{Reaction}] Suppressing LabelData response for barcode {Barcode}.",
+                    ReactionKey.ElementName, labelRequest.Barcodes.FirstOrDefault() ?? string.Empty);
+                return null;
+            }
 
             Logger.Debug("[{Reaction}] Generated response {msg}", ReactionKey.ElementName, ld);
             
 
-            return ld; // MessageEnvelope(new MessageBusTopic(bond.Destination), response);
+            return await Task.FromResult<object?>(ld); // MessageEnvelope(new MessageBusTopic(bond.Destination), response);
     }
     private async Task<object?>? HandleLabelVerify(MessageEnvelope messageEnvelope, CancellationToken ct)
     {
             var t = messageEnvelope.Payload?.GetType().Name;
             Logger.Debug("[{Reaction}] Received message from Message Bus {msg}", ReactionKey.ElementName,
                 messageEnvelope.Payload);
-          
-            
 
             Logger.Debug("[{Reaction}] Generated response {msg}", ReactionKey.ElementName, messageEnvelope.Payload);
             
-
             return messageEnvelope.Payload; // MessageEnvelope(new MessageBusTopic(bond.Destination), response);
+    }
+    private async Task<object?>? HandleRoberQueue(MessageEnvelope messageEnvelope, CancellationToken ct)
+    {
+        Logger.Debug("[{Reaction}] HandleRoberQueue received: {Payload}", ReactionKey.ElementName, messageEnvelope.Payload);
+
+        if (messageEnvelope.Payload is DecisionRequestPayload drp)
+        {
+            return drp.Metadata;
+        }
+
+        if (messageEnvelope.Payload is LabelDataFrcMessage ldfm)
+        {
+                // If it's LabelData, we might not have metadata directly,
+            // but the user mentioned "mdata goes back into the configured queue".
+            // If LabelData is expected here, we return it as is or handle accordingly.
+            return ldfm;
+        }
+
+        return messageEnvelope.Payload;
     }
 }
