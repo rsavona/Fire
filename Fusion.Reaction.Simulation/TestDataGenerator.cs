@@ -74,10 +74,7 @@ public static class TestDataGenerator
                 request,
                 "OKAY",
                 $"1 matched label for {barcode}",
-                new List<LabelInfo>
-                {
-                    BuildLabel(barcode, barcode + "123", BuildPrinterData(barcode, barcode + "123"))
-                })
+                BuildStandardLabels(barcode))
         };
     }
 
@@ -97,6 +94,23 @@ public static class TestDataGenerator
             labels);
     }
 
+    private static List<LabelInfo> BuildStandardLabels(string barcode)
+    {
+        return new List<LabelInfo>
+        {
+            BuildTypedLabel("SHIPTOP", barcode, barcode + "123"),
+            BuildTypedLabel("CONTENTSDROP", barcode, barcode + "-CD123")
+        };
+    }
+
+    private static LabelInfo BuildTypedLabel(string applicatorType, string barcode, string expectedScan)
+    {
+        return new LabelInfo(
+            ApplicatorType: applicatorType,
+            ExpectedScan: expectedScan,
+            PrinterData: BuildPrinterData(applicatorType, barcode, expectedScan));
+    }
+
     private static LabelInfo BuildLabel(string barcode, string expectedScan, string printerData)
     {
         return new LabelInfo(
@@ -107,9 +121,15 @@ public static class TestDataGenerator
 
     private static string BuildPrinterData(string barcode, string expectedScan)
     {
+        return BuildPrinterData("SHIPTOP", barcode, expectedScan);
+    }
+
+    private static string BuildPrinterData(string applicatorType, string barcode, string expectedScan)
+    {
         return $@"<?xml version=""1.0"" encoding=""UTF-8""?>
                                 <labels _FORMAT=""PM_DEL.ZPL"" _QUANTITY=""1"">
                                     <label>
+                                        <variable name=""applicatorType"">{applicatorType}</variable>
                                         <variable name=""LPN"">{barcode}</variable>
                                         <variable name=""printedBarcode"">{expectedScan}</variable>
                                         <variable name=""printerName"">MOCK_PRINTER</variable>

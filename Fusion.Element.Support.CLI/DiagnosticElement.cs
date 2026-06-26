@@ -317,6 +317,7 @@ public class DiagnosticElement : ElementBase<DiagnosticElement.State, Diagnostic
 
                 writer.Write(header + subHeader + divLine);
                 UpdateClientHeader(clientId);
+                UpdateClientLegend(clientId);
                 
                 // Send current snapshot immediately so they don't wait for updates
                 foreach (var entry in _elementRows)
@@ -331,6 +332,17 @@ public class DiagnosticElement : ElementBase<DiagnosticElement.State, Diagnostic
             }
         }
         catch { client.Close(); }
+    }
+
+    private void UpdateClientLegend(Guid id)
+    {
+        if (_clients.TryGetValue(id, out var writer))
+        {
+            // Position legend at a fixed row (e.g. 40) or relative to the prompt.
+            // For now, let's use row 38 to keep it out of the way of the status list but above the prompt.
+            string legend = $"\x1b[38;1H\x1b[90m KEYS: [1-3] Log Level | [L] Refresh Dashboard | [T] Release Tote | [LOG] Set Level | [RESTART] Element | [PUB] Msg \x1b[0m";
+            writer.Write(legend);
+        }
     }
 
     private async Task ClientReadLoop(Guid id, StreamReader reader, TcpClient client)
@@ -418,6 +430,7 @@ public class DiagnosticElement : ElementBase<DiagnosticElement.State, Diagnostic
                 return true;
 
             case "T":
+            case "RELEASE_TOTE":
                 var topicT = MessageBusTopic.ConsoleCommand.ToString();
                 _ = MessageBus.PublishAsync(topicT, new MessageEnvelope(MessageBusTopic.ConsoleCommand, "RELEASE_TOTE"));
                 Reply(clientId, "Sent RELEASE_TOTE command to bus", replyRow);
@@ -633,6 +646,7 @@ public class DiagnosticElement : ElementBase<DiagnosticElement.State, Diagnostic
             sb.AppendLine("RESTART [Element]     - Cycle a element offline then online");
             sb.AppendLine("ONLINE [Element]      - Set element state to ONLINE");
             sb.AppendLine("OFFLINE [Element]     - Set element state to OFFLINE");
+            sb.AppendLine("RELEASE_TOTE          - Send a RELEASE_TOTE command to the bus");
             sb.AppendLine("NEXT                 - Show next page of commands");
             sb.AppendLine("HELP                 - Show this help");
             sb.AppendLine("-------------------------------------");

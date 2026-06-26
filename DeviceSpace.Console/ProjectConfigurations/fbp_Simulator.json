@@ -1,4 +1,5 @@
-﻿{
+﻿
+{
   "AppSettings": {
     "Fusion": {
       "Name": "Simulation",
@@ -94,13 +95,6 @@
               "Source": "TBROKER.LabelRequestFrcMessage.AC.PNA.LABELREQUEST",
               "Destination": "TBROKER.LabelDataFrcMessage.AC.PNA.LABELDATA",
               "Handler": "HandleLabelRequest"
-            },
-            {
-              "Mode": 1,
-              "Name": "Bond2-LabelVerifyQueueToValidator",
-              "Source": "TBROKER.LabelVerifyFrcMessage.AC.PNA.LABELVERIFY",
-              "Destination": "SIM_VALIDATOR.LabelVerify.ValidationQueue",
-              "Handler": "HandleLabelVerify"
             }
           ]
         }
@@ -108,7 +102,3 @@
     }
   }
 }
-      
-
-
-

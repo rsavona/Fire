@@ -1,28 +1,10 @@
-﻿
 {
   "AppSettings": {
-    "Fusion": 
-    {
-      "Name": "PNA2",
+    "Fusion": {
+      "Name": "MedlinePNA4",
+      "ColorConsole": true,
       "DiagnosticPort": 9999,
       "ReactionList": [
-        {
-          "Name": "StanardSort",
-          "Type": "StandardSort",
-          "Enable": false,
-          "Properties": {
-            "Diverts": "EXIT1;EXIT2;EXIT3"
-          },
-          "Bonds": [
-            {
-              "Mode": 1,
-              "Name": "SortBond",
-              "Source": "TPAN2.DReqM.SORT_POINT",
-              "Handler": "HandleInductionRoundRobinSort",
-              "Destination": "TPAN2.DRespM.SORT_POINT"
-            }
-          ]
-        },
         {
           "Name": "PrintAndApplyFrc",
           "Type": "PrintAndApplyFrc",
@@ -37,7 +19,7 @@
             },
             {
               "Mode": 1,
-               "Name": "Bond2-InductRequestToQueue",
+              "Name": "Bond2-InductRequestToQueue",
               "Source": "TPAN2.DReqM.PNALINE-2",
               "Handler": "HandleLabelRequestToMqAsync",
               "Destination": "TBROKER.LabelRequestFrcMessage.AC.PNA.LABELREQUEST"
@@ -48,65 +30,46 @@
               "Source": "TPAN2.DReqM.PNA2_Verify",
               "Handler": "HandleLabelVerificationToMqAsync",
               "Destination": "TBROKER.LabelVerifyFrcMessage.AC.PNA.LABELVERIFY"
-            },{
+            },
+            {
               "Mode": 1,
               "Name": "Bond4-QueueToMemory",
               "Source": "TBROKER.LabelDataFrcMessage.AC.PNA.LABELDATA",
               "Handler": "HandleLabelToStorageAsync",
               "Destination": "PrintAndApplyFrc.LabelToPrint.Storage"
-              
-            },{
+            },
+            {
               "Mode": 1,
-              "Name": "Bond5-PrintRequestToPrinter1",
+              "Name": "Bond5-ShiptopPrinter1",
               "Source": "TPAN2.DReqM.PNA2_151",
               "Destination": "PNA2_151.LabelToPrint.None",
               "Handler": "HandleBarcodeToPrinterAsync"
-            },{
+            },
+            {
               "Mode": 1,
-              "Name": "Bond6-PrintRequestToPrinter2",
+              "Name": "Bond6-ShiptopPrinter2",
               "Source": "TPAN2.DReqM.PNA2_152",
               "Destination": "PNA2_152.LabelToPrint.None",
               "Handler": "HandleBarcodeToPrinterAsync"
-            },{
-              "Mode": 0,
-              "Name": "Bond7-PrintRequestToPrinter3",
+            },
+            {
+              "Mode": 1,
+              "Name": "Bond7-ContentsdropPrinter1",
               "Source": "TPAN2.DReqM.I001",
               "Handler": "HandleContentToPrinterAsync",
               "Destination": "I001.LabelToPrint.None"
-            },{
-              "Mode": 0,
-              "Name": "Bond8-PrintRequestToPrinter4",
+            },
+            {
+              "Mode": 1,
+              "Name": "Bond8-ContentsdropPrinter2",
               "Source": "TPAN2.DReqM.I002",
               "Handler": "HandleContentToPrinterAsync",
               "Destination": "I002.LabelToPrint.None"
             }
           ]
-        },
-        {
-          "Name": "LabelDataSimulator",
-          "Type": "ReactionSimulation",
-          "Enable": true,
-          "IsSimulation": true,
-          "Bonds": [
-            {
-              "Mode": 1,
-              "Name": "Bond1-LabelRequestToLabelData",
-              "Source": "TBROKER.LabelRequestFrcMessage.AC.PNA.LABELREQUEST",
-              "Destination": "TBROKER.LabelDataFrcMessage.AC.PNA.LABELDATA",
-              "Handler": "HandleLabelRequest"
-            },
-            {
-              "Mode": 1,
-              "Name": "Bond2-LabelVerifyQueueToValidator",
-              "Source": "TBROKER.LabelVerifyFrcMessage.AC.PNA.LABELVERIFY",
-              "Destination": "SIM_VALIDATOR.LabelVerify.ValidationQueue",
-              "Handler": "HandleLabelVerify"
-            }
-          ]
         }
       ],
       "ElementList": [
-       
         {
           "Name": "TPAN2",
           "Manager": "PlcElementManager",
@@ -117,45 +80,12 @@
           }
         },
         {
-          "Name": "VPLC_TPAN2",
-          "Manager": "VirtualPlcManager",
-          "Enable": true,
-          "Properties": {
-            "IPAddress": "127.0.0.1",
-            "Port": 6999,
-            "HeartbeatTimeoutMs": 0,
-            "HeartbeatIntervalMs": 0,
-            "DecisionPoints": "PNALINE-2:0;PNA2_151:3000|PNA2_152:3000;PNA2_Verify:3000",
-            "ScriptedScenarioFile": "print-and-apply-100-good-1s.json",
-            "TotalTotes": 100,
-            "InductionFreq": 0,
-            "Printer1": "PNA2_151",
-            "Printer2": "PNA2_152"
-          }
-        },
-        {
           "Name": "TBROKER",
           "Manager": "ActiveMQManager",
           "Enable": true,
           "Properties": {
             "ConnectionString": "tcp://127.0.0.1:61616?KeepAlive=true",
             "DoubleQueue": false
-            }
-        },
-        {
-          "Name": "VPRINT_PNA2_151",
-          "Manager": "VirtualPrinterManager",
-          "Enable": true,
-          "Properties": {
-            "Port": 9100
-          }
-        },
-        {
-          "Name": "VPRINT_PNA2_152",
-          "Manager": "VirtualPrinterManager",
-          "Enable": true,
-          "Properties": {
-            "Port": 9101
           }
         },
         {
@@ -179,12 +109,33 @@
           }
         },
         {
+          "Name": "I001",
+          "Manager": "PrintClientManager",
+          "Enable": true,
+          "Properties": {
+            "IPAddress": "127.0.0.1",
+            "Port": 9102,
+            "PersistentConnection": true,
+            "Brand": "Zebra",
+            "DestinationType": "Ship",
+            "PrintType": "CONTENTSDROP",
+            "Induct": "PNALINE-2",
+            "ElementTimeout": 2000,
+            "PollRateMs": 1000,
+            "PrintTimeoutMs": 5000,
+            "PrintError": false,
+            "ErrorLabel": "ERROR",
+            "PreferredGroup": 1
+          }
+        },
+        {
           "Name": "PNA2_152",
           "Manager": "PrintClientManager",
           "Enable": true,
           "Properties": {
             "IPAddress": "127.0.0.1",
             "Port": 9101,
+            "PersistentConnection": true,
             "Brand": "Zebra",
             "DestinationType": "Ship",
             "PrintType": "SHIPTOP",
@@ -198,11 +149,23 @@
           }
         },
         {
-          "Name": "SIM_VALIDATOR",
-          "Manager": "SimulationValidationManager",
+          "Name": "I002",
+          "Manager": "PrintClientManager",
           "Enable": true,
           "Properties": {
-            "TestResultsPath": "TestResults.md"
+            "IPAddress": "127.0.0.1",
+            "Port": 9103,
+            "PersistentConnection": true,
+            "Brand": "Zebra",
+            "DestinationType": "Ship",
+            "PrintType": "CONTENTSDROP",
+            "Induct": "PNALINE-2",
+            "ElementTimeout": 2000,
+            "PollRateMs": 1000,
+            "PrintTimeoutMs": 5000,
+            "PrintError": false,
+            "ErrorLabel": "ERROR",
+            "PreferredGroup": 2
           }
         },
         {
@@ -217,6 +180,3 @@
     }
   }
 }
-     
-
-

@@ -36,6 +36,13 @@ The following properties can be configured in the `Properties` dictionary of the
 | **HeartbeatIntervalMs** | `int` | `0` | If > 0, enables periodic heartbeats. |
 | **HeartbeatMessage**| `string`| `""` | The string to send for heartbeats. |
 | **HeartbeatAck** | `string`| `HB_ACK` | Expected response to a heartbeat. |
+| **TerminationChar** | `string` | none | Optional receive terminator. Escape sequences like `\r\n` and `\u0003` are decoded. |
+| **OutboundTerminator** | `string` | `\u0003` | Terminator appended to outbound bus/scripted messages unless already present. |
+| **AppendOutboundTerminator** | `bool` | `true` | Set false to send outbound bus payloads exactly as supplied. |
+| **AutoStartScript** | `bool` | `false` | Sends `ScriptedMessageGroups` automatically after each successful connection. |
+| **ScriptedMessageGroups** | `string` | none | Grouped messages to send. Default message separator is `|`; default group separator is `||`. |
+| **ScriptedDisconnectAfterEachGroup** | `bool` | `false` | Closes the TCP connection after each scripted group so the client reconnects before the next group. |
+| **ScriptedStopWhenComplete** | `bool` | `false` | Stops the client after the last scripted group. |
 
 ### FileMessageElementManager
 | Property | Type | Default | Description |

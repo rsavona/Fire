@@ -32,6 +32,7 @@ public class PrintAndApplyFrc : ReactionBase
     private List<string> _printTypes = [];
     private readonly Lock _lock = new Lock();
     private readonly ConcurrentDictionary<int, string> _expectedBarcodes = new();
+    private readonly ConcurrentDictionary<int, VerificationContext> _verificationContexts = new();
     
     
     /// <summary>
@@ -63,6 +64,13 @@ public class PrintAndApplyFrc : ReactionBase
         Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
         PropertyNamingPolicy = null // Keeps your casing exactly as defined
     };
+
+    private sealed record VerificationContext(
+        Guid SessionId,
+        string ControllerId,
+        string LineId,
+        List<string> Barcodes,
+        Characteristics? Characteristics);
     
     /// <summary>
     /// Initializes the printer status store by gathering printer configurations
@@ -79,7 +87,8 @@ public class PrintAndApplyFrc : ReactionBase
         {
             if (dev is { Manager: "PrintClientManager", Enable: true })
             {
-                var pType = ConfigurationLoader.GetOptionalConfig<string>(dev.Properties, "aSPrintType", "SHIPTOP");
+                var legacyPrintType = ConfigurationLoader.GetOptionalConfig<string>(dev.Properties, "aSPrintType", "SHIPTOP");
+                var pType = ConfigurationLoader.GetOptionalConfig<string>(dev.Properties, "PrintType", legacyPrintType);
                 var pInduct = ConfigurationLoader.GetRequiredConfig<string>(dev.Properties, "Induct");
                 var preferredGroup = ConfigurationLoader.GetOptionalConfig<int>(dev.Properties, "PreferredGroup", 1);
 
@@ -275,11 +284,25 @@ public class PrintAndApplyFrc : ReactionBase
         {
             // 2. Extract current message data
             int gin = MessageParser.GetGin(payloadStr);
-            string? sessionId = MessageParser.GetSession(payloadStr);
             List<string> barcodes = MessageParser.GetBarcodes(payloadStr);
             string scannedBarcode = barcodes.FirstOrDefault() ?? string.Empty;
-            
-            var printer = envelope?.Destination.ElementName;
+            string decisionPoint = MessageParser.GetDecisionPoint(payloadStr);
+            _verificationContexts.TryGetValue(gin, out var context);
+
+            var sessionId = ResolveSessionId(payloadStr, context?.SessionId);
+            var controllerId = FirstNonEmpty(context?.ControllerId, envelope?.Destination.ElementName, "UNKNOWN");
+            var lineId = FirstNonEmpty(context?.LineId, decisionPoint, envelope?.Destination.Discriminator, "UNKNOWN");
+            var reportedBarcodes = barcodes.Count > 0
+                ? barcodes
+                : context?.Barcodes?.Where(b => !string.IsNullOrWhiteSpace(b)).ToList() ?? [];
+
+            if (string.IsNullOrWhiteSpace(scannedBarcode))
+            {
+                scannedBarcode = reportedBarcodes.FirstOrDefault() ?? string.Empty;
+            }
+
+            var verifyResult = "2";
+
             // 3. Perform Lookup in your tracking dictionary
             if (_expectedBarcodes.TryGetValue(gin, out string? expected))
             {
@@ -291,6 +314,7 @@ public class PrintAndApplyFrc : ReactionBase
                     UpdateStatus(ReactionState.Active, ReactionEvent.MessageProcessed, ElementHealth.Normal, $"Verified GIN {gin}");
                    
                     //var msg = FrcHelper.GetVerificationMessage( ) 
+                    verifyResult = "0";
                 }
                 else
                 {
@@ -299,6 +323,7 @@ public class PrintAndApplyFrc : ReactionBase
                 
                     Tracker.IncrementError("Error Barcode Mismatch");
                     // Here you might want to return a "Reject" object to send to the PLC
+                    verifyResult = "1";
                 }
             }
             else
@@ -306,6 +331,35 @@ public class PrintAndApplyFrc : ReactionBase
                 Logger.Warning("[Verification FAILED] No expected barcode found in memory for GIN {GIN}", gin);
                 Tracker.IncrementError("Missing Expectation Data");
             }
+
+            var verification = new LabelVerificationMessage(
+                sessionId,
+                controllerId,
+                lineId,
+                reportedBarcodes,
+                context?.Characteristics,
+                [
+                    new VerificationData(
+                        "SHIPTOP",
+                        scannedBarcode,
+                        verifyResult,
+                        null)
+                ]);
+
+            if (gin > 0)
+            {
+                _expectedBarcodes.TryRemove(gin, out _);
+                _verificationContexts.TryRemove(gin, out _);
+            }
+
+            Logger.Information(
+                "Publishing LabelVerify for GIN {GIN}: session {SessionId}, result {VerifyResult}, barcode {Barcode}",
+                gin,
+                sessionId,
+                verifyResult,
+                scannedBarcode);
+
+            return await Task.FromResult<object?>(verification.ToJson());
         }
         catch (Exception ex)
         {
@@ -313,6 +367,27 @@ public class PrintAndApplyFrc : ReactionBase
         }
 
         return null;
+    }
+
+    private static Guid ResolveSessionId(string payload, Guid? fallback)
+    {
+        foreach (var propertyName in new[] { "sessionId", "SessionId", "session", "Session" })
+        {
+            var value = MessageParser.GetPart(payload, propertyName);
+            if (Guid.TryParse(value, out var parsed) && parsed != Guid.Empty)
+            {
+                return parsed;
+            }
+        }
+
+        return fallback is { } sessionId && sessionId != Guid.Empty
+            ? sessionId
+            : Guid.NewGuid();
+    }
+
+    private static string FirstNonEmpty(params string?[] values)
+    {
+        return values.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value)) ?? string.Empty;
     }
 
     /// <summary>
@@ -405,10 +480,11 @@ public class PrintAndApplyFrc : ReactionBase
         {
             Logger.Error("Paylod = null");
             Tracker.IncrementError("No payload received");
+            await PublishPrinterStationDecisionResponseAsync(envelope, printer, data.Gin, string.Empty, ct);
             return null;
         }
 
-        var result = await Task.Run(() =>
+        var labelDataObj = await Task.Run(() =>
         {
             var labelData = RetrieveAndDecrement(barcode, printer);
             if (labelData == null)
@@ -420,18 +496,200 @@ public class PrintAndApplyFrc : ReactionBase
             Logger.Information($"Sending Label to printer : {barcode} at Printer: {printer}", gin);
             return  labelData;
                 }, ct);
-            string resulttypeStr = result.GetType().ToString();
-            if (result is LabelDataFrcMessage labelDataObj)
+
+        if (labelDataObj == null)
         {
-            _expectedBarcodes[data.Gin] = labelDataObj.GetExpectedScan();
-        }
-        else
-        {
-            Logger.Error("result is {} Payload is not a LabelDataFrcMessage");
-            Tracker.IncrementError("Payload is not a LabelDataFrcMessage");
+            Logger.Warning("No label data cached for GIN {Gin}, Barcode {Barcode}; sending generic error label.",
+                gin, barcode);
+            return await SendGenericErrorLabelAsync(envelope, printer, data.Gin, barcode,
+                "LABEL DATA MISSING", ct);
         }
 
-        return result;
+        if (!labelDataObj.IsSuccess)
+        {
+            Logger.Warning(
+                "Label data rejected for GIN {Gin}, Barcode {Barcode}. Status: {StatusCode} - {StatusMessage}",
+                gin, barcode, labelDataObj.StatusCode, labelDataObj.StatusMessage);
+            Tracker.IncrementError("Label data rejected");
+            return await SendGenericErrorLabelAsync(envelope, printer, data.Gin, barcode,
+                "LABEL DATA REJECTED", ct);
+        }
+
+        if (labelDataObj.Labels == null || labelDataObj.Labels.Count == 0)
+        {
+            Logger.Warning("Label data rejected for GIN {Gin}, Barcode {Barcode}: no labels returned.", gin, barcode);
+            Tracker.IncrementError("No labels returned");
+            return await SendGenericErrorLabelAsync(envelope, printer, data.Gin, barcode,
+                "NO LABELS RETURNED", ct);
+        }
+
+        var expectedScan = labelDataObj.GetExpectedScan();
+        if (string.IsNullOrWhiteSpace(expectedScan))
+        {
+            Logger.Warning(
+                "Label data rejected for GIN {Gin}, Barcode {Barcode}: missing expected scan.",
+                gin, barcode);
+            Tracker.IncrementError("Missing expected scan");
+            return await SendGenericErrorLabelAsync(envelope, printer, data.Gin, barcode,
+                "MISSING EXPECTED SCAN", ct);
+        }
+
+        var applicatorType = GetPrinterType(printer);
+        var label = labelDataObj.Labels.FirstOrDefault(l =>
+            string.Equals(l.ApplicatorType, applicatorType, StringComparison.OrdinalIgnoreCase));
+        if (label == null || string.IsNullOrWhiteSpace(label.PrinterData))
+        {
+            Logger.Warning(
+                "Label data rejected for GIN {Gin}, Barcode {Barcode}: missing {ApplicatorType} printer data.",
+                gin, barcode, applicatorType);
+            Tracker.IncrementError("Missing printer data");
+            return await SendGenericErrorLabelAsync(envelope, printer, data.Gin, barcode,
+                "MISSING PRINTER DATA", ct, applicatorType);
+        }
+
+        if (label.PrinterData.TrimStart().StartsWith("<") && !IsWellFormedXml(label.PrinterData))
+        {
+            Logger.Warning(
+                "Label data rejected for GIN {Gin}, Barcode {Barcode}: malformed {ApplicatorType} printer data.",
+                gin, barcode, applicatorType);
+            Tracker.IncrementError("Malformed printer data");
+            return await SendGenericErrorLabelAsync(envelope, printer, data.Gin, barcode,
+                "MALFORMED PRINTER DATA", ct, applicatorType);
+        }
+
+        _expectedBarcodes[data.Gin] = expectedScan;
+        _verificationContexts[data.Gin] = new VerificationContext(
+            labelDataObj.SessionId,
+            labelDataObj.ControllerId,
+            labelDataObj.LineId,
+            labelDataObj.Barcodes?.ToList() ?? [],
+            null);
+        await PublishPrinterStationDecisionResponseAsync(envelope, printer, data.Gin, printer, ct);
+        return labelDataObj;
+    }
+
+    private async Task<LabelDataFrcMessage> SendGenericErrorLabelAsync(
+        MessageEnvelope? envelope,
+        string printer,
+        int gin,
+        string barcode,
+        string reason,
+        CancellationToken ct,
+        string applicatorType = "SHIPTOP")
+    {
+        var errorLabel = BuildGenericErrorLabelData(gin, barcode, printer, reason, applicatorType);
+
+        Logger.Warning(
+            "Sending generic error label to printer : {Barcode} at Printer: {Printer}. Reason: {Reason}",
+            string.IsNullOrWhiteSpace(barcode) ? $"GIN-{gin:D4}" : barcode,
+            printer,
+            reason);
+
+        await PublishPrinterStationDecisionResponseAsync(envelope, printer, gin, string.Empty, ct);
+        return errorLabel;
+    }
+
+    private static LabelDataFrcMessage BuildGenericErrorLabelData(
+        int gin,
+        string barcode,
+        string printer,
+        string reason,
+        string applicatorType = "SHIPTOP")
+    {
+        var safeBarcode = string.IsNullOrWhiteSpace(barcode) ? $"GIN-{gin:D4}" : barcode;
+        var printerData = BuildGenericErrorPrinterData(gin, safeBarcode, printer, reason);
+
+        return new LabelDataFrcMessage(
+            Guid.Empty,
+            "PrintAndApplyFrc",
+            "ERROR",
+            new List<string> { safeBarcode },
+            "ERROR",
+            reason,
+            new List<LabelInfo>
+            {
+                new(applicatorType, string.Empty, printerData)
+            });
+    }
+
+    private static string BuildGenericErrorPrinterData(
+        int gin,
+        string barcode,
+        string printer,
+        string reason)
+    {
+        var safeGin = XmlEscape(gin.ToString());
+        var safeBarcode = XmlEscape(barcode);
+        var safePrinter = XmlEscape(printer);
+        var safeReason = XmlEscape(reason);
+
+        return $@"<?xml version=""1.0"" encoding=""UTF-8""?>
+                                <labels _FORMAT=""PM_DEL.ZPL"" _QUANTITY=""1"">
+                                    <label>
+                                        <variable name=""GIN"">{safeGin}</variable>
+                                        <variable name=""LPN"">{safeBarcode}</variable>
+                                        <variable name=""printedBarcode"">ERROR</variable>
+                                        <variable name=""message"">PRINT ERROR</variable>
+                                        <variable name=""reason"">{safeReason}</variable>
+                                        <variable name=""printerName"">{safePrinter}</variable>
+                                    </label>
+                                </labels>";
+    }
+
+    private static string XmlEscape(string? value)
+    {
+        return System.Security.SecurityElement.Escape(value ?? string.Empty) ?? string.Empty;
+    }
+
+    private async Task PublishPrinterStationDecisionResponseAsync(
+        MessageEnvelope? requestEnvelope,
+        string decisionPoint,
+        int gin,
+        string action,
+        CancellationToken ct)
+    {
+        if (requestEnvelope == null || gin <= 0 || string.IsNullOrWhiteSpace(decisionPoint))
+        {
+            return;
+        }
+
+        var plcName = requestEnvelope.Destination.ElementName;
+        if (string.IsNullOrWhiteSpace(plcName))
+        {
+            return;
+        }
+
+        var responseTopic = new MessageBusTopic(plcName, "DRespM", decisionPoint);
+        var responsePayload = new
+        {
+            MessageType = "DRespM",
+            DecisionPoint = decisionPoint,
+            GIN = gin,
+            Actions = new List<string> { action ?? string.Empty }
+        };
+        var serializedPayload = JsonSerializer.Serialize(responsePayload, _jsonOptions);
+
+        await MessageBus.PublishAsync(
+            plcName,
+            new MessageEnvelope(responseTopic, serializedPayload, gin, requestEnvelope.Client),
+            ct);
+
+        Logger.Information(
+            "[{Reaction}] Printer station response to {PLC}: GIN {Gin}, DP {DecisionPoint}, Action {Action}",
+            ReactionKey.ElementName, plcName, gin, decisionPoint, action);
+    }
+
+    private static bool IsWellFormedXml(string value)
+    {
+        try
+        {
+            System.Xml.Linq.XDocument.Parse(value);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     /// <summary>
@@ -500,11 +758,42 @@ public class PrintAndApplyFrc : ReactionBase
                 return null;
             }
 
-            Logger.Debug($"Sending Label to printer : {barcode} at Printer: {printer}", gin);
-            return new MessageEnvelope(envelope.Destination, labelData);
+            Logger.Information($"Sending Label to printer : {barcode} at Printer: {printer}", gin);
+            return labelData;
         }, ct);
 
+        if (result == null)
+        {
+            Logger.Warning("No content label data cached for GIN {Gin}, Barcode {Barcode}; sending generic error label.",
+                gin, barcode);
+            return await SendGenericErrorLabelAsync(envelope, printer, data.Gin, barcode,
+                "LABEL DATA MISSING", ct, GetPrinterType(printer));
+        }
 
+        var printerType = GetPrinterType(printer);
+        var label = result.Labels.FirstOrDefault(l =>
+            string.Equals(l.ApplicatorType, printerType, StringComparison.OrdinalIgnoreCase));
+        if (label == null || string.IsNullOrWhiteSpace(label.PrinterData))
+        {
+            Logger.Warning(
+                "Label data rejected for GIN {Gin}, Barcode {Barcode}: missing {ApplicatorType} printer data.",
+                gin, barcode, printerType);
+            Tracker.IncrementError("Missing printer data");
+            return await SendGenericErrorLabelAsync(envelope, printer, data.Gin, barcode,
+                "MISSING PRINTER DATA", ct, printerType);
+        }
+
+        if (label.PrinterData.TrimStart().StartsWith("<") && !IsWellFormedXml(label.PrinterData))
+        {
+            Logger.Warning(
+                "Label data rejected for GIN {Gin}, Barcode {Barcode}: malformed {ApplicatorType} printer data.",
+                gin, barcode, printerType);
+            Tracker.IncrementError("Malformed printer data");
+            return await SendGenericErrorLabelAsync(envelope, printer, data.Gin, barcode,
+                "MALFORMED PRINTER DATA", ct, printerType);
+        }
+
+        await PublishPrinterStationDecisionResponseAsync(envelope, printer, data.Gin, printer, ct);
         return result;
     }
 
@@ -561,6 +850,13 @@ public class PrintAndApplyFrc : ReactionBase
         
     }
 
+    private string GetPrinterType(string printerName)
+    {
+        return _printerStatusStore.TryGetValue(printerName, out var status)
+            ? status.Type
+            : "SHIPTOP";
+    }
+
     /// <summary>
     /// Asynchronously retrieves a list of the next available printers for the specified decision point.
     /// The method evaluates the current printer statuses, filters and selects the most suitable printers
@@ -590,9 +886,9 @@ public class PrintAndApplyFrc : ReactionBase
                 foreach (var type in distinctTypes.TakeWhile(_ => !ct.IsCancellationRequested))
                 {
                     var bestForType = _printerStatusStore.Values
-                        .Where(p => p.Type == type && p.Induct == dPoint)
-                        .OrderByDescending(p => p.IsAvailable)
-                        .ThenBy(p => p.LastPrinted)
+                        .Where(p => p.Type == type && p.Induct == dPoint && p.IsAvailable)
+                        .OrderBy(p => p.LastPrinted)
+                        .ThenBy(p => p.PreferredGroup)
                         .ThenBy(p => p.Name)
                         .FirstOrDefault();
 

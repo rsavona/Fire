@@ -1,4 +1,4 @@
-﻿using System.Text;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Fusion.Common.BaseClasses;
@@ -11,7 +11,9 @@ public enum PlcMessageHeaders
     DReqM, // Decision Request
     DUM, // Decision Update Message
     DRespM, // Decision Response Message
-    HB // Heartbeat
+    HB, // Heartbeat
+    TEST, // Test script start summary
+    TESTEND // Test script end summary
 }
 
 public record PlcMessage : ElementMessageBase

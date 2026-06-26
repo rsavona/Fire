@@ -1,6 +1,6 @@
 {
   "name": "print-and-apply-real-world",
-  "description": "Print and Apply real-world timing test suite. Stage 1 validates one-box-at-a-time timing. Later stages add overlapping happy-path boxes, no-read scans, side-by-side reads, and printer availability cycle scenarios.",
+  "description": "Print and Apply real-world timing test suite. Stage 1 validates one-box-at-a-time timing. Later stages add overlapping happy-path boxes, no-read scans, side-by-side reads, printer availability cycle scenarios, and a clean 100-tote soak phase.",
   "physicalModel": {
     "lineLengthFeet": 12,
     "boxLengthFeet": 2,
@@ -14,7 +14,7 @@
   },
   "virtualPlcProperties": {
     "DecisionPoints": "PNALINE-2:0;PNA2_151:3000|PNA2_152:3000;PNA2_Verify:3000",
-    "TotalTotes": 105,
+    "TotalTotes": 225,
     "InductionFreq": 0,
     "Printer1": "PNA2_151",
     "Printer2": "PNA2_152",
@@ -306,7 +306,7 @@
       "name": "label-data-never-arrives",
       "barcodeCount": 10,
       "inductionSpacingMs": 1000,
-      "expectedFlow": "Ten boxes are inducted one second apart and routed to an available printer, but ActiveMQ never returns label data. Each box should fail at print handoff because usable label data is not available in cache.",
+      "expectedFlow": "Ten boxes are inducted one second apart and routed to an available printer, but ActiveMQ never returns label data. GIN values wrap after 98, so this stage uses 96, 97, 98, then 1 through 7. Each box should receive a generic print error label at the selected printer because usable customer label data is not available in cache.",
       "stationOffsetsMs": {
         "induct": 0,
         "printStation": 3000,
@@ -324,14 +324,78 @@
         { "gin": 96, "barcode": "PNA-NOLABEL-0001", "inductAtMs": 0, "expectedPrintStationAtMs": 3000, "expectedOutcome": "label-data-missing" },
         { "gin": 97, "barcode": "PNA-NOLABEL-0002", "inductAtMs": 1000, "expectedPrintStationAtMs": 4000, "expectedOutcome": "label-data-missing" },
         { "gin": 98, "barcode": "PNA-NOLABEL-0003", "inductAtMs": 2000, "expectedPrintStationAtMs": 5000, "expectedOutcome": "label-data-missing" },
-        { "gin": 99, "barcode": "PNA-NOLABEL-0004", "inductAtMs": 3000, "expectedPrintStationAtMs": 6000, "expectedOutcome": "label-data-missing" },
-        { "gin": 100, "barcode": "PNA-NOLABEL-0005", "inductAtMs": 4000, "expectedPrintStationAtMs": 7000, "expectedOutcome": "label-data-missing" },
-        { "gin": 101, "barcode": "PNA-NOLABEL-0006", "inductAtMs": 5000, "expectedPrintStationAtMs": 8000, "expectedOutcome": "label-data-missing" },
-        { "gin": 102, "barcode": "PNA-NOLABEL-0007", "inductAtMs": 6000, "expectedPrintStationAtMs": 9000, "expectedOutcome": "label-data-missing" },
-        { "gin": 103, "barcode": "PNA-NOLABEL-0008", "inductAtMs": 7000, "expectedPrintStationAtMs": 10000, "expectedOutcome": "label-data-missing" },
-        { "gin": 104, "barcode": "PNA-NOLABEL-0009", "inductAtMs": 8000, "expectedPrintStationAtMs": 11000, "expectedOutcome": "label-data-missing" },
-        { "gin": 105, "barcode": "PNA-NOLABEL-0010", "inductAtMs": 9000, "expectedPrintStationAtMs": 12000, "expectedOutcome": "label-data-missing" }
+        { "gin": 1, "barcode": "PNA-NOLABEL-0004", "inductAtMs": 3000, "expectedPrintStationAtMs": 6000, "expectedOutcome": "label-data-missing" },
+        { "gin": 2, "barcode": "PNA-NOLABEL-0005", "inductAtMs": 4000, "expectedPrintStationAtMs": 7000, "expectedOutcome": "label-data-missing" },
+        { "gin": 3, "barcode": "PNA-NOLABEL-0006", "inductAtMs": 5000, "expectedPrintStationAtMs": 8000, "expectedOutcome": "label-data-missing" },
+        { "gin": 4, "barcode": "PNA-NOLABEL-0007", "inductAtMs": 6000, "expectedPrintStationAtMs": 9000, "expectedOutcome": "label-data-missing" },
+        { "gin": 5, "barcode": "PNA-NOLABEL-0008", "inductAtMs": 7000, "expectedPrintStationAtMs": 10000, "expectedOutcome": "label-data-missing" },
+        { "gin": 6, "barcode": "PNA-NOLABEL-0009", "inductAtMs": 8000, "expectedPrintStationAtMs": 11000, "expectedOutcome": "label-data-missing" },
+        { "gin": 7, "barcode": "PNA-NOLABEL-0010", "inductAtMs": 9000, "expectedPrintStationAtMs": 12000, "expectedOutcome": "label-data-missing" }
       ]
+    },
+    {
+      "stage": 8,
+      "name": "mixed-label-data-half-missing",
+      "barcodeCount": 20,
+      "inductionSpacingMs": 1000,
+      "expectedFlow": "Twenty boxes are inducted one second apart. Ten boxes receive label data and should print and verify. Ten boxes use the PNA-NOLABEL prefix so ActiveMQ suppresses customer label data and the selected printer should receive a generic print error label.",
+      "stationOffsetsMs": {
+        "induct": 0,
+        "printStation": 3000,
+        "verification": 6000
+      },
+      "inductMetadata": {
+        "PNA2_151": "1",
+        "PNA2_152": "1"
+      },
+      "activeMqBehavior": {
+        "labelDataResponse": "mixed",
+        "description": "Odd positions return normal LabelData. Even positions suppress LabelData because the barcode starts with PNA-NOLABEL."
+      },
+      "barcodes": [
+        { "gin": 8, "barcode": "PNA-HALF-0001", "inductAtMs": 0, "expectedPrintStationAtMs": 3000, "expectedVerificationAtMs": 6000, "expectedVerificationBarcode": "PNA-HALF-0001123", "expectedOutcome": "ship" },
+        { "gin": 9, "barcode": "PNA-NOLABEL-HALF-0002", "inductAtMs": 1000, "expectedPrintStationAtMs": 4000, "expectedVerificationAtMs": 7000, "expectedVerificationBarcode": "", "expectedOutcome": "label-data-missing" },
+        { "gin": 10, "barcode": "PNA-HALF-0003", "inductAtMs": 2000, "expectedPrintStationAtMs": 5000, "expectedVerificationAtMs": 8000, "expectedVerificationBarcode": "PNA-HALF-0003123", "expectedOutcome": "ship" },
+        { "gin": 11, "barcode": "PNA-NOLABEL-HALF-0004", "inductAtMs": 3000, "expectedPrintStationAtMs": 6000, "expectedVerificationAtMs": 9000, "expectedVerificationBarcode": "", "expectedOutcome": "label-data-missing" },
+        { "gin": 12, "barcode": "PNA-HALF-0005", "inductAtMs": 4000, "expectedPrintStationAtMs": 7000, "expectedVerificationAtMs": 10000, "expectedVerificationBarcode": "PNA-HALF-0005123", "expectedOutcome": "ship" },
+        { "gin": 13, "barcode": "PNA-NOLABEL-HALF-0006", "inductAtMs": 5000, "expectedPrintStationAtMs": 8000, "expectedVerificationAtMs": 11000, "expectedVerificationBarcode": "", "expectedOutcome": "label-data-missing" },
+        { "gin": 14, "barcode": "PNA-HALF-0007", "inductAtMs": 6000, "expectedPrintStationAtMs": 9000, "expectedVerificationAtMs": 12000, "expectedVerificationBarcode": "PNA-HALF-0007123", "expectedOutcome": "ship" },
+        { "gin": 15, "barcode": "PNA-NOLABEL-HALF-0008", "inductAtMs": 7000, "expectedPrintStationAtMs": 10000, "expectedVerificationAtMs": 13000, "expectedVerificationBarcode": "", "expectedOutcome": "label-data-missing" },
+        { "gin": 16, "barcode": "PNA-HALF-0009", "inductAtMs": 8000, "expectedPrintStationAtMs": 11000, "expectedVerificationAtMs": 14000, "expectedVerificationBarcode": "PNA-HALF-0009123", "expectedOutcome": "ship" },
+        { "gin": 17, "barcode": "PNA-NOLABEL-HALF-0010", "inductAtMs": 9000, "expectedPrintStationAtMs": 12000, "expectedVerificationAtMs": 15000, "expectedVerificationBarcode": "", "expectedOutcome": "label-data-missing" },
+        { "gin": 18, "barcode": "PNA-HALF-0011", "inductAtMs": 10000, "expectedPrintStationAtMs": 13000, "expectedVerificationAtMs": 16000, "expectedVerificationBarcode": "PNA-HALF-0011123", "expectedOutcome": "ship" },
+        { "gin": 19, "barcode": "PNA-NOLABEL-HALF-0012", "inductAtMs": 11000, "expectedPrintStationAtMs": 14000, "expectedVerificationAtMs": 17000, "expectedVerificationBarcode": "", "expectedOutcome": "label-data-missing" },
+        { "gin": 20, "barcode": "PNA-HALF-0013", "inductAtMs": 12000, "expectedPrintStationAtMs": 15000, "expectedVerificationAtMs": 18000, "expectedVerificationBarcode": "PNA-HALF-0013123", "expectedOutcome": "ship" },
+        { "gin": 21, "barcode": "PNA-NOLABEL-HALF-0014", "inductAtMs": 13000, "expectedPrintStationAtMs": 16000, "expectedVerificationAtMs": 19000, "expectedVerificationBarcode": "", "expectedOutcome": "label-data-missing" },
+        { "gin": 22, "barcode": "PNA-HALF-0015", "inductAtMs": 14000, "expectedPrintStationAtMs": 17000, "expectedVerificationAtMs": 20000, "expectedVerificationBarcode": "PNA-HALF-0015123", "expectedOutcome": "ship" },
+        { "gin": 23, "barcode": "PNA-NOLABEL-HALF-0016", "inductAtMs": 15000, "expectedPrintStationAtMs": 18000, "expectedVerificationAtMs": 21000, "expectedVerificationBarcode": "", "expectedOutcome": "label-data-missing" },
+        { "gin": 24, "barcode": "PNA-HALF-0017", "inductAtMs": 16000, "expectedPrintStationAtMs": 19000, "expectedVerificationAtMs": 22000, "expectedVerificationBarcode": "PNA-HALF-0017123", "expectedOutcome": "ship" },
+        { "gin": 25, "barcode": "PNA-NOLABEL-HALF-0018", "inductAtMs": 17000, "expectedPrintStationAtMs": 20000, "expectedVerificationAtMs": 23000, "expectedVerificationBarcode": "", "expectedOutcome": "label-data-missing" },
+        { "gin": 26, "barcode": "PNA-HALF-0019", "inductAtMs": 18000, "expectedPrintStationAtMs": 21000, "expectedVerificationAtMs": 24000, "expectedVerificationBarcode": "PNA-HALF-0019123", "expectedOutcome": "ship" },
+        { "gin": 27, "barcode": "PNA-NOLABEL-HALF-0020", "inductAtMs": 19000, "expectedPrintStationAtMs": 22000, "expectedVerificationAtMs": 25000, "expectedVerificationBarcode": "", "expectedOutcome": "label-data-missing" }
+      ]
+    },
+    {
+      "stage": 9,
+      "name": "hundred-tote-no-exceptions-soak",
+      "barcodeCount": 100,
+      "inductionSpacingMs": 1000,
+      "expectedFlow": "One hundred totes are inducted one second apart with both printers available. Every tote should receive normal label data, print, verify, and ship without exception handling.",
+      "stationOffsetsMs": {
+        "induct": 0,
+        "printStation": 3000,
+        "verification": 6000
+      },
+      "inductMetadata": {
+        "PNA2_151": "1",
+        "PNA2_152": "1"
+      },
+      "barcodePattern": {
+        "ginStart": 28,
+        "ginEnd": 127,
+        "barcodePrefix": "PNA-STG9-",
+        "expectedOutcome": "ship"
+      }
     }
   ],
   "logValidation": {

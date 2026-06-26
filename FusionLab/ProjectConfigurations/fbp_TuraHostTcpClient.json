@@ -1,0 +1,65 @@
+{
+  "AppSettings": {
+    "Fusion": {
+      "Name": "TuraHostTcpClientScenario",
+      "ColorConsole": true,
+      "ElementList": [
+        {
+          "Name": "TURA_HOST",
+          "Manager": "TcpMessageServerElementManager",
+          "Enable": true,
+          "Properties": {
+            "Port": "6601",
+            "MaxClients": "5",
+            "Delimiter": "\\r\\n",
+            "PayloadFormat": "FIXED",
+            "FieldDefinitions": "MessageType:0:4,Barcode:4:18,Data:23:3"
+          }
+        },
+        {
+          "Name": "TURA_TEST_CLIENT",
+          "Manager": "TcpMessageClientElementManager",
+          "Enable": true,
+          "Properties": {
+            "IPAddress": "127.0.0.1",
+            "Port": "6601",
+            "TerminationChar": "\\r\\n",
+            "OutboundTerminator": "\\r\\n",
+            "AutoStartScript": true,
+            "ScriptedMessageGroups": "ROUT1Z59W9A50120530867 002|ROUT1Z59W9A50120532365 005||ROUT1Z59W9A50120530866 004||ROUT1Z59W9A50120532373 004",
+            "ScriptedMessageSeparator": "|",
+            "ScriptedGroupSeparator": "||",
+            "ScriptedInitialDelayMs": 500,
+            "ScriptedMessageIntervalMs": 1000,
+            "ScriptedDisconnectAfterEachGroup": true,
+            "ScriptedStopWhenComplete": true
+          }
+        },
+        {
+          "Name": "DIAG_SERVER",
+          "Manager": "DiagnosticElementManager",
+          "Enable": true,
+          "Properties": {
+            "Port": 9999
+          }
+        }
+      ],
+      "ReactionList": [
+        {
+          "Name": "TuraHostReaction",
+          "Type": "HostReaction",
+          "Enable": true,
+          "Bonds": [
+            {
+              "Mode": 1,
+              "Name": "TuraEchoBond",
+              "Source": "TURA_HOST.Inbound",
+              "Handler": "HandleTuraMessages",
+              "Destination": "TURA_HOST.Outbound.Echo"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

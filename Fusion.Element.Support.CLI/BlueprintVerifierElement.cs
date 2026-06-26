@@ -33,10 +33,13 @@ public class BlueprintVerifierElement : ElementBase<BlueprintVerifierElement.Sta
     private DateTime _startTime;
     private CancellationTokenSource? _monitorCts;
 
+    private static string DefaultLogPath =>
+        Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "logs", "fusion-bugs.md"));
+
     public BlueprintVerifierElement(IMessageBus bus, IElementBlueprint config, IFireLogger logger) 
         : base(bus, config, logger, new LoggingLevelSwitch(), State.Idle, Event.Start)
     {
-        _logPath = ConfigurationLoader.GetOptionalConfig(config.Properties, "LogPath", "logs/fusion-bugs.md");
+        _logPath = ConfigurationLoader.GetOptionalConfig(config.Properties, "LogPath", DefaultLogPath);
         _timeoutMs = ConfigurationLoader.GetOptionalConfig(config.Properties, "TimeoutMs", 5000);
         _startTime = DateTime.Now;
     }

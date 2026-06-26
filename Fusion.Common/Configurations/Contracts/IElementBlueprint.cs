@@ -6,6 +6,7 @@ namespace Fusion.Common.Contracts;
 public interface ISystemBlueprintTemplate
     {
         string CustomerName { get; set;}
+        string? ServiceName { get; set; }
         bool ColorConsole { get; set; }
         bool IsTestEnvironment { get; set; }
         TimeSpan SimulationRuntime { get; set; }

@@ -1,6 +1,7 @@
 using Fusion.Common;
 using Fusion.Common.BaseClasses;
 using Fusion.Common.Contracts;
+using Fusion.Common.TCP_Classes;
 
 namespace Fusion.Element.HostComm;
 
@@ -42,13 +43,9 @@ public class TcpMessageClientElementManager : ElementManagerBase<TcpMessageClien
             {
                 ct.ThrowIfCancellationRequested();
                 
-                string payload = envelope.Payload?.ToString() ?? string.Empty;
-                
-                // Append ETX if requested or required by protocol
-                if (!payload.EndsWith("\u0003"))
-                {
-                    payload += "\u0003";
-                }
+                string payload = AppendConfiguredTerminator(
+                    element.Config,
+                    envelope.Payload?.ToString() ?? string.Empty);
 
                 await element.SendAsync(payload, ct);
             }
@@ -57,5 +54,31 @@ public class TcpMessageClientElementManager : ElementManagerBase<TcpMessageClien
                 element.GetLogger().Error(ex, "[{Dev}] Error sending message to server", element.Config.Name);
             }
         }
+    }
+
+    private static string AppendConfiguredTerminator(IElementBlueprint config, string payload)
+    {
+        bool appendTerminator = true;
+        if (config.Properties.TryGetValue("AppendOutboundTerminator", out var appendValue) &&
+            bool.TryParse(appendValue?.ToString(), out bool parsedAppend))
+        {
+            appendTerminator = parsedAppend;
+        }
+
+        if (!appendTerminator)
+        {
+            return payload;
+        }
+
+        string terminator = config.Properties.TryGetValue("OutboundTerminator", out var terminatorValue)
+            ? TcpTextEncoding.DecodeEscapedSequence(terminatorValue?.ToString())
+            : "\u0003";
+
+        if (string.IsNullOrEmpty(terminator) || payload.EndsWith(terminator, StringComparison.Ordinal))
+        {
+            return payload;
+        }
+
+        return payload + terminator;
     }
 }

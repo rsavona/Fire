@@ -24,12 +24,15 @@ public class FireLogElement : ElementBase<FireLogElement.State, FireLogElement.E
     private string _filePath;
     private int _retainDays;
 
+    private static string DefaultLogPath =>
+        Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "logs", "fusion_central_.log"));
+
     public FireLogElement(IMessageBus bus, ILoggingBus loggingBus, IElementBlueprint config, IFireLogger logger) 
         : base(bus, config, logger, new LoggingLevelSwitch(), State.Idle, Event.Start)
     {
         _loggingBus = loggingBus;
         _logFormat = ConfigurationLoader.GetOptionalConfig(config.Properties, "LogFormat", "Text").ToUpper();
-        _filePath = ConfigurationLoader.GetOptionalConfig(config.Properties, "FilePath", "logs/fusion_central_.log");
+        _filePath = ConfigurationLoader.GetOptionalConfig(config.Properties, "FilePath", DefaultLogPath);
         _retainDays = ConfigurationLoader.GetOptionalConfig(config.Properties, "RetainDays", 30);
     }
 

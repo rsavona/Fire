@@ -1,4 +1,4 @@
-﻿using System.Text.Json;
+using System.Text.Json;
 using System.Text.Json.Nodes;
 using Fusion.Element.Plc.Suite.Messages;
 using Fusion.Common;
@@ -136,6 +136,16 @@ public class PlcMessageParser : IMessageParser
         );
     }
 
+    public static PlcMessage CreateTestMessage(string element, TestMessagePayload payload)
+    {
+        return new PlcMessage(false, element, GetNextSequenceNumber(), nameof(PlcMessageHeaders.TEST), payload);
+    }
+
+    public static PlcMessage CreateTestEndMessage(string element, TestMessagePayload payload)
+    {
+        return new PlcMessage(false, element, GetNextSequenceNumber(), nameof(PlcMessageHeaders.TESTEND), payload);
+    }
+
 
     public object Parse(string rawPayload)
     {
@@ -170,6 +180,10 @@ public class PlcMessageParser : IMessageParser
                 nameof(PlcMessageHeaders.DRespM) => JsonSerializer.Deserialize<DecisionResponsePayload>(jsonPayload,
                     _jsonOptions),
                 nameof(PlcMessageHeaders.HB) => JsonSerializer.Deserialize<HeartbeatPayload>(jsonPayload, _jsonOptions),
+                nameof(PlcMessageHeaders.TEST) => JsonSerializer.Deserialize<TestMessagePayload>(jsonPayload,
+                    _jsonOptions),
+                nameof(PlcMessageHeaders.TESTEND) => JsonSerializer.Deserialize<TestMessagePayload>(jsonPayload,
+                    _jsonOptions),
                 _ => null
             };
 

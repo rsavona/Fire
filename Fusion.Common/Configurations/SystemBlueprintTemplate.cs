@@ -84,6 +84,7 @@ namespace Fusion.Common.Blueprints
         [Microsoft.Extensions.Configuration.ConfigurationKeyName("Name")]
         public string CustomerName { get; set; } = "Fusion";
 
+        public string? ServiceName { get; set; }
         public bool ColorConsole { get; set; } = true;
         public bool IsTestEnvironment { get; set; } = false;
         public TimeSpan SimulationRuntime { get; set; } = TimeSpan.Zero;

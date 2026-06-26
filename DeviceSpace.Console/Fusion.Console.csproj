@@ -39,13 +39,16 @@
       <None Update="appsettings.json">
         <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       </None>
-      <None Update="ProjectConfig\fbp_*.json">
-        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <None Update="ProjectConfigurations\fbp_*.json">
+        <ExcludeFromSingleFile>true</ExcludeFromSingleFile>
+        <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+        <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
       </None>
     </ItemGroup>
 
     <ItemGroup>
       <PackageReference Include="Microsoft.Data.SqlClient" Version="7.0.1" />
+      <PackageReference Include="Microsoft.Extensions.Hosting.Systemd" Version="10.0.5" />
       <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="10.0.5" />
       <PackageReference Include="Microsoft.Extensions.Logging" Version="10.0.7" />
       <PackageReference Include="Serilog" Version="4.3.1" />

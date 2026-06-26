@@ -1,4 +1,4 @@
-﻿using System.Buffers;
+using System.Buffers;
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Net.Sockets;
@@ -34,6 +34,8 @@ public class ScannerClientConfig
 
 public class VirtualPlcElement : TcpClientElementBase, IMessageProvider
 {
+    private const int TestStartDelayMs = 5000;
+
     private static readonly ITerminationStrategy PlcFrameTerminationStrategy =
         new DelimiterSetStrategy((byte)PlcControlChars.ETX);
 
@@ -514,6 +516,117 @@ public class VirtualPlcElement : TcpClientElementBase, IMessageProvider
         return PlcMessageParser.CreateRawHeartbeat(Key.ElementName);
     }
 
+    private async Task AnnounceScriptedScenarioStartAsync(ScriptedPlcScenario scenario, CancellationToken token)
+    {
+        var startDelay = TimeSpan.FromMilliseconds(TestStartDelayMs);
+        var payload = CreateTestSummaryPayload(scenario, startDelay);
+        var message = PlcMessageParser.CreateTestMessage(Key.ElementName, payload);
+
+        await SendAsync(message.ToString(), token);
+        Logger.Information(
+            "[{Dev}] Sent TEST summary for scripted PLC scenario {Scenario}. Starting in {DelayMs}ms.",
+            Config.Name, scenario.Name, TestStartDelayMs);
+
+        await Task.Delay(startDelay, token);
+    }
+
+    private TestMessagePayload CreateTestSummaryPayload(
+        ScriptedPlcScenario scenario,
+        TimeSpan startsIn,
+        string eventName = "START",
+        string status = "PENDING",
+        DateTime? completedAtUtc = null,
+        TimeSpan? duration = null,
+        int? completedStageCount = null,
+        int? completedToteCount = null)
+    {
+        var now = DateTime.UtcNow;
+        var stages = scenario.Stages
+            .OrderBy(stage => stage.Stage)
+            .Select(CreateTestStageSummary)
+            .ToList();
+
+        var properties = scenario.VirtualPlcProperties;
+
+        return new TestMessagePayload(
+            TestName: scenario.Name,
+            Description: scenario.Description,
+            ScriptPath: _scriptedScenarioPath,
+            GeneratedAtUtc: now.ToString("yyyy-MM-ddTHH:mm:ss.fffZ"),
+            StartsAtUtc: now.Add(startsIn).ToString("yyyy-MM-ddTHH:mm:ss.fffZ"),
+            StartsInSeconds: (int)startsIn.TotalSeconds,
+            StageCount: scenario.Stages.Count,
+            ToteCount: stages.Sum(stage => stage.ToteCount),
+            DecisionChain: properties?.DecisionPoints,
+            Printer1: properties?.Printer1 ?? _printer1,
+            Printer2: properties?.Printer2 ?? _printer2,
+            Stages: stages)
+        {
+            Event = eventName,
+            Status = status,
+            CompletedAtUtc = completedAtUtc?.ToString("yyyy-MM-ddTHH:mm:ss.fffZ"),
+            DurationSeconds = duration?.TotalSeconds,
+            CompletedStageCount = completedStageCount,
+            CompletedToteCount = completedToteCount
+        };
+    }
+
+    private static TestStageSummary CreateTestStageSummary(ScriptedPlcStage stage)
+    {
+        var totes = stage.ExpandTotes().ToList();
+        var expectedOutcomes = totes
+            .Select(tote => tote.ExpectedOutcome)
+            .Where(outcome => !string.IsNullOrWhiteSpace(outcome))
+            .Select(outcome => outcome!)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(outcome => outcome, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        return new TestStageSummary(
+            Stage: stage.Stage,
+            Name: stage.Name,
+            ToteCount: totes.Count > 0 ? totes.Count : stage.BarcodeCount ?? 0,
+            FirstGin: totes.Count > 0 ? totes.First().Gin : null,
+            LastGin: totes.Count > 0 ? totes.Last().Gin : null,
+            InductionSpacingMs: stage.InductionSpacingMs,
+            ExpectedOutcomes: expectedOutcomes,
+            ExpectedFlow: stage.ExpectedFlow);
+    }
+
+    private async Task AnnounceScriptedScenarioEndAsync(
+        ScriptedPlcScenario scenario,
+        string status,
+        TimeSpan duration,
+        int completedStageCount,
+        int completedToteCount,
+        CancellationToken token)
+    {
+        var payload = CreateTestSummaryPayload(
+            scenario,
+            TimeSpan.Zero,
+            eventName: "END",
+            status: status,
+            completedAtUtc: DateTime.UtcNow,
+            duration: duration,
+            completedStageCount: completedStageCount,
+            completedToteCount: completedToteCount);
+        var message = PlcMessageParser.CreateTestEndMessage(Key.ElementName, payload);
+
+        try
+        {
+            await SendAsync(message.ToString(), token);
+            Logger.Information(
+                "[{Dev}] Sent TESTEND summary for scripted PLC scenario {Scenario}. Status: {Status}, Stages: {Stages}, Totes: {Totes}, DurationSeconds: {Duration:F2}.",
+                Config.Name, scenario.Name, status, completedStageCount, completedToteCount, duration.TotalSeconds);
+        }
+        catch (Exception ex)
+        {
+            Logger.Warning(
+                "[{Dev}] Could not send TESTEND summary for scripted PLC scenario {Scenario}: {Error}",
+                Config.Name, scenario.Name, ex.Message);
+        }
+    }
+
     public async Task RunChainSimulationAsync(
         int totalTotes,
         int inductIntervalMs,
@@ -547,8 +660,15 @@ public class VirtualPlcElement : TcpClientElementBase, IMessageProvider
         List<List<DecisionStep>> decisionPhases,
         CancellationToken token)
     {
+        var scenarioClock = new Stopwatch();
+        var completedStageCount = 0;
+        var completedToteCount = 0;
+
         try
         {
+            await AnnounceScriptedScenarioStartAsync(scenario, token);
+            scenarioClock.Start();
+
             Logger.Information("[{Dev}] Starting scripted PLC scenario {Scenario} with {StageCount} stages.",
                 Config.Name, scenario.Name, scenario.Stages.Count);
 
@@ -575,19 +695,48 @@ public class VirtualPlcElement : TcpClientElementBase, IMessageProvider
 
                 Logger.Information("[{Dev}] Completed scripted stage {Stage} {Name}.",
                     Config.Name, stage.Stage, stage.Name);
+
+                completedStageCount++;
+                completedToteCount += totes.Count;
             }
+
+            scenarioClock.Stop();
+            await AnnounceScriptedScenarioEndAsync(
+                scenario,
+                "COMPLETED",
+                scenarioClock.Elapsed,
+                completedStageCount,
+                completedToteCount,
+                token);
 
             Logger.Information("[{Dev}] Scripted PLC scenario {Scenario} completed.",
                 Config.Name, scenario.Name);
         }
         catch (OperationCanceledException)
         {
+            scenarioClock.Stop();
+            await AnnounceScriptedScenarioEndAsync(
+                scenario,
+                "CANCELED",
+                scenarioClock.Elapsed,
+                completedStageCount,
+                completedToteCount,
+                CancellationToken.None);
+
             // Normal during shutdown or reconnect.
         }
         catch (Exception ex)
         {
+            scenarioClock.Stop();
             Logger.Error(ex, "[{Dev}] Scripted PLC scenario {Scenario} failed.",
                 Config.Name, scenario.Name);
+            await AnnounceScriptedScenarioEndAsync(
+                scenario,
+                "FAILED",
+                scenarioClock.Elapsed,
+                completedStageCount,
+                completedToteCount,
+                CancellationToken.None);
         }
     }
 
@@ -762,6 +911,7 @@ public class VirtualPlcElement : TcpClientElementBase, IMessageProvider
 
         var conveyorClock = new Stopwatch();
         string destination = null;
+        List<string>? assignedPrinterStations = null;
 
         try
         {
@@ -818,6 +968,7 @@ public class VirtualPlcElement : TcpClientElementBase, IMessageProvider
                         var msg = PlcMessageParser.CreateDecisionRequest(Key.ElementName, targetStep.DecisionPoint, gin,
                             effectiveBarcode, CloneMetadata(inductMetadata), _printer1, _printer2);
                         _ginBarcode[gin] = barcode;
+                        SimulationCoordinator.RecordBarcode(gin, barcode);
                         var str = msg.ToString();
                         Logger.Information(" Gin: {gin} barcode: {barcode} (Source: {Src})",
                             gin, _ginBarcode[gin], scriptedBarcode != null
@@ -834,6 +985,11 @@ public class VirtualPlcElement : TcpClientElementBase, IMessageProvider
                             await WaitForDecisionResponseAsync(gin, targetStep.DecisionPoint, pendingResponse, token);
                         if (routingResponse != null)
                         {
+                            assignedPrinterStations = routingResponse.DecisionPoints?
+                                .Where(action => !string.IsNullOrWhiteSpace(action))
+                                .Distinct(StringComparer.OrdinalIgnoreCase)
+                                .ToList();
+
                             await SendDecisionUpdatesAsync(routingResponse, token);
                         }
 
@@ -843,38 +999,71 @@ public class VirtualPlcElement : TcpClientElementBase, IMessageProvider
                         if (currentPhaseOptions.Count == 1)
                             Logger.Debug("[PHASE 2 : {Dev}] Gin: {gin} Message: {Msg}", Config.Name, gin,
                                 currentPhaseOptions[0].DecisionPoint);
-                        int divertDistanceMs = currentPhaseOptions.Min(p => p.DistanceMs);
-                        long elapsedTravelMs = conveyorClock.ElapsedMilliseconds;
-                        int remainingTravelMs = divertDistanceMs - (int)elapsedTravelMs;
 
-                        if (remainingTravelMs > 0)
-                        {
-                            Logger.Debug("[PHASE 2 : {i}] Gin: {gin} Waiting for {ms}ms", i, gin,
-                                remainingTravelMs);
-                            // Tote is traveling. This gives the WCS time to populate the dictionary asynchronously.
-                            await Task.Delay(remainingTravelMs, token);
-                        }
+                        var printerPhaseTimings = GetPhaseStepTimings(currentPhaseOptions);
+                        int printerPhaseEndDistanceMs = GetPhaseEndDistanceMs(printerPhaseTimings);
 
-                        if (!_ginRouting.TryGetValue(gin, out var bondList))
+                        if (assignedPrinterStations == null || assignedPrinterStations.Count == 0)
                         {
-                            Logger.Warning("[PHASE 2 :gin was not in _ginRouting  {gin} count in list {count}", gin,
-                                _ginRouting.Count());
+                            Logger.Information(
+                                "[PHASE 2 : {Dev}] Gin {gin} has no assigned printer stations from the induct response. Skipping printer-location requests.",
+                                Config.Name, gin);
+                            await WaitUntilConveyorElapsedAsync(
+                                conveyorClock,
+                                printerPhaseEndDistanceMs,
+                                gin,
+                                "PHASE 2 CLEAR",
+                                token);
                             break;
                         }
 
-                        Logger.Debug("[PHASE 2 : _ginRouting {ele} {gin} count in list {count}",
-                            bondList.FirstOrDefault(), gin, _ginRouting.Count());
+                        Logger.Debug("[PHASE 2 : Assigned printer stations {Printers} for Gin {gin}",
+                            string.Join(",", assignedPrinterStations), gin);
 
                         // 2. The tote has reached the physical divert. Determine the target.
-                        if (currentPhaseOptions.Count == 0 || bondList == null)
+                        if (currentPhaseOptions.Count == 0)
                         {
                             break;
                         }
 
-                        var wantedStep = bondList.FirstOrDefault();
-                        targetStep = currentPhaseOptions[0];
-                        if (targetStep.DecisionPoint == wantedStep)
+                        var selectedSteps = assignedPrinterStations
+                            .Select((decisionPoint, index) => new
+                            {
+                                DecisionPoint = decisionPoint,
+                                Index = index,
+                                Timing = printerPhaseTimings.FirstOrDefault(timing =>
+                                    string.Equals(timing.Step.DecisionPoint, decisionPoint,
+                                        StringComparison.OrdinalIgnoreCase))
+                            })
+                            .Where(item => item.Timing != null)
+                            .OrderBy(item => item.Timing!.ElapsedMs)
+                            .ThenBy(item => item.Index)
+                            .ToList();
+
+                        if (selectedSteps.Count == 0)
                         {
+                            Logger.Warning("[PHASE 2 : {Dev}] Gin: {gin} has no matching print station for actions {Actions}",
+                                Config.Name, gin, string.Join(",", assignedPrinterStations));
+                            await WaitUntilConveyorElapsedAsync(
+                                conveyorClock,
+                                printerPhaseEndDistanceMs,
+                                gin,
+                                "PHASE 2 CLEAR",
+                                token);
+                            break;
+                        }
+
+                        foreach (var selected in selectedSteps)
+                        {
+                            var timing = selected.Timing!;
+                            targetStep = timing.Step;
+                            await WaitUntilConveyorElapsedAsync(
+                                conveyorClock,
+                                timing.ElapsedMs,
+                                gin,
+                                "PHASE 2",
+                                token);
+
                             Logger.Debug("[PHASE 2 : {Dev}] Gin: {gin} Target: {target}", Config.Name, gin,
                                 targetStep.DecisionPoint);
 
@@ -890,21 +1079,12 @@ public class VirtualPlcElement : TcpClientElementBase, IMessageProvider
                             Logger.Debug("[PHASE 2 : sent: {msg}", msgx);
                         }
 
-                        if (currentPhaseOptions.Count > 1 && wantedStep == currentPhaseOptions[1].DecisionPoint)
-                        {
-                            Logger.Debug("[PHASE 2 : {Dev}] Gin: {gin} Target: {target}", Config.Name, gin,
-                                currentPhaseOptions[1].DecisionPoint);
-
-                            // Check for downstream scanner update
-                            string? scBarcode = TryGetScannerBarcode(currentPhaseOptions[1].DecisionPoint);
-                            if (scBarcode != null) _ginBarcode[gin] = scBarcode;
-
-                            var msgx = PlcMessageParser.CreateDecisionRequest(Key.ElementName, wantedStep,
-                                gin, GetEffectiveBarcode(gin, wantedStep), null, _printer1, _printer2);
-                            // 4. Fire the PLC message for this specific step
-                            _decisionRequestTimestamps[gin] = Stopwatch.GetTimestamp();
-                            await SendAsync(msgx.ToString(), token);
-                        }
+                        await WaitUntilConveyorElapsedAsync(
+                            conveyorClock,
+                            printerPhaseEndDistanceMs,
+                            gin,
+                            "PHASE 2 CLEAR",
+                            token);
 
                         break;
 
@@ -957,6 +1137,70 @@ public class VirtualPlcElement : TcpClientElementBase, IMessageProvider
         int index = Interlocked.Increment(ref _roundRobinIndex) % options.Count;
         return options[Math.Abs(index)];
     }
+
+    private async Task WaitUntilConveyorElapsedAsync(
+        Stopwatch conveyorClock,
+        int targetElapsedMs,
+        int gin,
+        string phaseName,
+        CancellationToken token)
+    {
+        if (targetElapsedMs <= 0)
+        {
+            return;
+        }
+
+        if (!conveyorClock.IsRunning)
+        {
+            await Task.Delay(targetElapsedMs, token);
+            return;
+        }
+
+        var remainingTravelMs = targetElapsedMs - (int)conveyorClock.ElapsedMilliseconds;
+        if (remainingTravelMs <= 0)
+        {
+            return;
+        }
+
+        Logger.Debug("[{Phase} : {Dev}] Gin: {gin} Waiting for {ms}ms",
+            phaseName, Config.Name, gin, remainingTravelMs);
+
+        await Task.Delay(remainingTravelMs, token);
+    }
+
+    private static List<PhaseStepTiming> GetPhaseStepTimings(List<DecisionStep> phase)
+    {
+        var timings = new List<PhaseStepTiming>(phase.Count);
+        if (phase.Count == 0)
+        {
+            return timings;
+        }
+
+        // Equal delays are common in the two-printer config and represent repeated travel segments
+        // through the printer bank, not multiple stations at the exact same physical point.
+        bool useCumulativeTiming = phase.Count > 1 &&
+                                   phase.Select(step => step.DistanceMs)
+                                       .Distinct()
+                                       .Count() == 1;
+
+        var elapsedMs = 0;
+        foreach (var step in phase)
+        {
+            elapsedMs = useCumulativeTiming
+                ? elapsedMs + step.DistanceMs
+                : step.DistanceMs;
+            timings.Add(new PhaseStepTiming(step, elapsedMs));
+        }
+
+        return timings;
+    }
+
+    private static int GetPhaseEndDistanceMs(List<PhaseStepTiming> phaseTimings)
+    {
+        return phaseTimings.Count == 0 ? 0 : phaseTimings.Max(timing => timing.ElapsedMs);
+    }
+
+    private sealed record PhaseStepTiming(DecisionStep Step, int ElapsedMs);
 
     private string? GetEffectiveBarcode(int gin, string decisionPoint, string? barcodeOverride = null)
     {

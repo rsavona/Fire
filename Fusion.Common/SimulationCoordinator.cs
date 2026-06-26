@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 
 namespace Fusion.Common;
 
@@ -16,6 +17,8 @@ public static class SimulationCoordinator
     private static bool _gin325Reached = false;
     private static DateTime? _simulationStartTime;
     private static SimulationPhase _currentPhase = SimulationPhase.Standby;
+    private static readonly ConcurrentDictionary<string, int> _barcodeToGin = new(StringComparer.OrdinalIgnoreCase);
+    private static readonly ConcurrentDictionary<int, string> _ginToBarcode = new();
     private static readonly object _lock = new();
 
     public static event Action<SimulationPhase>? PhaseChanged;
@@ -76,6 +79,43 @@ public static class SimulationCoordinator
         }
     }
 
+    public static void RecordBarcode(int gin, string? barcode)
+    {
+        if (gin <= 0 || string.IsNullOrWhiteSpace(barcode))
+        {
+            return;
+        }
+
+        var cleanBarcode = barcode.Trim();
+        _ginToBarcode[gin] = cleanBarcode;
+        _barcodeToGin[cleanBarcode] = gin;
+    }
+
+    public static bool TryGetGinForBarcode(string? barcode, out int gin)
+    {
+        gin = 0;
+        if (string.IsNullOrWhiteSpace(barcode))
+        {
+            return false;
+        }
+
+        var cleanBarcode = barcode.Trim();
+        if (_barcodeToGin.TryGetValue(cleanBarcode, out gin))
+        {
+            return true;
+        }
+
+        const string simulatorPrintedSuffix = "123";
+        if (cleanBarcode.EndsWith(simulatorPrintedSuffix, StringComparison.OrdinalIgnoreCase) &&
+            cleanBarcode.Length > simulatorPrintedSuffix.Length)
+        {
+            var sideBarcode = cleanBarcode[..^simulatorPrintedSuffix.Length];
+            return _barcodeToGin.TryGetValue(sideBarcode, out gin);
+        }
+
+        return false;
+    }
+
     public static double? ElapsedSeconds
     {
         get
@@ -95,6 +135,8 @@ public static class SimulationCoordinator
             _gin325Reached = false;
             _simulationStartTime = null;
             _currentPhase = SimulationPhase.Standby;
+            _barcodeToGin.Clear();
+            _ginToBarcode.Clear();
         }
     }
 

@@ -1,6 +1,8 @@
 ﻿using System.Text;
+using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 using System.Timers;
+using System.Xml.Linq;
 using Fusion.Element.Virtual.Printer;
 using Fusion.Common;
 using Fusion.Common.BaseClasses;
@@ -114,7 +116,7 @@ public class VirtualPrintElement : TcpServerElementBase<PrintMessageProcessor>
 
     public async Task RunPrinterSimulationAsync(CancellationToken ct)
     {
-        Logger.Information("[{Dev}] Printer simulation waiting for GIN 325 trigger.", Config.Name);
+        Logger.Information("[{Dev}] Printer hardware simulation waiting for fault trigger.", Config.Name);
 
         try
         {
@@ -126,7 +128,7 @@ public class VirtualPrintElement : TcpServerElementBase<PrintMessageProcessor>
 
             if (ct.IsCancellationRequested) return;
 
-            Logger.Information("[{Dev}] GIN 325 trigger detected. Starting hardware status swap cycle.", Config.Name);
+            Logger.Information("[{Dev}] Hardware status simulation trigger detected. Starting hardware status swap cycle.", Config.Name);
 
             // Determine if this is Printer 1 or Printer 2 based on the name suffix
             bool isPrinter2 = Config.Name.EndsWith("152") || Config.Name.EndsWith("2");
@@ -207,8 +209,10 @@ public class VirtualPrintElement : TcpServerElementBase<PrintMessageProcessor>
             Tracker.Increment(ElementMetric.Labels);
         }
 
-        string gin = GetGinFromPayload(payload);
-        Logger.Information($"[{Config.Name}] Label(s) Received: {labelCount} in block. GIN: {gin}");
+        var identity = GetPrintIdentity(payload);
+        Logger.Information(
+            "[{Dev}] Label(s) Received: {LabelCount} in block. {PrintIdentity}",
+            Config.Name, labelCount, FormatPrintIdentity(identity));
         
         // Log the full payload for debugging if it's not too huge
         if (payload.Length < 1000)
@@ -219,13 +223,19 @@ public class VirtualPrintElement : TcpServerElementBase<PrintMessageProcessor>
         if (_isPaused || _isPaperOut || _isHeadOpen)
         {
             string reason = _isPaperOut ? "out of paper" : (_isPaused ? "paused" : "head open");
-            Logger.Warning($"[{Config.Name}] Print Failed: {reason}", gin);
+            Logger.Warning(
+                "[{Dev}] Print Failed: {Reason}. {PrintIdentity}",
+                Config.Name, reason, FormatPrintIdentity(identity));
         
         }
         else
         {
-            Logger.Information($"[{Config.Name}] Processing {labelCount} Label(s)...", gin);
-            Task.Delay(300).ContinueWith(_ => Logger.Debug($"[{Config.Name}] Job Printed Successfully.", gin));
+            Logger.Information(
+                "[{Dev}] Processing {LabelCount} Label(s). {PrintIdentity}",
+                Config.Name, labelCount, FormatPrintIdentity(identity));
+            Task.Delay(300).ContinueWith(_ => Logger.Debug(
+                "[{Dev}] Job Printed Successfully. {PrintIdentity}",
+                Config.Name, FormatPrintIdentity(identity)));
         }
     }
 
@@ -253,18 +263,226 @@ public class VirtualPrintElement : TcpServerElementBase<PrintMessageProcessor>
 
     private readonly StringBuilder _inputBuffer = new();
 
-    private string GetGinFromPayload(string? payload)
+    private static (string? Gin, string? Barcode) GetPrintIdentity(string? payload)
     {
-        if (string.IsNullOrWhiteSpace(payload)) return "---";
+        var gin = ExtractGinFromPayload(payload);
+        var barcode = ExtractBarcodeFromPayload(payload);
+
+        if (string.IsNullOrWhiteSpace(gin) &&
+            SimulationCoordinator.TryGetGinForBarcode(barcode, out var resolvedGin))
+        {
+            gin = resolvedGin.ToString();
+        }
+
+        return (gin, barcode);
+    }
+
+    private static string FormatPrintIdentity((string? Gin, string? Barcode) identity)
+    {
+        if (!string.IsNullOrWhiteSpace(identity.Gin))
+        {
+            return $"GIN: {identity.Gin}";
+        }
+
+        if (!string.IsNullOrWhiteSpace(identity.Barcode))
+        {
+            return $"Barcode: {identity.Barcode}";
+        }
+
+        return "GIN: --- Barcode: ---";
+    }
+
+    private static string? ExtractGinFromPayload(string? payload)
+    {
+        if (string.IsNullOrWhiteSpace(payload)) return null;
+
         try
         {
-            var match = Regex.Match(payload, @"GIN:?\s*(\d+)");
+            if (payload.TrimStart().StartsWith("{"))
+            {
+                var node = JsonNode.Parse(payload);
+                var jsonGin = FindJsonValue(node, "GIN", "gin");
+                if (!string.IsNullOrWhiteSpace(jsonGin))
+                {
+                    return jsonGin;
+                }
+            }
+        }
+        catch
+        {
+        }
+
+        try
+        {
+            var match = Regex.Match(payload, @"(?i)(?:\bGIN\b|name\s*=\s*[""']GIN[""'])\D{0,20}(\d+)");
             if (match.Success && match.Groups.Count > 1) return match.Groups[1].Value;
         }
         catch
         {
         }
 
-        return "---";
+        return null;
+    }
+
+    private static string? ExtractBarcodeFromPayload(string? payload)
+    {
+        if (string.IsNullOrWhiteSpace(payload)) return null;
+
+        try
+        {
+            if (payload.TrimStart().StartsWith("{"))
+            {
+                var node = JsonNode.Parse(payload);
+                var barcode = FindJsonValue(node, "LPN", "lpn", "barcode", "Barcode", "printedBarcode", "barcodes", "Barcodes");
+                if (!string.IsNullOrWhiteSpace(barcode))
+                {
+                    return barcode;
+                }
+            }
+        }
+        catch
+        {
+        }
+
+        var xmlBarcode = ExtractBarcodeFromXml(payload);
+        if (!string.IsNullOrWhiteSpace(xmlBarcode))
+        {
+            return xmlBarcode;
+        }
+
+        var zplBarcode = ExtractBarcodeFromZpl(payload);
+        if (!string.IsNullOrWhiteSpace(zplBarcode))
+        {
+            return zplBarcode;
+        }
+
+        return null;
+    }
+
+    private static string? ExtractBarcodeFromXml(string payload)
+    {
+        var preferredNames = new[] { "LPN", "lpn", "barcode", "Barcode", "printedBarcode" };
+
+        try
+        {
+            var doc = XDocument.Parse(payload);
+            foreach (var name in preferredNames)
+            {
+                var value = doc
+                    .Descendants()
+                    .Where(e => string.Equals(e.Name.LocalName, "variable", StringComparison.OrdinalIgnoreCase))
+                    .FirstOrDefault(e => string.Equals(e.Attribute("name")?.Value, name, StringComparison.OrdinalIgnoreCase))
+                    ?.Value;
+
+                if (!string.IsNullOrWhiteSpace(value))
+                {
+                    return value.Trim();
+                }
+            }
+        }
+        catch
+        {
+        }
+
+        foreach (var name in preferredNames)
+        {
+            var match = Regex.Match(
+                payload,
+                $@"<variable\s+[^>]*name=[""']{Regex.Escape(name)}[""'][^>]*>(?<value>.*?)</variable>",
+                RegexOptions.IgnoreCase | RegexOptions.Singleline);
+            if (match.Success)
+            {
+                var value = match.Groups["value"].Value.Trim();
+                if (!string.IsNullOrWhiteSpace(value))
+                {
+                    return value;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private static string? ExtractBarcodeFromZpl(string payload)
+    {
+        foreach (Match match in Regex.Matches(payload, @"\^FD(?<value>[^^\r\n]+?)\^FS", RegexOptions.IgnoreCase))
+        {
+            var value = match.Groups["value"].Value.Trim();
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                continue;
+            }
+
+            var labeledValue = Regex.Match(value, @"(?i)^(?:LPN|BARCODE|BC)\s*[:=]\s*(?<barcode>.+)$");
+            if (labeledValue.Success)
+            {
+                value = labeledValue.Groups["barcode"].Value.Trim();
+            }
+
+            if (value.Any(char.IsLetterOrDigit))
+            {
+                return value;
+            }
+        }
+
+        return null;
+    }
+
+    private static string? FindJsonValue(JsonNode? node, params string[] propertyNames)
+    {
+        if (node == null)
+        {
+            return null;
+        }
+
+        if (node is JsonObject obj)
+        {
+            foreach (var propertyName in propertyNames)
+            {
+                if (!obj.TryGetPropertyValue(propertyName, out var value) || value == null)
+                {
+                    continue;
+                }
+
+                if (value is JsonArray arr)
+                {
+                    var first = arr.FirstOrDefault()?.ToString();
+                    if (!string.IsNullOrWhiteSpace(first))
+                    {
+                        return first;
+                    }
+                }
+                else
+                {
+                    var scalar = value.ToString();
+                    if (!string.IsNullOrWhiteSpace(scalar))
+                    {
+                        return scalar;
+                    }
+                }
+            }
+
+            foreach (var child in obj.Select(kvp => kvp.Value))
+            {
+                var match = FindJsonValue(child, propertyNames);
+                if (!string.IsNullOrWhiteSpace(match))
+                {
+                    return match;
+                }
+            }
+        }
+        else if (node is JsonArray arr)
+        {
+            foreach (var child in arr)
+            {
+                var match = FindJsonValue(child, propertyNames);
+                if (!string.IsNullOrWhiteSpace(match))
+                {
+                    return match;
+                }
+            }
+        }
+
+        return null;
     }
 }

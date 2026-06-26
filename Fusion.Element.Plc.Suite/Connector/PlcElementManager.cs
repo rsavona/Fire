@@ -6,6 +6,7 @@ using Fusion.Element.Plc.Suite.Messages;
 using Fusion.Element.Plc.Suite.Virtual;
 using Fusion.Common;
 using Fusion.Common.BaseClasses;
+using Fusion.Common.Configurations;
 using Fusion.Common.Contracts;
 using Fusion.Common.Logging;
 using Microsoft.Extensions.Logging;
@@ -15,12 +16,23 @@ namespace Fusion.Element.Plc.Suite.Connector;
 [TestCounterpart(typeof(VirtualPlcManager))]
 public class  PlcElementManager : ElementManagerBase<PlcServerElement>
 {
+    private static readonly TimeSpan PendingResponseTtl = TimeSpan.FromMinutes(2);
+    private static readonly HashSet<string> ResponsePublishingHandlers = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "HandleBarcodeToPrinterAsync",
+        "HandleContentToPrinterAsync"
+    };
+
     public record struct ResponseKey(string DecisionPoint, int Gin);
 
-    public record struct PendingRequest(PlcServerElement MultiClientElement, string Client, object Context);
+    public record struct PendingRequest(
+        PlcServerElement MultiClientElement,
+        string Client,
+        object Context,
+        DateTime CreatedUtc);
 
     private readonly ConcurrentDictionary<ResponseKey, PendingRequest> _pendingResponses = new();
-    private readonly HashSet<string> _expectResponseTopics = new();
+    private readonly ConcurrentDictionary<string, byte> _expectResponseTopics = new(StringComparer.OrdinalIgnoreCase);
 
     public PlcElementManager(IMessageBus bus, List<IElementBlueprint> configs,
         IFireLogger<ElementManagerBase<PlcServerElement>> logger,
@@ -28,6 +40,28 @@ public class  PlcElementManager : ElementManagerBase<PlcServerElement>
         string managerName)
         : base(bus, configs, logger, elementFactory, managerName)
     {
+    }
+
+    protected override void PrepareForBondDestinations(IElement element)
+    {
+        var requestPrefix = $"{element.Config.Name}.DReqM.";
+        foreach (var topic in _expectResponseTopics.Keys.Where(topic =>
+                     topic.StartsWith(requestPrefix, StringComparison.OrdinalIgnoreCase)))
+        {
+            _expectResponseTopics.TryRemove(topic, out _);
+        }
+
+        var responseTopics = ConfigurationLoader.GetAllReactionConfig()
+            .Where(reaction => reaction.Enable)
+            .SelectMany(reaction => reaction.Bonds)
+            .Where(bond => BondProducesDecisionResponse(element.Config.Name, bond.Source, bond.Destination, bond.Handler))
+            .Select(bond => bond.Source)
+            .Distinct(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var topic in responseTopics)
+        {
+            _expectResponseTopics.TryAdd(topic, 0);
+        }
     }
 
     /// <summary>
@@ -41,7 +75,8 @@ public class  PlcElementManager : ElementManagerBase<PlcServerElement>
         var targetLogger = Logger.WithContext("ElementName", element.Key.ElementName);
         if (env.Payload is DecisionRequestPayload req)
         {
-            _pendingResponses[new ResponseKey(req.DecisionPoint, req.Gin)] = new PendingRequest(element, env.Client, req);
+            RemoveStalePendingResponses(DateTime.UtcNow);
+
             MessageBusTopic messageBusTopic = new MessageBusTopic(element.Config.Name, "DReqM", req.DecisionPoint);
             
             Logger.LogConveyableEvent( element.Key.ElementName, $"Request to {messageBusTopic}", req.Gin.ToString(), req.Barcodes, req.DecisionPoint);
@@ -50,15 +85,15 @@ public class  PlcElementManager : ElementManagerBase<PlcServerElement>
             var logMessage = $"[{element.Config.Name}]";
             if (subList.Count > 0) logMessage += $" Subscribed to {subList.Count} topics.";
             targetLogger.Verbose(logMessage);
-            if (_expectResponseTopics.Contains(messageBusTopic.ToString()))
+            if (_expectResponseTopics.ContainsKey(messageBusTopic.ToString()))
             {
-                _pendingResponses.TryAdd(new ResponseKey(req.DecisionPoint, req.Gin),
-                    new PendingRequest(element, env.Client, req));
+                _pendingResponses[new ResponseKey(req.DecisionPoint, req.Gin)] =
+                    new PendingRequest(element, env.Client, req, DateTime.UtcNow);
             }
 
             var json = JsonSerializer.Serialize(env.Payload);
             
-            _ = MessageBus.PublishAsync(messageBusTopic.ToString(),
+            await MessageBus.PublishAsync(messageBusTopic.ToString(),
                 new MessageEnvelope(messageBusTopic, json, env.Gin, env.Client));
         }
         else if (env.Payload is DecisionUpdatePayload upd)
@@ -69,7 +104,47 @@ public class  PlcElementManager : ElementManagerBase<PlcServerElement>
 
             targetLogger.Information("[{Dev}] PLC-UPD >> GIN: {Gin} at {DP}", element.Config.Name, upd.Gin,
                 upd.DecisionPoint);
-            _ = MessageBus.PublishAsync(messageBusTopic.ToString(), new MessageEnvelope(messageBusTopic, env.Payload));
+            await MessageBus.PublishAsync(messageBusTopic.ToString(), new MessageEnvelope(messageBusTopic, env.Payload));
+        }
+        else if (env.Payload is TestMessagePayload test)
+        {
+            var messageType = env.Destination.MessageType;
+            var messageBusTopic = new MessageBusTopic(element.Config.Name, messageType, test.TestName);
+
+            targetLogger.Information("[{Dev}] PLC-TEST >> {Event}: {TestName}",
+                element.Config.Name, test.Event, test.TestName);
+
+            await MessageBus.PublishAsync(
+                messageBusTopic.ToString(),
+                new MessageEnvelope(messageBusTopic, env.Payload, env.Gin, env.Client));
+        }
+    }
+
+    private static bool BondProducesDecisionResponse(
+        string elementName,
+        string source,
+        string destination,
+        string handler)
+    {
+        var requestPrefix = $"{elementName}.DReqM.";
+        if (!source.StartsWith(requestPrefix, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        var responsePrefix = $"{elementName}.DRespM.";
+        return destination.StartsWith(responsePrefix, StringComparison.OrdinalIgnoreCase) ||
+               ResponsePublishingHandlers.Contains(handler);
+    }
+
+    private void RemoveStalePendingResponses(DateTime nowUtc)
+    {
+        foreach (var item in _pendingResponses)
+        {
+            if (nowUtc - item.Value.CreatedUtc > PendingResponseTtl)
+            {
+                _pendingResponses.TryRemove(item.Key, out _);
+            }
         }
     }
 

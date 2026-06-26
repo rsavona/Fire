@@ -40,4 +40,46 @@ public class PlcParserTests
         
         Assert.False(success);
     }
+
+    [Fact]
+    public void TestParseTestSummaryMessage()
+    {
+        var parser = new PlcMessageParser();
+        var payload = new TestMessagePayload(
+            TestName: "print-and-apply-real-world",
+            Description: "summary",
+            ScriptPath: "print-and-apply-real-world.json",
+            GeneratedAtUtc: "2026-06-10T12:00:00.000Z",
+            StartsAtUtc: "2026-06-10T12:00:05.000Z",
+            StartsInSeconds: 5,
+            StageCount: 1,
+            ToteCount: 2,
+            DecisionChain: "PNALINE-2:0;PNA2_151:3000|PNA2_152:3000;PNA2_Verify:3000",
+            Printer1: "PNA2_151",
+            Printer2: "PNA2_152",
+            Stages:
+            [
+                new TestStageSummary(
+                    Stage: 1,
+                    Name: "single-box-baseline",
+                    ToteCount: 2,
+                    FirstGin: 1,
+                    LastGin: 2,
+                    InductionSpacingMs: 6000,
+                    ExpectedOutcomes: ["ship"],
+                    ExpectedFlow: "baseline")
+            ]);
+
+        var rawMessage = PlcMessageParser.CreateTestMessage("CP1", payload).ToString();
+
+        bool success = parser.TryParseToPlcMessage(rawMessage, out var plcMessage);
+
+        Assert.True(success);
+        Assert.NotNull(plcMessage);
+        Assert.Equal(PlcMessageHeaders.TEST, plcMessage.Header);
+        var testPayload = Assert.IsType<TestMessagePayload>(plcMessage.Payload);
+        Assert.Equal("print-and-apply-real-world", testPayload.TestName);
+        Assert.Equal(5, testPayload.StartsInSeconds);
+        Assert.Single(testPayload.Stages);
+    }
 }

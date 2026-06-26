@@ -1,0 +1,60 @@
+{
+  "name": "print-and-apply-100-good-1s",
+  "description": "Print and Apply focused verification script. Sends 100 good barcodes at a one-second induction interval with both printers available.",
+  "physicalModel": {
+    "lineLengthFeet": 12,
+    "boxLengthFeet": 2,
+    "conveyorSpeedFeetPerSecond": 2,
+    "timingBasis": "lead-edge"
+  },
+  "virtualPlcProperties": {
+    "DecisionPoints": "PNALINE-2:0;PNA2_151:3000|PNA2_152:3000;PNA2_Verify:3000",
+    "TotalTotes": 100,
+    "InductionFreq": 0,
+    "Printer1": "PNA2_151",
+    "Printer2": "PNA2_152",
+    "BarcodeList": [
+      "PNA-GOOD-0001"
+    ]
+  },
+  "stages": [
+    {
+      "stage": 1,
+      "name": "hundred-good-barcodes",
+      "barcodeCount": 100,
+      "inductionSpacingMs": 1000,
+      "expectedFlow": "One hundred totes are inducted one second apart with both printers available. Every tote should receive normal label data, print, verify, and ship without exception handling.",
+      "stationOffsetsMs": {
+        "induct": 0,
+        "printStation": 3000,
+        "verification": 6000
+      },
+      "inductMetadata": {
+        "PNA2_151": "1",
+        "PNA2_152": "1"
+      },
+      "barcodePattern": {
+        "ginStart": 1,
+        "ginEnd": 100,
+        "barcodePrefix": "PNA-GOOD-",
+        "expectedOutcome": "ship"
+      }
+    }
+  ],
+  "logValidation": {
+    "requiredMarkers": [
+      "Gin: {gin} barcode: {barcode}",
+      "Label data stored for Barcode: {barcode}",
+      "Sending Label to printer : {barcode}",
+      "[Verification SUCCESS] GIN {gin} matches expected barcode {expectedVerificationBarcode}"
+    ],
+    "failureMarkersThatShouldNotAppear": [
+      "Label data rejected",
+      "Missing expected scan",
+      "Missing printer data",
+      "Malformed printer data",
+      "[Verification MISMATCH]",
+      "[Verification FAILED]"
+    ]
+  }
+}

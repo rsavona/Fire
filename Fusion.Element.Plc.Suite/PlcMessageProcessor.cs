@@ -1,4 +1,4 @@
-﻿using System.Buffers;
+using System.Buffers;
 using System.Net.Sockets;
 using System.Text;
 using Fusion.Common;
@@ -127,6 +127,26 @@ namespace Fusion.Element.Plc.Suite
                     decisionPoint = update.DecisionPoint;
                     gin = update.Gin;
                     _logger.Debug("Decision Update : GIN={Gin} at DP={DP}  Message= {msg}", gin, decisionPoint, update);
+                }
+                else if (plcMessage.Payload is DecisionResponsePayload resp)
+                {
+                    decisionPoint = resp.DecisionPoint;
+                    gin = resp.Gin;
+                    _logger.Debug("Decision Response : GIN={Gin} at DP={DP}  Message= {msg}", gin, decisionPoint, resp);
+                }
+                else if (plcMessage.Payload is TestMessagePayload test)
+                {
+                    decisionPoint = test.TestName;
+                    if (plcMessage.Header == PlcMessageHeaders.TESTEND)
+                    {
+                        _logger.Information("Test Script Ended: {TestName} Status={Status} CompletedStages={CompletedStageCount} CompletedTotes={CompletedToteCount} DurationSeconds={DurationSeconds}",
+                            test.TestName, test.Status, test.CompletedStageCount, test.CompletedToteCount, test.DurationSeconds);
+                    }
+                    else
+                    {
+                        _logger.Information("Test Script Starting Soon: {TestName} Stages={StageCount} Totes={ToteCount}",
+                            test.TestName, test.StageCount, test.ToteCount);
+                    }
                 }
                 else
                 {

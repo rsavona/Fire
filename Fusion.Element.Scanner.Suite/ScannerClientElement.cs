@@ -32,53 +32,10 @@ public class ScannerClientElement : TcpClientElementBase, IMessageProvider
 
         // Set the termination strategy based on config
         byte[] delimiter = Encoding.ASCII.GetBytes(_terminationString);
-        _strategy = new DelimiterSetStrategy(delimiter);
+        _strategy = new SequenceTerminationStrategy(delimiter);
     }
 
-    protected override Task ElementConnectedAsync()
-    {
-        // Override the base ReadLoop with our own that respects the termination strategy
-        _ = Task.Run(() => CustomReadLoopAsync(CancellationToken.None));
-        return base.ElementConnectedAsync();
-    }
-
-    private async Task CustomReadLoopAsync(CancellationToken ct)
-    {
-        var stream = GetStream();
-        if (stream == null) return;
-
-        var buffer = new byte[8192];
-        var incoming = new List<byte>();
-
-        try
-        {
-            while (!ct.IsCancellationRequested && IsConnected)
-            {
-                int bytesRead = await stream.ReadAsync(buffer, 0, buffer.Length, ct);
-                if (bytesRead == 0) break;
-
-                for (int i = 0; i < bytesRead; i++)
-                {
-                    byte b = buffer[i];
-                    incoming.Add(b);
-
-                    var sequence = new ReadOnlySequence<byte>(incoming.ToArray());
-                    var pos = _strategy.FindTerminator(sequence);
-
-                    if (pos != null)
-                    {
-                        string message = Encoding.ASCII.GetString(sequence.Slice(0, pos.Value).ToArray());
-                        await HandleReceivedDataAsync(message);
-                        incoming.Clear();
-                    }
-                }
-            }
-        }
-        catch (Exception ex)
-        {
-            Logger.Error(ex, "[{Dev}] Custom read loop error", Config.Name);
-        }
-    }
+    protected override ITerminationStrategy? ReceiveTerminationStrategy => _strategy;
 
     /// <summary>
     /// Sends a trigger or data to the server if needed.
@@ -117,8 +74,6 @@ public class ScannerClientElement : TcpClientElementBase, IMessageProvider
         {
             await MessageReceived.Invoke(this, envelope);
         }
-
-        await Machine.FireAsync(Event.MessageReceived);
     }
 
     protected override string GetHeartbeatMessage() => string.Empty;

@@ -17,7 +17,7 @@ public static class ConfigurationLoader
         if (!_initCalled)
         {
             _initCalled = true;
-            string? fileName = args is { Length: > 0 } ? args[0] : null;
+            string? fileName = ResolveConfigFileName(args);
 
             // If no file was provided via args, try to discover a Fusion file
             if (string.IsNullOrEmpty(fileName))
@@ -56,6 +56,66 @@ public static class ConfigurationLoader
         }
 
         return _configuration;
+    }
+
+    private static string? ResolveConfigFileName(string[]? args)
+    {
+        if (args is not { Length: > 0 })
+        {
+            return null;
+        }
+
+        for (int i = 0; i < args.Length; i++)
+        {
+            var arg = args[i];
+
+            if (string.IsNullOrWhiteSpace(arg))
+            {
+                continue;
+            }
+
+            if (arg.StartsWith("--config=", StringComparison.OrdinalIgnoreCase) ||
+                arg.StartsWith("-config=", StringComparison.OrdinalIgnoreCase) ||
+                arg.StartsWith("/config=", StringComparison.OrdinalIgnoreCase))
+            {
+                return arg[(arg.IndexOf('=') + 1)..];
+            }
+
+            if (IsOption(arg, "config"))
+            {
+                return i + 1 < args.Length ? args[i + 1] : null;
+            }
+
+            if (IsOption(arg, "service-name"))
+            {
+                i++;
+                continue;
+            }
+
+            if (IsOption(arg, "service") ||
+                arg.StartsWith("--service-name=", StringComparison.OrdinalIgnoreCase) ||
+                arg.StartsWith("-service-name=", StringComparison.OrdinalIgnoreCase) ||
+                arg.StartsWith("/service-name=", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            if (arg.StartsWith('-') || arg.StartsWith('/'))
+            {
+                continue;
+            }
+
+            return arg;
+        }
+
+        return null;
+    }
+
+    private static bool IsOption(string arg, string name)
+    {
+        return string.Equals(arg, $"--{name}", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(arg, $"-{name}", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(arg, $"/{name}", StringComparison.OrdinalIgnoreCase);
     }
 
     public static async Task UpdateElementPropertyAsync(string elementName, string propertyName, object value)

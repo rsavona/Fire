@@ -153,6 +153,8 @@ namespace Fusion.Common.TcpSocket
                     ReadResult result = await reader.ReadAsync(token);
                     ReadOnlySequence<byte> buffer = result.Buffer;
 
+                    if (result.IsCanceled) break;
+
                     while (true)
                     {
                         // DEEP TRACE: Print the current raw buffer content being evaluated
@@ -188,7 +190,6 @@ namespace Fusion.Common.TcpSocket
                             else
                             {
                                 _logger.Warning("[{ClientKey}] Processor returned failure. Disconnecting.", clientKey);
-                                DisconnectClient(clientKey);
                                 return;
                             }
                         }
@@ -204,7 +205,7 @@ namespace Fusion.Common.TcpSocket
 
                     if (result.IsCompleted)
                     {
-                        _logger.Information("[{ClientKey}] PipeReader completed.", clientKey);
+                        _logger.Information("[{ClientKey}] PipeReader completed (Remote side closed).", clientKey);
                         break;
                     }
                 }
@@ -217,12 +218,12 @@ namespace Fusion.Common.TcpSocket
             {
                 _logger.Error(ex, "[{ClientKey}] Error in Pipeline read loop.", clientKey);
                 NotifyError($"Error on connection {clientKey}", ex);
-                DisconnectClient(clientKey);
             }
             finally
             {
                 await reader.CompleteAsync();
                 _logger.Debug("[{ClientKey}] Pipeline reader completed and stream closed.", clientKey);
+                await CleanupClient(clientKey);
             }
         }
 
@@ -263,28 +264,47 @@ namespace Fusion.Common.TcpSocket
 
         private void HandleNewClient(TcpClient client, CancellationToken token)
         {
-            if (client.Client.RemoteEndPoint is IPEndPoint remoteIpEndPoint)
+            if (client.Client.RemoteEndPoint is not IPEndPoint remoteIpEndPoint)
             {
-                string clientKey = $"{remoteIpEndPoint.Address}:{remoteIpEndPoint.Port}";
-                _logger.Information("[Server:{Port}] New connection from {ClientKey}", _listenPort, clientKey);
+                _logger.Warning("[Server:{Port}] Accepted client without an IP endpoint. Closing connection.", _listenPort);
+                CloseClientSocket(client, "unknown");
+                return;
+            }
 
-                var clientCts = CancellationTokenSource.CreateLinkedTokenSource(token);
-                Task clientTask = Task.Run(
-                    () => ListenForClientDataAsync(client, clientKey, clientCts.Token),
-                    clientCts.Token);
+            string clientKey = $"{remoteIpEndPoint.Address}:{remoteIpEndPoint.Port}";
+            _logger.Information("[Server:{Port}] New connection from {ClientKey}", _listenPort, clientKey);
 
-                var connection = new ClientConnection(client, clientCts, clientTask, DateTime.UtcNow);
+            var clientCts = CancellationTokenSource.CreateLinkedTokenSource(token);
+            var connection = new ClientConnection(client, clientCts, Task.CompletedTask, DateTime.UtcNow);
 
-                if (_connectedClients.TryAdd(clientKey, connection))
-                {
-                    ClientConnectionChanged?.Invoke(clientKey, true, client);
-                }
-                else
-                {
-                    _logger.Warning("[Server:{Port}] ClientKey {ClientKey} already exists.", _listenPort, clientKey);
-                    clientCts.Cancel();
-                    clientCts.Dispose();
-                }
+            if (!_connectedClients.TryAdd(clientKey, connection))
+            {
+                _logger.Warning("[Server:{Port}] ClientKey {ClientKey} already exists.", _listenPort, clientKey);
+                clientCts.Cancel();
+                CloseClientSocket(client, clientKey);
+                clientCts.Dispose();
+                return;
+            }
+
+            if (!TryRaiseClientConnectionChanged(clientKey, true, client))
+            {
+                _ = CleanupClient(clientKey);
+                return;
+            }
+
+            if (!_connectedClients.TryGetValue(clientKey, out var activeConnection))
+            {
+                return;
+            }
+
+            Task clientTask = Task.Run(
+                () => ListenForClientDataAsync(client, clientKey, activeConnection.Cts.Token));
+
+            var trackedConnection = activeConnection with { ClientTask = clientTask };
+            if (!_connectedClients.TryUpdate(clientKey, trackedConnection, activeConnection))
+            {
+                _logger.Debug("[{ClientKey}] Connection was removed before read loop tracking was updated.", clientKey);
+                _ = CleanupClient(clientKey);
             }
         }
 
@@ -293,6 +313,9 @@ namespace Fusion.Common.TcpSocket
             _serverCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             _logger.Information("[Server:{Port}] Starting TCP Server...", _listenPort);
             SetListenerState(TcpListenerState.Starting);
+
+            // Start the watchdog task to monitor for dead sockets
+            _ = StartSocketWatchdogAsync(_serverCts.Token);
 
             try
             {
@@ -323,11 +346,27 @@ namespace Fusion.Common.TcpSocket
                     while (!token.IsCancellationRequested)
                     {
                         TcpClient client = await _listener.AcceptTcpClientAsync(token);
+
+                        // Enable TCP Keep-Alives to detect dead clients on Linux/Windows
+                        try
+                        {
+                            client.Client.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.KeepAlive, true);
+                            // Set idle time to 15s and retry interval to 5s
+                            client.Client.SetSocketOption(SocketOptionLevel.Tcp, SocketOptionName.TcpKeepAliveTime, 15);
+                            client.Client.SetSocketOption(SocketOptionLevel.Tcp, SocketOptionName.TcpKeepAliveInterval, 5);
+                            client.Client.SetSocketOption(SocketOptionLevel.Tcp, SocketOptionName.TcpKeepAliveRetryCount, 3);
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.Debug("[Server:{Port}] Could not set advanced Keep-Alive options: {Msg}", _listenPort, ex.Message);
+                        }
+
                         HandleNewClient(client, token);
                     }
                 }
                 catch (Exception ex)
                 {
+                    NotifyError("Listener Loop Fault", ex);
                     retryCount++;
                     SetListenerState(TcpListenerState.FailedRetrying);
                     _listener?.Stop();
@@ -352,27 +391,79 @@ namespace Fusion.Common.TcpSocket
             }
         }
 
-        private Task CleanupClient(string key)
+        private bool TryRaiseClientConnectionChanged(string key, bool connected, TcpClient? client)
         {
-            return Task.Run(() =>
+            try
             {
-                if (_connectedClients.TryRemove(key, out var connection))
+                ClientConnectionChanged?.Invoke(key, connected, client);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                NotifyError($"Client connection event failed for {key}", ex);
+                return false;
+            }
+        }
+
+        private void CloseClientSocket(TcpClient client, string key)
+        {
+            try
+            {
+                try
                 {
-                    try
+                    if (client.Connected)
                     {
-                        ClientConnectionChanged?.Invoke(key, false, null);
-                        connection.Cts.Cancel();
-                        if (connection.Client.Connected) connection.Client.Client.Shutdown(SocketShutdown.Both);
-                        connection.Client.Close();
-                        connection.Client.Dispose();
-                        connection.Cts.Dispose();
-                    }
-                    catch (Exception ex)
-                    {
-                        NotifyError("Cleanup Error", ex);
+                        client.Client.Shutdown(SocketShutdown.Both);
                     }
                 }
-            });
+                catch (SocketException ex)
+                {
+                    _logger.Debug("[{ClientKey}] Socket shutdown skipped: {Message}", key, ex.Message);
+                }
+                catch (ObjectDisposedException)
+                {
+                    // Socket is already closed.
+                }
+
+                client.Close();
+            }
+            finally
+            {
+                client.Dispose();
+            }
+        }
+
+        private Task CleanupClient(string key)
+        {
+            if (!_connectedClients.TryRemove(key, out var connection))
+            {
+                return Task.CompletedTask;
+            }
+
+            try
+            {
+                connection.Cts.Cancel();
+            }
+            catch (ObjectDisposedException)
+            {
+                // Cancellation source already disposed by another cleanup path.
+            }
+
+            try
+            {
+                CloseClientSocket(connection.Client, key);
+            }
+            catch (Exception ex)
+            {
+                NotifyError("Cleanup Socket Close Error", ex);
+            }
+            finally
+            {
+                connection.Cts.Dispose();
+            }
+
+            TryRaiseClientConnectionChanged(key, false, null);
+            return Task.CompletedTask;
         }
 
         /// <summary>

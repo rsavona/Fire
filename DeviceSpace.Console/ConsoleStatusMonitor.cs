@@ -1,4 +1,4 @@
-﻿using System.Collections.Concurrent;
+using System.Collections.Concurrent;
 using System.Diagnostics.Metrics;
 using System.Linq;
 using Fusion.Common;
@@ -298,6 +298,11 @@ public class ConsoleStatusMonitor
                 Console.WriteLine(msg.PadRight(Console.WindowWidth));
             }
         }
+    }
+
+    public void RequestRedraw()
+    {
+        _needsFullRedraw = true;
     }
 
     public ConsoleStatusMonitor(IMessageBus bus, IFireLogger<ConsoleStatusMonitor> logger)

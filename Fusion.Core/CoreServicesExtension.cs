@@ -173,10 +173,17 @@ public static class CoreServicesExtensions
                         RegisterPlugins(builder, assembly);
                     }
                 }
+                catch (BadImageFormatException ex)
+                {
+                    Log.Logger.Warning(
+                        "Skipping invalid reaction assembly {DllPath}: {Message}",
+                        Path.GetFileName(dllPath),
+                        ex.Message);
+                }
                 catch (Exception ex)
                 {
                     // Fixed: Include exception explicitly for stack traces
-                    Log.Logger.Error(ex, "DISCOVERY", "FAULT", "DLL", "REACTION", "Failed to load reaction assembly: {DllPath}", Path.GetFileName(dllPath));
+                    Log.Logger.Error(ex, "Failed to load reaction assembly {DllPath}", Path.GetFileName(dllPath));
                 }
             }
 
@@ -257,7 +264,11 @@ public static class CoreServicesExtensions
     /// </summary>
     private static void SetupLogger(this IHostApplicationBuilder builder, string configName)
     {
-       ;
+        static string LogPath(params string[] parts)
+        {
+            return Path.GetFullPath(Path.Combine([AppContext.BaseDirectory, "..", "logs", ..parts]));
+        }
+
         builder.Services.AddSingleton<IFireLogger>(provider => 
         {
             var bus = provider.GetService<IMessageBus>();
@@ -278,7 +289,7 @@ public static class CoreServicesExtensions
                 .Filter.ByIncludingOnly(evt => evt.Properties.ContainsKey("AuditLog"))
                 .WriteTo.Async(a => a.File(
                     new CompactJsonFormatter(),
-                    $"../../logs/audit/{configName}_audit_.json",
+                    LogPath("audit", $"{configName}_audit_.json"),
                     rollingInterval: RollingInterval.Day)))
             
             // --- PIPELINE 2: Element-Specific Log Files ---
@@ -289,14 +300,14 @@ public static class CoreServicesExtensions
                     LogControl.DynamicFilter(evt))
                 
                 .WriteTo.Sink(new BufferedLog())
-                .WriteTo.Async(a => a.File(new CompactJsonFormatter(), $"../../logs/clef/{configName}_elements_.clef"))
+                .WriteTo.Async(a => a.File(new CompactJsonFormatter(), LogPath("clef", $"{configName}_elements_.clef")))
                 .WriteTo.Map(
                     keyPropertyName: "ElementName",
                     defaultKey: "System",
                     configure: (elementName, wt) =>
                     {
                         wt.Async(a => a.File(
-                            path: $"../../logs/elements/{configName}_{elementName}_.log",
+                            path: LogPath("elements", $"{configName}_{elementName}_.log"),
                             outputTemplate: "[{Timestamp:HH:mm:ss:fff}][{Level:u3}] {MethodTag}{GinTag}{Message:lj}{NewLine}{Exception}",
                             rollingInterval: RollingInterval.Day,
                             retainedFileCountLimit: 14));
@@ -307,9 +318,9 @@ public static class CoreServicesExtensions
                 .Filter.ByIncludingOnly(evt =>
                     evt.Properties.ContainsKey("Context") &&
                     evt.Properties["Context"] is ScalarValue { Value: "ConveyableEvents" })
-                .WriteTo.File(new CompactJsonFormatter(), $"../../logs/clef/{configName}_tracking_.clef")
+                .WriteTo.File(new CompactJsonFormatter(), LogPath("clef", $"{configName}_tracking_.clef"))
                 .WriteTo.Async(a => a.File(
-                    path: $"../../logs/tracking/{configName}_tracking_.log",
+                    path: LogPath("tracking", $"{configName}_tracking_.log"),
                     outputTemplate: "[{Timestamp:HH:mm:ss:fff}][{Level:u3}] {MethodTag}{GinTag}{Message:lj}{NewLine}{Exception}",
                     rollingInterval: RollingInterval.Day,
                     retainedFileCountLimit: 30)))
@@ -322,9 +333,9 @@ public static class CoreServicesExtensions
                     evt.Properties.ContainsKey("ElementName") ||
                     evt.Properties.ContainsKey("Context")) 
                 .MinimumLevel.Override("Microsoft.Data.SqlClient", LogEventLevel.Error)
-                .WriteTo.File(new CompactJsonFormatter(), $"../../logs/clef/{configName}_system_.clef")
+                .WriteTo.File(new CompactJsonFormatter(), LogPath("clef", $"{configName}_system_.clef"))
                 .WriteTo.Async(a => a.File(
-                    $"../../logs/app/{configName}_system_.log",
+                    LogPath("app", $"{configName}_system_.log"),
                     rollingInterval: RollingInterval.Day,
                     retainedFileCountLimit: 30)))
             .CreateLogger();

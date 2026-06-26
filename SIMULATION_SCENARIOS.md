@@ -59,7 +59,21 @@ At exactly **GIN 300**, the simulation bypasses standard LPN generation and prov
 
 ---
 
-## 3. Time-Based Hardware Simulation (Virtual Printer)
+## 4. PandA-Bri Label Response Anomalies
+
+When the Virtual PLC uses default generated barcodes, the simulation label-data generator injects these deterministic PandA-Bri anomalies:
+
+| GIN | Barcode | Label Response Anomaly | Expected Handling |
+| :--- | :--- | :--- | :--- |
+| **30** | `SIM-0030` | `OKAY` status with no labels. | Reject before printer handoff. |
+| **31** | `SIM-0031` | `OKAY` status with missing expected scan. | Reject and do not store verification expectation. |
+| **32** | `SIM-0032` | `OKAY` status with malformed XML-like printer data. | Reject before printer handoff. |
+| **33** | `SIM-0033` | `ERROR` status with label payload present. | Trust status and reject. |
+| **34** | `SIM-0034` | `OKAY` status with mismatched expected scan. | Allow print path, then verification should detect mismatch. |
+
+---
+
+## 5. Time-Based Hardware Simulation (Virtual Printer)
 
 Independent of GIN, the **Virtual Printer** element runs a deterministic error cycle whenever a client (the System) connects:
 

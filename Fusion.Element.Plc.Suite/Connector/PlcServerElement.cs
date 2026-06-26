@@ -19,7 +19,7 @@ namespace Fusion.Element.Plc.Suite.Connector;
 [TestCounterpart(typeof(VirtualPlcElement))]
 public class PlcServerElement : TcpServerElementBase<PlcMessageProcessor>, IMessageProvider
 {
-    public event Func<object, object, Task> MessageReceived;
+    public event Func<object, object, Task> MessageReceived = (_, _) => Task.CompletedTask;
     public event Action<object, object>? OnMessageError;
 
     private readonly GinSequenceLearner _ginLearner;
@@ -190,7 +190,19 @@ public class PlcServerElement : TcpServerElementBase<PlcMessageProcessor>, IMess
 
         if (!string.IsNullOrEmpty(msg.Client))
             ConnectedClients.AddOrUpdate(msg.Client, DateTime.UtcNow, (k, v) => DateTime.UtcNow);
-        MessageReceived?.Invoke(this, msg);
+
+        var handlers = MessageReceived;
+        if (handlers == null)
+        {
+            return;
+        }
+
+        var publishTasks = handlers
+            .GetInvocationList()
+            .Cast<Func<object, object, Task>>()
+            .Select(handler => handler(this, msg));
+
+        await Task.WhenAll(publishTasks);
     }
 
     /// <summary>

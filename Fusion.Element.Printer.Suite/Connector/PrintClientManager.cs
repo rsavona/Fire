@@ -60,26 +60,135 @@ public class PrintClientManager : ElementManagerBase<ITcpPrintClientBase>
     {
         var topic = envelope.Destination;
         ElementInstances.TryGetValue(topic.ElementName, out var element);
+        if (element == null)
+        {
+            Logger.Error("[{Dev}] Manager received print job for unknown printer.", topic.ElementName);
+            return;
+        }
+
         try
         {
-            var node = JsonNode.Parse(envelope.Payload.ToString());
-            if (node == null) 
+            var payload = ResolvePayloadText(envelope.Payload);
+            if (string.IsNullOrWhiteSpace(payload))
             {
-                Logger.Error( "ERROR payload not in JSON");
+                Logger.Error("[{Dev}] Manager received empty print payload.", element.Config.Name);
                 return;
             }
-        
+
+            if (payload.TrimStart().StartsWith("<") || payload.TrimStart().StartsWith("^"))
+            {
+                await element.PrintAsync(payload);
+                return;
+            }
+
+            var node = JsonNode.Parse(payload);
+            if (node == null)
+            {
+                Logger.Error("[{Dev}] ERROR payload not in JSON", element.Config.Name);
+                return;
+            }
+
             var jsonObj = node.AsObject();
-            var labelList = jsonObj["labels"]?.GetValue<List<string>>();  
-            var lb = labelList.FirstOrDefault();
-            var label = jsonObj["PrinterData"]?.GetValue<List<string>>();      
-            // The ITcpPrinter interface provides the PrintAsync method [cite: 42]
-            await element?.PrintAsync(label.ToString());
+            var printType = GetConfiguredPrintType(element.Config);
+            var labelData = ResolvePrinterData(jsonObj, printType);
+            if (string.IsNullOrWhiteSpace(labelData))
+            {
+                Logger.Error("[{Dev}] No {PrintType} printer data found in payload.", element.Config.Name, printType);
+                return;
+            }
+
+            await element.PrintAsync(labelData);
             
         }
         catch (Exception ex)
         {
             Logger.LogError(ex, "[{Dev}] Manager failed to bond print job.", element.Config.Name);
         }
+    }
+
+    private static string ResolvePayloadText(object? payload)
+    {
+        return payload switch
+        {
+            null => string.Empty,
+            string text => text,
+            IElementMessage elementMessage => elementMessage.ToJson(),
+            _ => payload.ToJson()
+        };
+    }
+
+    private static string GetConfiguredPrintType(IElementBlueprint config)
+    {
+        var legacyPrintType = TryGetProperty(config.Properties, "aSPrintType");
+        return TryGetProperty(config.Properties, "PrintType")
+               ?? legacyPrintType
+               ?? "SHIPTOP";
+    }
+
+    private static string? TryGetProperty(Dictionary<string, object> properties, string key)
+    {
+        return properties.TryGetValue(key, out var value)
+            ? value?.ToString()
+            : null;
+    }
+
+    private static string? ResolvePrinterData(JsonObject jsonObj, string printType)
+    {
+        var rootPrinterData = TryReadPrinterDataNode(jsonObj["PrinterData"])
+                              ?? TryReadPrinterDataNode(jsonObj["printerData"]);
+        if (!string.IsNullOrWhiteSpace(rootPrinterData))
+        {
+            return rootPrinterData;
+        }
+
+        var labels = jsonObj["labels"]?.AsArray();
+        if (labels == null || labels.Count == 0)
+        {
+            return null;
+        }
+
+        string? fallback = null;
+        foreach (var labelNode in labels)
+        {
+            var label = labelNode?.AsObject();
+            if (label == null)
+            {
+                continue;
+            }
+
+            var printerData = TryReadPrinterDataNode(label["printerData"])
+                              ?? TryReadPrinterDataNode(label["PrinterData"]);
+            if (string.IsNullOrWhiteSpace(printerData))
+            {
+                continue;
+            }
+
+            fallback ??= printerData;
+            var applicatorType = label["applicatorType"]?.ToString()
+                                 ?? label["ApplicatorType"]?.ToString();
+            if (string.Equals(applicatorType, printType, StringComparison.OrdinalIgnoreCase))
+            {
+                return printerData;
+            }
+        }
+
+        return fallback;
+    }
+
+    private static string? TryReadPrinterDataNode(JsonNode? node)
+    {
+        if (node == null)
+        {
+            return null;
+        }
+
+        if (node is JsonArray array)
+        {
+            return array
+                .Select(item => item?.ToString())
+                .FirstOrDefault(value => !string.IsNullOrWhiteSpace(value));
+        }
+
+        return node.ToString();
     }
 }

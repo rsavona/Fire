@@ -14,21 +14,21 @@
             {
               "Mode": 1,
               "Name": "Bond1-InductRequestToResponse",
-              "Source": "TPNA2.DReqM.PNALINE-2",
+              "Source": "TPAN2.DReqM.PNALINE-2",
               "Handler": "HandlePrintersToUseAsync",
-              "Destination": "TPNA2.DRespM.PNALINE-2"
+              "Destination": "TPAN2.DRespM.PNALINE-2"
             },
             {
               "Mode": 1,
                "Name": "Bond2-InductRequestToQueue",
-              "Source": "TPNA2.DReqM.PNALINE-2",
+              "Source": "TPAN2.DReqM.PNALINE-2",
               "Handler": "HandleLabelRequestToMqAsync",
               "Destination": "TBROKER.LabelRequestFrcMessage.AC.PNA.LABELREQUEST"
             },
             {
               "Mode": 1,
               "Name": "Bond3-VerifyRequestToQueue",
-              "Source": "TPNA2.DReqM.PNA2_Verification",
+              "Source": "TPAN2.DReqM.PNA2_Verify",
               "Handler": "HandleLabelVerificationToMqAsync",
               "Destination": "TBROKER.LabelVerifyFrcMessage.AC.PNA.LABELVERIFY"
             },{
@@ -41,39 +41,78 @@
             },{
               "Mode": 1,
               "Name": "Bond5-PrintRequestToPrinter1",
-              "Source": "TPNA2.DReqM.PNA2 151",
-              "Destination": "PNA2 151.LabelToPrint.None",
+              "Source": "TPAN2.DReqM.PNA2_151",
+              "Destination": "PNA2_151.LabelToPrint.None",
               "Handler": "HandleBarcodeToPrinterAsync"
             },{
               "Mode": 1,
               "Name": "Bond6-PrintRequestToPrinter2",
-              "Source": "TPNA2.DReqM.PNA2 152",
-              "Destination": "PNA2 152.LabelToPrint.None",
+              "Source": "TPAN2.DReqM.PNA2_152",
+              "Destination": "PNA2_152.LabelToPrint.None",
               "Handler": "HandleBarcodeToPrinterAsync"
             },{
               "Mode": 0,
               "Name": "Bond7-PrintRequestToPrinter3",
-              "Source": "TPNA2.DReqM.I001",
+              "Source": "TPAN2.DReqM.I001",
               "Handler": "HandleContentToPrinterAsync",
               "Destination": "I001.LabelToPrint.None"
             },{
               "Mode": 0,
               "Name": "Bond8-PrintRequestToPrinter4",
-              "Source": "TPNA2.DReqM.I002",
+              "Source": "TPAN2.DReqM.I002",
               "Handler": "HandleContentToPrinterAsync",
               "Destination": "I002.LabelToPrint.None"
+            }
+          ]
+        },
+        {
+          "Name": "LabelDataSimulator",
+          "Type": "ReactionSimulation",
+          "Enable": true,
+          "IsSimulation": true,
+          "Bonds": [
+            {
+              "Mode": 1,
+              "Name": "Bond1-LabelRequestToLabelData",
+              "Source": "TBROKER.LabelRequestFrcMessage.AC.PNA.LABELREQUEST",
+              "Destination": "TBROKER.LabelDataFrcMessage.AC.PNA.LABELDATA",
+              "Handler": "HandleLabelRequest"
+            },
+            {
+              "Mode": 1,
+              "Name": "Bond2-LabelVerifyQueueToValidator",
+              "Source": "TBROKER.LabelVerifyFrcMessage.AC.PNA.LABELVERIFY",
+              "Destination": "SIM_VALIDATOR.LabelVerify.ValidationQueue",
+              "Handler": "HandleLabelVerify"
             }
           ]
         }
       ],
       "ElementList": [
         {
-          "Name": "TPNA2",
+          "Name": "TPAN2",
           "Manager": "PlcElementManager",
           "Enable": true,
           "Properties": {
             "ElementPort": "6999",
-            "ElementTimeout": "15000"
+            "ElementTimeout": "100000"
+          }
+        },
+        {
+          "Name": "VPLC_TPAN2",
+          "Manager": "VirtualPlcManager",
+          "Enable": true,
+          "Properties": {
+            "IPAddress": "127.0.0.1",
+            "Port": 6999,
+            "HeartbeatTimeoutMs": 0,
+            "HeartbeatIntervalMs": 0,
+            "DecisionPoints": "PNALINE-2:0;PNA2_151:3000|PNA2_152:3000;PNA2_Verify:3000",
+            "ScriptedScenarioFile": "print-and-apply-100-good-1s.json",
+            "TotalTotes": 100,
+            "InductionFreq": 0,
+            "Printer1": "PNA2_151",
+            "Printer2": "PNA2_152"
           }
         },
         {
@@ -81,12 +120,28 @@
           "Manager": "ActiveMQManager",
           "Enable": true,
           "Properties": {
-            "ConnectionString": "tcp://127.0.0.1:61616?useKeepAlive=true",
-            "DoubleQueue": true
+            "ConnectionString": "tcp://127.0.0.1:61616?KeepAlive=true",
+            "DoubleQueue": false
             }
         },
         {
-          "Name": "PNA2 151",
+          "Name": "VPRINT_PNA2_151",
+          "Manager": "VirtualPrinterManager",
+          "Enable": true,
+          "Properties": {
+            "Port": 9100
+          }
+        },
+        {
+          "Name": "VPRINT_PNA2_152",
+          "Manager": "VirtualPrinterManager",
+          "Enable": true,
+          "Properties": {
+            "Port": 9101
+          }
+        },
+        {
+          "Name": "PNA2_151",
           "Manager": "PrintClientManager",
           "Enable": true,
           "Properties": {
@@ -106,7 +161,7 @@
           }
         },
         {
-          "Name": "PNA2 152",
+          "Name": "PNA2_152",
           "Manager": "PrintClientManager",
           "Enable": true,
           "Properties": {
@@ -130,6 +185,14 @@
           "Enable": true,
           "Properties": {
             "Port": 9999
+          }
+        },
+        {
+          "Name": "SIM_VALIDATOR",
+          "Manager": "SimulationValidationManager",
+          "Enable": true,
+          "Properties": {
+            "TestResultsPath": "TestResults.md"
           }
         }
       ]

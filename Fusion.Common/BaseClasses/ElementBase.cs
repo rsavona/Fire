@@ -2,6 +2,7 @@
 using Fusion.Common.Attributes;
 using Fusion.Common.Contracts;
 using Fusion.Common.Enums;
+using System.Diagnostics;
 using Serilog.Context;
 using Serilog.Core;
 using Serilog.Events;
@@ -10,12 +11,15 @@ using Stateless.Graph;
 using ILogger = Serilog.ILogger;
 
 namespace Fusion.Common.BaseClasses;
+
+[DebuggerDisplay("{DebuggerDisplay,nq}")]
 public abstract class ElementBase<TState, TEvent, TMetric> : IElement
     where TState : struct, Enum
     where TEvent : struct, Enum
     where TMetric : struct, Enum
 {
     // --- Core Dependencies ---
+    [DebuggerBrowsable(DebuggerBrowsableState.Never)]
     protected readonly StateMachine<TState, TEvent> Machine;
     protected readonly IMessageBus MessageBus;
     public IElementBlueprint Config { get; }
@@ -97,6 +101,23 @@ public abstract class ElementBase<TState, TEvent, TMetric> : IElement
     public event Action<IElement, IElementStatus>? StatusUpdated;
 
     public event Action<IElement>? ElementReady;
+
+    private string DebuggerDisplay
+    {
+        get
+        {
+            var name = Config?.Name ?? GetType().Name;
+
+            try
+            {
+                return $"{name} [{Machine.State}]";
+            }
+            catch
+            {
+                return name;
+            }
+        }
+    }
 
     // --- Abstract Methods ---
     private CancellationTokenSource? _sessionCts;

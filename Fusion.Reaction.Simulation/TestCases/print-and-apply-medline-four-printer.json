@@ -1,0 +1,93 @@
+{
+  "name": "print-and-apply-medline-four-printer",
+  "description": "Medline four-printer Print and Apply line test. Each box should receive one SHIPTOP label and one CONTENTSDROP label.",
+  "physicalModel": {
+    "lineLengthFeet": 12,
+    "boxLengthFeet": 2,
+    "conveyorSpeedFeetPerSecond": 2,
+    "timingBasis": "lead-edge",
+    "notes": [
+      "Printer order is SHIPTOP, CONTENTSDROP, SHIPTOP, CONTENTSDROP.",
+      "The first printer pair is PNA2_151 and I001.",
+      "The second printer pair is PNA2_152 and I002."
+    ]
+  },
+  "virtualPlcProperties": {
+    "DecisionPoints": "PNALINE-2:0;PNA2_151:3000|I001:3500|PNA2_152:4000|I002:4500;PNA2_Verify:3000",
+    "TotalTotes": 24,
+    "InductionFreq": 0,
+    "Printer1": "PNA2_151",
+    "Printer2": "PNA2_152"
+  },
+  "stages": [
+    {
+      "stage": 1,
+      "name": "all-four-printers-round-robin",
+      "barcodeCount": 8,
+      "inductionSpacingMs": 1000,
+      "expectedFlow": "All four printers are available. Odd boxes should use the first pair, PNA2_151 and I001. Even boxes should use the second pair, PNA2_152 and I002.",
+      "inductMetadata": {
+        "PNA2_151": "1",
+        "I001": "1",
+        "PNA2_152": "1",
+        "I002": "1"
+      },
+      "barcodes": [
+        { "gin": 1, "barcode": "PNA4-ALL-0001", "inductAtMs": 0, "expectedShiptopPrinter": "PNA2_151", "expectedContentsdropPrinter": "I001", "expectedVerificationBarcode": "PNA4-ALL-0001123", "expectedOutcome": "ship" },
+        { "gin": 2, "barcode": "PNA4-ALL-0002", "inductAtMs": 1000, "expectedShiptopPrinter": "PNA2_152", "expectedContentsdropPrinter": "I002", "expectedVerificationBarcode": "PNA4-ALL-0002123", "expectedOutcome": "ship" },
+        { "gin": 3, "barcode": "PNA4-ALL-0003", "inductAtMs": 2000, "expectedShiptopPrinter": "PNA2_151", "expectedContentsdropPrinter": "I001", "expectedVerificationBarcode": "PNA4-ALL-0003123", "expectedOutcome": "ship" },
+        { "gin": 4, "barcode": "PNA4-ALL-0004", "inductAtMs": 3000, "expectedShiptopPrinter": "PNA2_152", "expectedContentsdropPrinter": "I002", "expectedVerificationBarcode": "PNA4-ALL-0004123", "expectedOutcome": "ship" },
+        { "gin": 5, "barcode": "PNA4-ALL-0005", "inductAtMs": 4000, "expectedShiptopPrinter": "PNA2_151", "expectedContentsdropPrinter": "I001", "expectedVerificationBarcode": "PNA4-ALL-0005123", "expectedOutcome": "ship" },
+        { "gin": 6, "barcode": "PNA4-ALL-0006", "inductAtMs": 5000, "expectedShiptopPrinter": "PNA2_152", "expectedContentsdropPrinter": "I002", "expectedVerificationBarcode": "PNA4-ALL-0006123", "expectedOutcome": "ship" },
+        { "gin": 7, "barcode": "PNA4-ALL-0007", "inductAtMs": 6000, "expectedShiptopPrinter": "PNA2_151", "expectedContentsdropPrinter": "I001", "expectedVerificationBarcode": "PNA4-ALL-0007123", "expectedOutcome": "ship" },
+        { "gin": 8, "barcode": "PNA4-ALL-0008", "inductAtMs": 7000, "expectedShiptopPrinter": "PNA2_152", "expectedContentsdropPrinter": "I002", "expectedVerificationBarcode": "PNA4-ALL-0008123", "expectedOutcome": "ship" }
+      ]
+    },
+    {
+      "stage": 2,
+      "name": "shiptop-one-printer-down",
+      "barcodeCount": 8,
+      "inductionSpacingMs": 1000,
+      "expectedFlow": "PNA2_151 is unavailable. PNA2_152 should print every SHIPTOP label while CONTENTSDROP continues to round robin between I001 and I002.",
+      "inductMetadata": {
+        "PNA2_151": "0",
+        "I001": "1",
+        "PNA2_152": "1",
+        "I002": "1"
+      },
+      "barcodes": [
+        { "gin": 9, "barcode": "PNA4-SHIPDOWN-0001", "inductAtMs": 0, "expectedShiptopPrinter": "PNA2_152", "expectedContentsdropPrinter": "I001", "expectedVerificationBarcode": "PNA4-SHIPDOWN-0001123", "expectedOutcome": "ship" },
+        { "gin": 10, "barcode": "PNA4-SHIPDOWN-0002", "inductAtMs": 1000, "expectedShiptopPrinter": "PNA2_152", "expectedContentsdropPrinter": "I002", "expectedVerificationBarcode": "PNA4-SHIPDOWN-0002123", "expectedOutcome": "ship" },
+        { "gin": 11, "barcode": "PNA4-SHIPDOWN-0003", "inductAtMs": 2000, "expectedShiptopPrinter": "PNA2_152", "expectedContentsdropPrinter": "I001", "expectedVerificationBarcode": "PNA4-SHIPDOWN-0003123", "expectedOutcome": "ship" },
+        { "gin": 12, "barcode": "PNA4-SHIPDOWN-0004", "inductAtMs": 3000, "expectedShiptopPrinter": "PNA2_152", "expectedContentsdropPrinter": "I002", "expectedVerificationBarcode": "PNA4-SHIPDOWN-0004123", "expectedOutcome": "ship" },
+        { "gin": 13, "barcode": "PNA4-SHIPDOWN-0005", "inductAtMs": 4000, "expectedShiptopPrinter": "PNA2_152", "expectedContentsdropPrinter": "I001", "expectedVerificationBarcode": "PNA4-SHIPDOWN-0005123", "expectedOutcome": "ship" },
+        { "gin": 14, "barcode": "PNA4-SHIPDOWN-0006", "inductAtMs": 5000, "expectedShiptopPrinter": "PNA2_152", "expectedContentsdropPrinter": "I002", "expectedVerificationBarcode": "PNA4-SHIPDOWN-0006123", "expectedOutcome": "ship" },
+        { "gin": 15, "barcode": "PNA4-SHIPDOWN-0007", "inductAtMs": 6000, "expectedShiptopPrinter": "PNA2_152", "expectedContentsdropPrinter": "I001", "expectedVerificationBarcode": "PNA4-SHIPDOWN-0007123", "expectedOutcome": "ship" },
+        { "gin": 16, "barcode": "PNA4-SHIPDOWN-0008", "inductAtMs": 7000, "expectedShiptopPrinter": "PNA2_152", "expectedContentsdropPrinter": "I002", "expectedVerificationBarcode": "PNA4-SHIPDOWN-0008123", "expectedOutcome": "ship" }
+      ]
+    },
+    {
+      "stage": 3,
+      "name": "contentsdrop-one-printer-down",
+      "barcodeCount": 8,
+      "inductionSpacingMs": 1000,
+      "expectedFlow": "I001 is unavailable. I002 should print every CONTENTSDROP label while SHIPTOP continues to round robin between PNA2_151 and PNA2_152.",
+      "inductMetadata": {
+        "PNA2_151": "1",
+        "I001": "0",
+        "PNA2_152": "1",
+        "I002": "1"
+      },
+      "barcodes": [
+        { "gin": 17, "barcode": "PNA4-CONTDOWN-0001", "inductAtMs": 0, "expectedShiptopPrinter": "PNA2_151", "expectedContentsdropPrinter": "I002", "expectedVerificationBarcode": "PNA4-CONTDOWN-0001123", "expectedOutcome": "ship" },
+        { "gin": 18, "barcode": "PNA4-CONTDOWN-0002", "inductAtMs": 1000, "expectedShiptopPrinter": "PNA2_152", "expectedContentsdropPrinter": "I002", "expectedVerificationBarcode": "PNA4-CONTDOWN-0002123", "expectedOutcome": "ship" },
+        { "gin": 19, "barcode": "PNA4-CONTDOWN-0003", "inductAtMs": 2000, "expectedShiptopPrinter": "PNA2_151", "expectedContentsdropPrinter": "I002", "expectedVerificationBarcode": "PNA4-CONTDOWN-0003123", "expectedOutcome": "ship" },
+        { "gin": 20, "barcode": "PNA4-CONTDOWN-0004", "inductAtMs": 3000, "expectedShiptopPrinter": "PNA2_152", "expectedContentsdropPrinter": "I002", "expectedVerificationBarcode": "PNA4-CONTDOWN-0004123", "expectedOutcome": "ship" },
+        { "gin": 21, "barcode": "PNA4-CONTDOWN-0005", "inductAtMs": 4000, "expectedShiptopPrinter": "PNA2_151", "expectedContentsdropPrinter": "I002", "expectedVerificationBarcode": "PNA4-CONTDOWN-0005123", "expectedOutcome": "ship" },
+        { "gin": 22, "barcode": "PNA4-CONTDOWN-0006", "inductAtMs": 5000, "expectedShiptopPrinter": "PNA2_152", "expectedContentsdropPrinter": "I002", "expectedVerificationBarcode": "PNA4-CONTDOWN-0006123", "expectedOutcome": "ship" },
+        { "gin": 23, "barcode": "PNA4-CONTDOWN-0007", "inductAtMs": 6000, "expectedShiptopPrinter": "PNA2_151", "expectedContentsdropPrinter": "I002", "expectedVerificationBarcode": "PNA4-CONTDOWN-0007123", "expectedOutcome": "ship" },
+        { "gin": 24, "barcode": "PNA4-CONTDOWN-0008", "inductAtMs": 7000, "expectedShiptopPrinter": "PNA2_152", "expectedContentsdropPrinter": "I002", "expectedVerificationBarcode": "PNA4-CONTDOWN-0008123", "expectedOutcome": "ship" }
+      ]
+    }
+  ]
+}

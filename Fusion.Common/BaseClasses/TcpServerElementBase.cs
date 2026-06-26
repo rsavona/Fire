@@ -95,7 +95,7 @@ public abstract class TcpServerElementBase<TProcessor>
             ? Convert.ToInt32(bufSize)
             : 65535; // Increased default from 1000 to 64KB to handle larger industrial messages (like ZPL labels)
 
-        Server = new TcpServer(Port, Processor, logger,  terminalStr, 2000, maxBufferSize);
+        Server = new TcpServer(Port, Processor, logger,  terminalStr, HeartbeatTimeoutMs, maxBufferSize);
 
         Server.ListenerStateChanged += OnServerListenerStateChanged;
         Server.ClientConnectionChanged += OnInternalConnectionChanged;

@@ -87,33 +87,20 @@ public class DelimiterSetStrategy : ITerminationStrategy
 
     public SequencePosition? FindTerminator(ReadOnlySequence<byte> buffer)
     {
-        foreach (var segment in buffer)
-        {
-            var span = segment.Span;
-            for (int i = 0; i < span.Length; i++)
-            {
-                if (_delimiters.Contains(span[i]))
-                {
-                    // Return position AFTER the delimiter
-                    var segmentPos = buffer.GetPosition(i + 1, buffer.Start); // This logic is slightly flawed for multi-segment, need to be careful
-                    // Better way:
-                }
-            }
-        }
-        
-        // Re-implementing correctly for ReadOnlySequence
-        var position = buffer.Start;
-        while (buffer.TryGet(ref position, out var memory))
+        var current = buffer.Start;
+        var next = current;
+        while (buffer.TryGet(ref next, out var memory))
         {
             var span = memory.Span;
             for (int i = 0; i < span.Length; i++)
             {
                 if (_delimiters.Contains(span[i]))
                 {
-                    var absolutePos = buffer.GetPosition(i, position); // Position AT the delimiter
+                    var absolutePos = buffer.GetPosition(i, current); // Position AT the delimiter
                     return buffer.GetPosition(1, absolutePos); // Position AFTER the delimiter
                 }
             }
+            current = next;
         }
         return null;
     }

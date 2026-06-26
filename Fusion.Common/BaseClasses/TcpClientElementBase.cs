@@ -1,8 +1,10 @@
 ﻿using System.Net.Sockets;
 using System.Text;
+using System.Buffers;
 using Fusion.Common.Configurations;
 using Fusion.Common.Enums;
 using Fusion.Common.Contracts; // Ensure Enums are available for Machine.State
+using Fusion.Common.TCP_Classes;
 using Serilog;
 using Serilog.Core;
 using Stateless;
@@ -14,13 +16,19 @@ public abstract class TcpClientElementBase : ClientElementBase
     private TcpClient? _tcpClient;
     private readonly string? _host;
     private readonly int _port;
+    private readonly int _maxReceiveBufferSize;
+    private readonly ITerminationStrategy? _configuredReceiveTerminationStrategy;
     private NetworkStream? TransportStream { get; set; }
+
+    protected virtual ITerminationStrategy? ReceiveTerminationStrategy => _configuredReceiveTerminationStrategy;
 
     public TcpClientElementBase(IMessageBus bus, IElementBlueprint config, IFireLogger logger, LoggingLevelSwitch ls, bool needsHb = false)
         : base(bus, config, logger, ls, needsHb)
     {
         _host = ConfigurationLoader.GetRequiredConfig<string>(config.Properties, "IPAddress");
         _port = ConfigurationLoader.GetRequiredConfig<int>(config.Properties, "Port");
+        _maxReceiveBufferSize = ConfigurationLoader.GetOptionalConfig(config.Properties, "MaxBufferSize", 65535);
+        _configuredReceiveTerminationStrategy = CreateConfiguredReceiveTerminationStrategy(config);
     }
 
     protected override async void OnElementFaultedAsync(CancellationToken token = default)
@@ -64,6 +72,16 @@ public abstract class TcpClientElementBase : ClientElementBase
     {
         _ = Task.Run(() => ReadLoopAsync(CancellationToken.None));
         return base.ElementConnectedAsync();
+    }
+
+    protected override async Task OnElementStoppingAsync()
+    {
+        await CloseConnectionAsync();
+
+        if (Machine.CanFire(Event.Stop))
+        {
+            await Machine.FireAsync(Event.Stop);
+        }
     }
 
     protected override void OnStateChange(StateMachine<State, Event>.Transition transition)
@@ -190,6 +208,7 @@ public abstract class TcpClientElementBase : ClientElementBase
     private async Task ReadLoopAsync(CancellationToken ct)
     {
         var buffer = new byte[8192];
+        var receiveBuffer = new List<byte>();
         Logger.Debug("[{Dev}] Starting Read Loop.", Config.Name);
 
         try
@@ -206,16 +225,27 @@ public abstract class TcpClientElementBase : ClientElementBase
                 }
 
                 Logger.Verbose("[{Dev}] RX RAW >> {Bytes} bytes", Config.Name, bytesRead);
-                string incomingData = Encoding.ASCII.GetString(buffer, 0, bytesRead);
-                // Immediate Check: If it's a heartbeat, return true/exit immediately
-                if (IsHeartbeat(incomingData))
+
+                var strategy = ReceiveTerminationStrategy;
+                if (strategy == null)
                 {
-                    _ = NotifyHeartbeatReceived("", "");
+                    string incomingData = Encoding.ASCII.GetString(buffer, 0, bytesRead);
+                    await ProcessReceivedMessageAsync(incomingData, ct);
                     continue;
                 }
 
-                await Machine.FireAsync(Event.MessageReceived);
-                await HandleReceivedDataAsync(incomingData);
+                for (int i = 0; i < bytesRead; i++)
+                {
+                    receiveBuffer.Add(buffer[i]);
+                }
+
+                if (receiveBuffer.Count > _maxReceiveBufferSize)
+                {
+                    throw new InvalidDataException(
+                        $"Receive buffer exceeded {_maxReceiveBufferSize} bytes without a complete message.");
+                }
+
+                await ProcessBufferedMessagesAsync(receiveBuffer, strategy, ct);
             }
         }
         catch (IOException ioEx) when (ioEx.InnerException is SocketException se &&
@@ -243,6 +273,58 @@ public abstract class TcpClientElementBase : ClientElementBase
         }
     }
 
+    private static ITerminationStrategy? CreateConfiguredReceiveTerminationStrategy(IElementBlueprint config)
+    {
+        if (!config.Properties.TryGetValue("TerminationChar", out var terminatorObj))
+        {
+            return null;
+        }
+
+        var terminator = TcpTextEncoding.DecodeEscapedSequence(terminatorObj?.ToString());
+        if (string.IsNullOrEmpty(terminator))
+        {
+            return null;
+        }
+
+        return new SequenceTerminationStrategy(Encoding.ASCII.GetBytes(terminator));
+    }
+
+    private async Task ProcessBufferedMessagesAsync(
+        List<byte> receiveBuffer,
+        ITerminationStrategy strategy,
+        CancellationToken ct)
+    {
+        while (receiveBuffer.Count > 0 && !ct.IsCancellationRequested)
+        {
+            var sequence = new ReadOnlySequence<byte>(receiveBuffer.ToArray());
+            var terminator = strategy.FindTerminator(sequence);
+            if (terminator == null)
+            {
+                return;
+            }
+
+            var messageSequence = sequence.Slice(0, terminator.Value);
+            string message = Encoding.ASCII.GetString(messageSequence.ToArray());
+            int consumed = checked((int)messageSequence.Length);
+            receiveBuffer.RemoveRange(0, consumed);
+
+            await ProcessReceivedMessageAsync(message, ct);
+        }
+    }
+
+    private async Task ProcessReceivedMessageAsync(string incomingData, CancellationToken ct)
+    {
+        // Immediate Check: If it's a heartbeat, return true/exit immediately
+        if (IsHeartbeat(incomingData))
+        {
+            _ = NotifyHeartbeatReceived("", "");
+            return;
+        }
+
+        await Machine.FireAsync(Event.MessageReceived);
+        await HandleReceivedDataAsync(incomingData);
+    }
+
     /// <summary>
     /// Send a message over the TCP connection.
     /// </summary>
@@ -263,8 +345,8 @@ public abstract class TcpClientElementBase : ClientElementBase
             using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(token);
             timeoutCts.CancelAfter(TimeSpan.FromSeconds(2));
             byte[] buffer = Encoding.ASCII.GetBytes(message);
-            await TransportStream.WriteAsync(buffer, 0, buffer.Length);
-            await TransportStream.FlushAsync();
+            await TransportStream.WriteAsync(buffer.AsMemory(0, buffer.Length), timeoutCts.Token);
+            await TransportStream.FlushAsync(timeoutCts.Token);
 
             Logger.Verbose("[{Dev}] TX RAW << {Data}", Config.Name, message.Trim());
             if (fireEvent)

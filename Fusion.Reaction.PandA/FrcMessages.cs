@@ -71,7 +71,7 @@ public class LabelVerificationMessage
     {
 
         public LabelVerificationMessage( Guid sessionId, string controllerId, string lineId, 
-            List<string> barcodes, Characteristics characteristics, List<VerificationData> verifications)
+            List<string> barcodes, Characteristics? characteristics, List<VerificationData> verifications)
         {
             SessionId = sessionId;
             ControllerId = controllerId;

@@ -1,7 +1,7 @@
-﻿{
+{
   "AppSettings": {
     "Fusion": {
-      "Name": "Simulation",
+      "Name": "MedlinePNA4Simulation",
       "ColorConsole": true,
       "ElementList": [
         {
@@ -22,9 +22,9 @@
             "Port": 6999,
             "HeartbeatTimeoutMs": 0,
             "HeartbeatIntervalMs": 0,
-            "DecisionPoints": "PNALINE-2:0;PNA2_151:3000|PNA2_152:3000;PNA2_Verify:3000",
-            "ScriptedScenarioFile": "print-and-apply-real-world.json",
-            "TotalTotes": 225,
+            "DecisionPoints": "PNALINE-2:0;PNA2_151:3000|I001:3500|PNA2_152:4000|I002:4500;PNA2_Verify:3000",
+            "ScriptedScenarioFile": "print-and-apply-medline-four-printer.json",
+            "TotalTotes": 24,
             "InductionFreq": 0,
             "Printer1": "PNA2_151",
             "Printer2": "PNA2_152"
@@ -39,25 +39,25 @@
           }
         },
         {
-          "Name": "PNA2_152",
+          "Name": "I001",
           "Manager": "VirtualPrinterManager",
           "Enable": true,
-          "Properties": {
-            "Port": "9101"
-          }
-        },
-        {
-          "Name": "PNA2_153",
-          "Manager": "VirtualPrinterManager",
-          "Enable": false,
           "Properties": {
             "Port": 9102
           }
         },
         {
-          "Name": "PNA2_154",
+          "Name": "PNA2_152",
           "Manager": "VirtualPrinterManager",
-          "Enable": false,
+          "Enable": true,
+          "Properties": {
+            "Port": 9101
+          }
+        },
+        {
+          "Name": "I002",
+          "Manager": "VirtualPrinterManager",
+          "Enable": true,
           "Properties": {
             "Port": 9103
           }
@@ -85,8 +85,8 @@
           "Type": "ReactionSimulation",
           "Enable": true,
           "IsSimulation": true,
-          "TotalTotes": 100,
-          "InductionIntervalMs": 200,
+          "TotalTotes": 24,
+          "InductionIntervalMs": 0,
           "Bonds": [
             {
               "Mode": 1,
@@ -108,7 +108,3 @@
     }
   }
 }
-      
-
-
-

@@ -12,46 +12,46 @@
           "Bonds": [
             {
               "Mode": 1,
-              "Source": "TPNA2.DReqM.PNALINE-2",
+              "Source": "TPAN2.DReqM.PNALINE-2",
               "Handler": "HandlePrintersToUseAsync",
-              "Destination": "TPNA2.DRespM.PNALINE-2"
+              "Destination": "TPAN2.DRespM.PNALINE-2"
               
             },
             {
               "Mode": 1,
-              "Source": "TPNA2.DReqM.PNALINE-2",
+              "Source": "TPAN2.DReqM.PNALINE-2",
               "Handler": "HandleLabelRequestToMqAsync",
-              "Destination": "TRGTBROKER.LabelRequestFrcMessage.LabelLookupQueue"
+              "Destination": "TBROKER.LabelRequestFrcMessage.AC.PNA.LABELREQUEST"
             },
             {
               "Mode": 1,
-              "Source": "TPNA2.DReq M.Verification",
-              "Handler": "HandleLabelRequestToMqAsync",
-              "Destination": "TRGTBROKER.LabelVerifyFrcMessage.VerifyQueue"
+              "Source": "TPAN2.DReqM.PNA2_Verify",
+              "Handler": "HandleLabelVerificationToMqAsync",
+              "Destination": "TBROKER.LabelVerifyFrcMessage.AC.PNA.LABELVERIFY"
             },{
               "Mode": 1,
-              "Source": "TRGTBROKER.LabelDataFrcMessage.LabelDataQueue",
+              "Source": "TBROKER.LabelDataFrcMessage.AC.PNA.LABELDATA",
               "Handler": "HandleLabelToStorageAsync",
               "Destination": "PrintAndApplyFrc.LabelToPrint.Storage"
               
             },{
               "Mode": 1,
-              "Source": "TPNA2.DReqM.PNA2 152",
-              "Destination": "P001.LabelToPrint.",
+              "Source": "TPAN2.DReqM.PNA2_151",
+              "Destination": "PNA2_151.LabelToPrint.None",
               "Handler": "HandleBarcodeToPrinterAsync"
             },{
               "Mode": 1,
-              "Source": "TPNA2.DReqM.PNA2 153",
-              "Destination": "P002.LabelToPrint.",
+              "Source": "TPAN2.DReqM.PNA2_152",
+              "Destination": "PNA2_152.LabelToPrint.None",
               "Handler": "HandleBarcodeToPrinterAsync"
             },{
               "Mode": 0,
-              "Source": "TPNA2.DReqM.I001",
+              "Source": "TPAN2.DReqM.I001",
               "Handler": "HandleContentToPrinterAsync",
               "Destination": "I001.LabelToPrint."
             },{
               "Mode": 0,
-              "Source": "TPNA2.DReqM.I002",
+              "Source": "TPAN2.DReqM.I002",
               "Handler": "HandleContentToPrinterAsync",
                "Destination": "I002.LabelToPrint."
             }
@@ -60,30 +60,30 @@
       ],
       "ElementList": [
         {
-          "Name": "TPNA2",
+          "Name": "TPAN2",
           "Manager": "PlcElementManager",
           "Enable": true,
           "ModuleID": "",
           "Properties": {
             "ElementPort": "6999",
-            "ElementTimeout": "15000"
+            "ElementTimeout": "100000"
           }
         },
         {
-          "Name": "TRGTBROKER",
+          "Name": "TBROKER",
           "Manager": "ActiveMQManager",
           "Enable": true,
           "Properties": {
-            "ConnectionString": "tcp://127.0.0.1:61616?useKeepAlive=true",
-            "DoubleQueue": true
+            "ConnectionString": "tcp://127.0.0.1:61616?KeepAlive=true",
+            "DoubleQueue": false
             }
         },
         {
-          "Name": "PNA2 151",
+          "Name": "PNA2_151",
           "Manager": "PrintClientManager",
           "Enable": true,
           "Properties": {
-            "IPAddress": "10.33.218.16",
+            "IPAddress": "127.0.0.1",
             "Port": 9100,
             "PersistentConnection": true,
             "Brand": "Zebra",
@@ -99,12 +99,12 @@
           }
         },
         {
-          "Name": "PNA2 152",
+          "Name": "PNA2_152",
           "Manager": "PrintClientManager",
           "Enable": true,
           "Properties": {
-            "IPAddress": "10.33.218.17",
-            "Port": 9001,
+            "IPAddress": "127.0.0.1",
+            "Port": 9101,
             "Brand": "Zebra",
             "DestinationType": "Ship",
             "PrintType": "SHIPTOP",

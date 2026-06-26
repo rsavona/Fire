@@ -4,6 +4,7 @@ using Stateless;
 
 namespace Fusion.Common;
 
+[System.Diagnostics.DebuggerDisplay("GIN={Gin}, State={ReactionState,nq}, Barcodes={BarcodeCount}")]
 public class Container : IConveyable
 {
     public int Gin { get; init; }
@@ -19,7 +20,25 @@ public class Container : IConveyable
     public int  Destination { get; set; }
     public string Location { get; set; }
     // State Machine for the individual carton
+    [System.Diagnostics.DebuggerBrowsable(System.Diagnostics.DebuggerBrowsableState.Never)]
     public StateMachine<ConveyableState, ConveyableTrigger> Reaction { get; private set; }
+
+    private string ReactionState
+    {
+        get
+        {
+            try
+            {
+                return Reaction.State.ToString();
+            }
+            catch
+            {
+                return "Unknown";
+            }
+        }
+    }
+
+    private int BarcodeCount => Barcodes?.Count ?? 0;
 
   
     // Fixed constructor based on your requirements

@@ -20,16 +20,12 @@ public class ReactionSimulation : ReactionBase
     /// </summary>
     private async Task<object?>? HandleLabelRequest(MessageEnvelope messageEnvelope, CancellationToken ct)
     {
-            var t = messageEnvelope.Payload?.GetType().Name;
-            Logger.Debug("[{Reaction}] Received message from Message Bus {msg}", ReactionKey.ElementName,
+            Logger.Debug("[{Reaction}] Received {PayloadType} from Message Bus {Payload}",
+                ReactionKey.ElementName,
+                messageEnvelope.Payload?.GetType().FullName ?? "null",
                 messageEnvelope.Payload);
             
-            LabelRequestFrcMessage? labelRequest = messageEnvelope.Payload as LabelRequestFrcMessage;
-
-            if (labelRequest == null && messageEnvelope.Payload is string mstr)
-            {
-                labelRequest = LabelRequestFrcMessage.FromJson(mstr);
-            }
+            LabelRequestFrcMessage? labelRequest = ResolveLabelRequest(messageEnvelope.Payload);
 
             if (labelRequest == null)
             {
@@ -51,6 +47,35 @@ public class ReactionSimulation : ReactionBase
 
             return await Task.FromResult<object?>(ld); // MessageEnvelope(new MessageBusTopic(bond.Destination), response);
     }
+
+    private static LabelRequestFrcMessage? ResolveLabelRequest(object? payload)
+    {
+        return payload switch
+        {
+            null => null,
+            LabelRequestFrcMessage request => request,
+            string json => TryDeserializeLabelRequest(json),
+            _ => TryDeserializeLabelRequest(payload.ToJson())
+        };
+    }
+
+    private static LabelRequestFrcMessage? TryDeserializeLabelRequest(string json)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            return null;
+        }
+
+        try
+        {
+            return LabelRequestFrcMessage.FromJson(json);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     private async Task<object?>? HandleLabelVerify(MessageEnvelope messageEnvelope, CancellationToken ct)
     {
             var t = messageEnvelope.Payload?.GetType().Name;

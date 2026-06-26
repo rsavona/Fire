@@ -9,6 +9,9 @@ internal sealed class ScriptedPlcScenario
     [JsonPropertyName("name")]
     public string Name { get; set; } = "scripted-plc-scenario";
 
+    [JsonPropertyName("description")]
+    public string? Description { get; set; }
+
     [JsonPropertyName("virtualPlcProperties")]
     public ScriptedVirtualPlcProperties? VirtualPlcProperties { get; set; }
 
@@ -35,6 +38,15 @@ internal sealed class ScriptedVirtualPlcProperties
 
     [JsonPropertyName("Printer2")]
     public string? Printer2 { get; set; }
+
+    [JsonPropertyName("TotalTotes")]
+    public int? TotalTotes { get; set; }
+
+    [JsonPropertyName("InductionFreq")]
+    public int? InductionFreq { get; set; }
+
+    [JsonPropertyName("BarcodeList")]
+    public List<string> BarcodeList { get; set; } = [];
 }
 
 internal sealed class ScriptedPlcStage
@@ -45,8 +57,14 @@ internal sealed class ScriptedPlcStage
     [JsonPropertyName("name")]
     public string Name { get; set; } = string.Empty;
 
+    [JsonPropertyName("barcodeCount")]
+    public int? BarcodeCount { get; set; }
+
     [JsonPropertyName("inductionSpacingMs")]
     public int InductionSpacingMs { get; set; }
+
+    [JsonPropertyName("expectedFlow")]
+    public string? ExpectedFlow { get; set; }
 
     [JsonPropertyName("cycleLength")]
     public int? CycleLength { get; set; }
