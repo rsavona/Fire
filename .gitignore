@@ -9,7 +9,8 @@ GeneratedFiles/
 # Ignore published output folders
 [Pp]ublish/
 
-[Oo]Output/
+[Oo]utput/
+pub/
 
 # ==============================================
 # --- Visual Studio / Rider Metadata ---
