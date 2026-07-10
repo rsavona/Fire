@@ -6,6 +6,7 @@ using Fusion.Common.Configurations;
 using Fusion.Common.Contracts;
 using Fusion.Common.logging;
 using Fusion.Common.Logging;
+using Fusion.Core.Replay;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -353,6 +354,17 @@ public static class CoreServicesExtensions
 
         builder.Logging.ClearProviders();
         builder.Services.AddSerilog();
-        builder.Services.AddSingleton<BusAuditLogger>();
+        builder.Services.AddSingleton(provider =>
+            new BusAuditLogger(provider.GetRequiredService<Microsoft.Extensions.Logging.ILogger<BusAuditLogger>>())
+            {
+                // Opt-in structured payload capture for lossless replay (see BusAuditLogger.CapturePayloads).
+                CapturePayloads = builder.Configuration.GetValue<bool?>("Fusion:AuditCapturePayloads")
+                                  ?? builder.Configuration.GetValue<bool?>("AppSettings:Fusion:AuditCapturePayloads")
+                                  ?? false
+            });
+
+        // Bus replay engine: re-publishes recorded audit traffic on REPLAY.* topics only.
+        builder.Services.AddSingleton(provider =>
+            new ReplayService(provider.GetRequiredService<IMessageBus>(), logger: Log.Logger));
     }
 }
