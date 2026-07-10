@@ -27,12 +27,24 @@ public class LinkClientElement : TcpClientElementBase, IMessageProvider
     /// <summary>Local topic patterns this instance pushes to the server.</summary>
     public IReadOnlyList<string> PublishTopics { get; }
 
+    /// <summary>Remote topic patterns this instance consumes as a queue-group member.</summary>
+    public IReadOnlyList<string> QueueTopics { get; }
+
+    /// <summary>Competing-consumer group this instance joins for QueueTopics.</summary>
+    public string QueueGroup { get; }
+
     public LinkClientElement(IMessageBus bus, IElementBlueprint config, IFireLogger logger, LoggingLevelSwitch swtch)
         : base(bus, config, logger, swtch, needsHb: true)
     {
         _origin = LinkConventions.ResolveOrigin(config);
         RemoteTopics = LinkConventions.ParseTopicList(config, "RemoteTopics");
         PublishTopics = LinkConventions.ParseTopicList(config, "PublishTopics");
+        QueueTopics = LinkConventions.ParseTopicList(config, "QueueTopics");
+
+        QueueGroup = config.Properties.TryGetValue("QueueGroup", out var group) &&
+                     !string.IsNullOrWhiteSpace(group?.ToString())
+            ? group.ToString()!
+            : _origin;
     }
 
     protected override ITerminationStrategy ReceiveTerminationStrategy => _frameTermination;
@@ -41,18 +53,34 @@ public class LinkClientElement : TcpClientElementBase, IMessageProvider
     {
         await base.ElementConnectedAsync();
 
-        if (RemoteTopics.Count == 0) return;
-
-        var subscribe = new LinkFrame
+        if (RemoteTopics.Count > 0)
         {
-            Kind = LinkFrameKind.Subscribe,
-            Origin = _origin,
-            Topics = RemoteTopics.ToList()
-        };
+            var subscribe = new LinkFrame
+            {
+                Kind = LinkFrameKind.Subscribe,
+                Origin = _origin,
+                Topics = RemoteTopics.ToList()
+            };
 
-        await SendAsync(subscribe.ToWire(), CancellationToken.None);
-        Logger.Information("[{Dev}] Link established. Subscribed to {Count} remote topic(s): {Topics}",
-            Config.Name, RemoteTopics.Count, string.Join(", ", RemoteTopics));
+            await SendAsync(subscribe.ToWire(), CancellationToken.None);
+            Logger.Information("[{Dev}] Link established. Subscribed to {Count} remote topic(s): {Topics}",
+                Config.Name, RemoteTopics.Count, string.Join(", ", RemoteTopics));
+        }
+
+        if (QueueTopics.Count > 0)
+        {
+            var subscribeQueue = new LinkFrame
+            {
+                Kind = LinkFrameKind.SubscribeQueue,
+                Origin = _origin,
+                Topics = QueueTopics.ToList(),
+                QueueGroup = QueueGroup
+            };
+
+            await SendAsync(subscribeQueue.ToWire(), CancellationToken.None);
+            Logger.Information("[{Dev}] Joined queue group {Group} for {Count} topic(s): {Topics}",
+                Config.Name, QueueGroup, QueueTopics.Count, string.Join(", ", QueueTopics));
+        }
     }
 
     protected override async Task HandleReceivedDataAsync(string incomingData)
@@ -75,6 +103,10 @@ public class LinkClientElement : TcpClientElementBase, IMessageProvider
                 }
                 break;
 
+            case LinkFrameKind.QueuePublish when !string.IsNullOrEmpty(frame.Topic):
+                await HandleQueuePublishAsync(frame);
+                break;
+
             case LinkFrameKind.HeartbeatAck:
                 // Normally consumed by IsHeartbeat before reaching here.
                 break;
@@ -83,6 +115,39 @@ public class LinkClientElement : TcpClientElementBase, IMessageProvider
                 Logger.Debug("[{Dev}] Ignored link frame of kind {Kind}", Config.Name, frame.Kind);
                 break;
         }
+    }
+
+    /// <summary>
+    /// Republishes a queue delivery locally, then acks it. The Ack is sent only
+    /// AFTER the local publish succeeds — if it throws, the server redelivers
+    /// (at-least-once; consumers needing exactly-once must dedupe on DeliveryId).
+    /// </summary>
+    private async Task HandleQueuePublishAsync(LinkFrame frame)
+    {
+        var envelope = LinkConventions.ToLocalEnvelope(frame);
+        Logger.Verbose("[{Dev}] Queue delivery {DeliveryId} from {Origin}: {Topic}",
+            Config.Name, frame.DeliveryId, frame.Origin, frame.Topic);
+
+        try
+        {
+            if (MessageReceived != null)
+            {
+                await MessageReceived.Invoke(this, envelope);
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.Error(ex, "[{Dev}] Local publish of queue delivery {DeliveryId} failed; withholding ack",
+                Config.Name, frame.DeliveryId);
+            return;
+        }
+
+        await SendAsync(new LinkFrame
+        {
+            Kind = LinkFrameKind.Ack,
+            Origin = _origin,
+            DeliveryId = frame.DeliveryId
+        }.ToWire(), CancellationToken.None);
     }
 
     /// <summary>
