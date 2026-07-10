@@ -27,10 +27,12 @@ public class ScannerServerManager : ElementManagerBase<ScannerServerElement>
     protected override async Task HandleBusMessageAsync(MessageEnvelope envelope, CancellationToken ct)
     {
         // Typically, we don't send data BACK to a scanner, but we might send a trigger command.
-        if (ElementInstances.TryGetValue(envelope.Destination.ElementName, out var element))
+        if (!ElementInstances.TryGetValue(envelope.Destination.ElementName, out var element))
         {
-            string payload = envelope.Payload?.ToString() ?? string.Empty;
-            await element.SendAsync(payload, ct);
+            Logger.Warning("[{Dev}] Received bus message but element instance not found.", envelope.Destination.ElementName);
+            return;
         }
+
+        await element.SendAsync(envelope.GetPayloadText(), ct);
     }
 }

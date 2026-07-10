@@ -27,21 +27,24 @@ public class FileMessageElementManager : ElementManagerBase<FileMessageElement>
     protected override async Task HandleBusMessageAsync(MessageEnvelope envelope, CancellationToken ct)
     {
         var topic = envelope.Destination;
-        if (ElementInstances.TryGetValue(topic.ElementName, out var element))
+        if (!ElementInstances.TryGetValue(topic.ElementName, out var element))
         {
-            try
+            Logger.Warning("[{Dev}] Received bus message but element instance not found.", topic.ElementName);
+            return;
+        }
+
+        try
+        {
+            ct.ThrowIfCancellationRequested();
+            string payload = envelope.GetPayloadText();
+            if (!string.IsNullOrEmpty(payload))
             {
-                ct.ThrowIfCancellationRequested();
-                string payload = envelope.Payload?.ToString() ?? string.Empty;
-                if (!string.IsNullOrEmpty(payload))
-                {
-                    await element.WriteFileAsync(payload);
-                }
+                await element.WriteFileAsync(payload);
             }
-            catch (Exception ex)
-            {
-                element.GetLogger().Error(ex, "[{Dev}] Error writing message to outbound file", element.Config.Name);
-            }
+        }
+        catch (Exception ex)
+        {
+            element.GetLogger().Error(ex, "[{Dev}] Error writing message to outbound file", element.Config.Name);
         }
     }
 }

@@ -20,17 +20,19 @@ public class NotificationElementManager : ElementManagerBase<INotificationElemen
     protected override async Task HandleBusMessageAsync(MessageEnvelope envelope, CancellationToken ct)
     {
         var elementName = envelope.Destination.ElementName;
-        if (ElementInstances.TryGetValue(elementName, out var element))
+        if (!ElementInstances.TryGetValue(elementName, out var element))
         {
-            try
-            {
-                var payload = envelope.Payload?.ToString() ?? string.Empty;
-                await element.SendAsync(payload, ct);
-            }
-            catch (Exception ex)
-            {
-                Logger.LogError(ex, "[{Dev}] Failed to process notification message", elementName);
-            }
+            Logger.LogWarning("[{Dev}] Received bus message but element instance not found.", elementName);
+            return;
+        }
+
+        try
+        {
+            await element.SendAsync(envelope.GetPayloadText(), ct);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "[{Dev}] Failed to process notification message", elementName);
         }
     }
 }

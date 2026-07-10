@@ -22,17 +22,26 @@ public class AbCipPlcManager : ElementManagerBase<AbCipPlcElement>
     protected override async Task HandleBusMessageAsync(MessageEnvelope envelope, CancellationToken ct)
     {
         var topic = envelope.Destination;
-        if (!ElementInstances.TryGetValue(topic.ElementName, out var element)) return;
+        if (!ElementInstances.TryGetValue(topic.ElementName, out var element))
+        {
+            Logger.Warning("[{Dev}] Received bus message but element instance not found.", topic.ElementName);
+            return;
+        }
 
         try
         {
             ct.ThrowIfCancellationRequested();
 
-            // Extract relevant data for logging
-            var node = JsonNode.Parse(envelope.Payload?.ToString() ?? "{}");
-            if (node == null || node is not JsonObject obj) return;
+            string payload = envelope.GetPayloadText();
 
-            string payload = envelope.Payload?.ToString() ?? "";
+            // CIP writes are JSON commands; reject anything else visibly instead of dropping it.
+            if (JsonNode.Parse(payload) is not JsonObject)
+            {
+                Logger.Warning("[{Dev}] Discarded CIP command that is not a JSON object. Topic: {Topic}",
+                    element.Config.Name, envelope.Destination);
+                return;
+            }
+
             await element.SendAsync(payload, ct);
             
             // Log the event using the structured logging helper

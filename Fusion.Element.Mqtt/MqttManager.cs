@@ -18,12 +18,16 @@ public class MqttManager : ElementManagerBase<MqttElement>
     protected override async Task HandleBusMessageAsync(MessageEnvelope envelope, CancellationToken ct)
     {
         var topic = envelope.Destination;
-        if (!ElementInstances.TryGetValue(topic.ElementName, out var element)) return;
+        if (!ElementInstances.TryGetValue(topic.ElementName, out var element))
+        {
+            Logger.Warning("[{Dev}] Received bus message but element instance not found.", topic.ElementName);
+            return;
+        }
 
         try
         {
             ct.ThrowIfCancellationRequested();
-            string payload = envelope.Payload?.ToString() ?? "";
+            string payload = envelope.GetPayloadText();
             await element.SendAsync(payload, ct);
             Logger.Information("[{Dev}] Message published to MQTT: {Payload}", element.Config.Name, payload);
         }

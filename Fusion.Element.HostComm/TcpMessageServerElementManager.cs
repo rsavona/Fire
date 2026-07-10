@@ -37,31 +37,33 @@ public class TcpMessageServerElementManager : ElementManagerBase<TcpMessageServe
     protected override async Task HandleBusMessageAsync(MessageEnvelope envelope, CancellationToken ct)
     {
         var topic = envelope.Destination;
-        
-        if (ElementInstances.TryGetValue(topic.ElementName, out var element))
+
+        if (!ElementInstances.TryGetValue(topic.ElementName, out var element))
         {
-            element.GetLogger().LogDebug("[{Dev}] Received bus message for topic: {Topic}", element.Config.Name,envelope.Payload?.ToString() ?? string.Empty );
-            try
+            Logger.Warning("[{Dev}] Received bus message but element instance not found.", topic.ElementName);
+            return;
+        }
+
+        string payload = envelope.GetPayloadText();
+        element.GetLogger().LogDebug("[{Dev}] Received bus message for topic: {Topic}", element.Config.Name, payload);
+        try
+        {
+            ct.ThrowIfCancellationRequested();
+
+            if (!string.IsNullOrEmpty(envelope.Client))
             {
-                ct.ThrowIfCancellationRequested();
-                
-                string payload = envelope.Payload?.ToString() ?? string.Empty;
-                
-                if (!string.IsNullOrEmpty(envelope.Client))
-                {
-                    await element.SendAsync(envelope.Client, payload, ct);
-                }
-                else
-                {
-                    if ( await element.SendAsync(payload, ct))
-                        element.Tracker.IncrementOutbound();
-                }
-                element.GetLogger().LogDebug("[{Dev}] Sent bus message to client: {Client}", element.Config.Name, envelope.Client);
+                await element.SendAsync(envelope.Client, payload, ct);
             }
-            catch (Exception ex)
+            else
             {
-                element.GetLogger().Error(ex, "[{Dev}] Error sending message to client", element.Config.Name);
+                if ( await element.SendAsync(payload, ct))
+                    element.Tracker.IncrementOutbound();
             }
+            element.GetLogger().LogDebug("[{Dev}] Sent bus message to client: {Client}", element.Config.Name, envelope.Client);
+        }
+        catch (Exception ex)
+        {
+            element.GetLogger().Error(ex, "[{Dev}] Error sending message to client", element.Config.Name);
         }
     }
 }

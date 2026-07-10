@@ -23,11 +23,15 @@ public class ScannerClientManager : ElementManagerBase<ScannerClientElement>
 
     protected override async Task HandleBusMessageAsync(MessageEnvelope envelope, CancellationToken ct)
     {
-        if (ElementInstances.TryGetValue(envelope.Destination.ElementName, out var element))
+        if (!ElementInstances.TryGetValue(envelope.Destination.ElementName, out var element))
         {
-            // If we receive a message from the bus, we treat it as a "Trigger Scan" command
-            string barcode = envelope.Payload?.ToString() ?? "SCAN-TRIGGERED";
-            await element.SendScanAsync(barcode, ct);
+            Logger.Warning("[{Dev}] Received bus message but element instance not found.", envelope.Destination.ElementName);
+            return;
         }
+
+        // If we receive a message from the bus, we treat it as a "Trigger Scan" command
+        string barcode = envelope.GetPayloadText();
+        if (string.IsNullOrEmpty(barcode)) barcode = "SCAN-TRIGGERED";
+        await element.SendScanAsync(barcode, ct);
     }
 }

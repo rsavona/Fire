@@ -80,22 +80,14 @@ public class VirtualPlcManager : ElementManagerBase<VirtualPlcElement>
 
         try
         {
-            var payload = envelope.Payload?.ToString();
+            var payload = envelope.GetPayloadText();
             if (string.IsNullOrEmpty(payload)) return;
 
             targetLogger.Information("[{Dev}] V-PLC-OUT << Command: {Payload}",
                 element.Config.Name, payload);
 
-
-            if (element is { } dev)
-            {
-                // Forward the command to the virtual hardware to simulate a PLC write
-                await dev.SendAsync(payload, ct);
-            }
-            else
-            {
-                targetLogger.Error("[{Dev}] Could not send HandleBusMessageAsync", element.Config.Name);
-            }
+            // Forward the command to the virtual hardware to simulate a PLC write
+            await element.SendAsync(payload, ct);
         }
         catch (Exception ex)
         {

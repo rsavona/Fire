@@ -19,14 +19,23 @@ public class RedisCacheManager : ElementManagerBase<RedisCacheElement>
     protected override async Task HandleBusMessageAsync(MessageEnvelope envelope, CancellationToken ct)
     {
         var topic = envelope.Destination;
-        if (!ElementInstances.TryGetValue(topic.ElementName, out var element)) return;
+        if (!ElementInstances.TryGetValue(topic.ElementName, out var element))
+        {
+            Logger.Warning("[{Dev}] Received bus message but element instance not found.", topic.ElementName);
+            return;
+        }
 
         try
         {
             // Simple command protocol: "SET:key:value" or "GET:key"
-            string payload = envelope.Payload?.ToString() ?? "";
+            string payload = envelope.GetPayloadText();
             var parts = payload.Split(':', 3);
-            if (parts.Length < 2) return;
+            if (parts.Length < 2)
+            {
+                Logger.Warning("[{Dev}] Discarded Redis command not in SET:key:value / GET:key form: {Payload}",
+                    element.Config.Name, payload);
+                return;
+            }
 
             string cmd = parts[0].ToUpper();
             string key = parts[1];

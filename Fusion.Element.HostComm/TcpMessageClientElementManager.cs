@@ -37,22 +37,23 @@ public class TcpMessageClientElementManager : ElementManagerBase<TcpMessageClien
     protected override async Task HandleBusMessageAsync(MessageEnvelope envelope, CancellationToken ct)
     {
         var topic = envelope.Destination;
-        if (ElementInstances.TryGetValue(topic.ElementName, out var element))
+        if (!ElementInstances.TryGetValue(topic.ElementName, out var element))
         {
-            try
-            {
-                ct.ThrowIfCancellationRequested();
-                
-                string payload = AppendConfiguredTerminator(
-                    element.Config,
-                    envelope.Payload?.ToString() ?? string.Empty);
+            Logger.Warning("[{Dev}] Received bus message but element instance not found.", topic.ElementName);
+            return;
+        }
 
-                await element.SendAsync(payload, ct);
-            }
-            catch (Exception ex)
-            {
-                element.GetLogger().Error(ex, "[{Dev}] Error sending message to server", element.Config.Name);
-            }
+        try
+        {
+            ct.ThrowIfCancellationRequested();
+
+            string payload = AppendConfiguredTerminator(element.Config, envelope.GetPayloadText());
+
+            await element.SendAsync(payload, ct);
+        }
+        catch (Exception ex)
+        {
+            element.GetLogger().Error(ex, "[{Dev}] Error sending message to server", element.Config.Name);
         }
     }
 

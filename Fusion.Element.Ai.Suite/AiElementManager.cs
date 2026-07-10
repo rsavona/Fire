@@ -36,22 +36,29 @@ public class AiElementManager : ElementManagerBase<AiElement>
     protected override async Task HandleBusMessageAsync(MessageEnvelope envelope, CancellationToken ct)
     {
         var topic = envelope.Destination;
-        if (ElementInstances.TryGetValue(topic.ElementName, out var element))
+        if (!ElementInstances.TryGetValue(topic.ElementName, out var element))
         {
-            try
-            {
-                ct.ThrowIfCancellationRequested();
-                
-                string prompt = envelope.Payload?.ToString() ?? string.Empty;
-                if (string.IsNullOrWhiteSpace(prompt)) return;
+            Logger.Warning("[{Dev}] Received bus message but element instance not found.", topic.ElementName);
+            return;
+        }
 
-                // Process the prompt via AI
-                await element.ChatAsync(prompt, ct);
-            }
-            catch (Exception ex)
+        try
+        {
+            ct.ThrowIfCancellationRequested();
+
+            string prompt = envelope.GetPayloadText();
+            if (string.IsNullOrWhiteSpace(prompt))
             {
-                element.GetLogger().Error(ex, "[{Dev}] Error processing AI request", element.Config.Name);
+                Logger.Warning("[{Dev}] Received AI request with empty prompt. Topic: {Topic}", topic.ElementName, envelope.Destination);
+                return;
             }
+
+            // Process the prompt via AI
+            await element.ChatAsync(prompt, ct);
+        }
+        catch (Exception ex)
+        {
+            element.GetLogger().Error(ex, "[{Dev}] Error processing AI request", element.Config.Name);
         }
     }
 }

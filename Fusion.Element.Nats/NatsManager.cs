@@ -69,17 +69,20 @@ public class NatsManager : ElementManagerBase<NatsElement>
 
     protected override async Task HandleBusMessageAsync(MessageEnvelope envelope, CancellationToken ct)
     {
+        var elementName = envelope.Destination.ElementName;
+        if (!ElementInstances.TryGetValue(elementName, out var element))
+        {
+            Logger.LogWarning("[{Dev}] Received bus message but element instance not found.", elementName);
+            return;
+        }
+
         _ = Task.Run(async () =>
         {
             try
             {
-                var elementName = envelope.Destination.ElementName;
                 var subject = envelope.Destination.Discriminator;
-                if (ElementInstances.TryGetValue(elementName, out var element))
-                {
-                    var payload = envelope.Payload?.ToString() ?? "";
-                    await element.PublishAsync(subject, payload);
-                }
+                var payload = envelope.GetPayloadText();
+                await element.PublishAsync(subject, payload);
             }
             catch (Exception ex)
             {
