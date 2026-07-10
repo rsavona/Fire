@@ -106,3 +106,14 @@ Federates the Message Bus across multiple Fusion instances, letting an element i
 **Key properties:** `IPAddress`/`Port` (client), `Port`/`MaxClients` (server), `Origin` (instance identity), `RemoteTopics`, `PublishTopics` (semicolon-separated patterns), `HeartbeatIntervalMs`. See `fbp_LinkDemoServer.json` / `fbp_LinkDemoClient.json` for a working pair, and `Fusion.Element.Link/_documentation/ReadMe-Link.md` for the full protocol, multi-connection topology, and configuration reference.
 
 ---
+
+## 10. Logger Suite (`Fusion.Element.Logger`)
+Makes log persistence a swappable Element. Two-tier design: the raw log firehose stays on the dedicated in-memory `LoggingBus` (bounded, drop-oldest — never routed through the main MessageBus); the element consumes it, writes structured events to its own Serilog pipeline (CLEF), and republishes only curated events onto the main bus.
+
+| Element Type | Manager Name | Description |
+| :--- | :--- | :--- |
+| **Serilog Sink** | `LogSinkElementManager` | Subscribes to the LoggingBus firehose and persists every event to a CLEF file with structure preserved (message template + named properties). Events at `RepublishMinimumLevel`+ (default Warning) are republished on the MessageBus as `LogEventMessage` payloads on `SYS.LOG.{Element}.{Level}` topics. |
+
+**Key properties:** `TopicPattern` (LoggingBus pattern, default `#`), `LogFilePath`, `MinimumLevel`, `WriteToConsole`, `RepublishMinimumLevel`, `RepublishTopicPattern`. Related config: `Fusion:LoggingBusCapacity` (channel bound, default 10000) and `Fusion:LoggerElementExclusive` (stop FireLogger's direct sub-Warning Serilog writes; Warning+ always dual-writes as an emergency path). `SYS.LOG.*` topics are exempt from the bus audit log to prevent feedback loops. See `Fusion.Element.Logger/_documentation/ReadMe-Logger.md` for the full architecture and recursion-guard rationale.
+
+---
