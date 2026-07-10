@@ -61,9 +61,10 @@ newline, so the terminator is safe even for payloads with embedded newlines):
 {"Kind":"HeartbeatAck","Origin":"SITE_A"}
 ```
 
-Frame kinds: `Subscribe`, `Unsubscribe`, `Publish`, `Heartbeat`, `HeartbeatAck`.
-Non-string payloads are JSON-serialized before transmission and arrive at the
-remote side as string payloads.
+Frame kinds: `Subscribe`, `Unsubscribe`, `Publish`, `Heartbeat`, `HeartbeatAck`,
+`SubscribeQueue`, `UnsubscribeQueue`, `QueuePublish`, `Ack` (the last four are the
+queue-group extension, see §4). Non-string payloads are JSON-serialized before
+transmission and arrive at the remote side as string payloads.
 
 ---
 
@@ -117,7 +118,80 @@ a multi-hop deployment.
 
 ---
 
-## 4. Configuration Reference
+## 4. Queue Groups (Competing Consumers)
+
+Pub/sub fan-out delivers every matching envelope to **every** subscribed client.
+Queue groups add the complementary pattern: clients that join the same
+`(topic pattern, QueueGroup)` form a competing-consumer group, and the server
+delivers each matching envelope to **exactly one** member — round-robin — so work
+items (print jobs, host transactions) can be load-balanced across Fusion
+instances. Both patterns coexist on the same connection.
+
+### Frames
+
+```json
+{"Kind":"SubscribeQueue","Origin":"SITE_B","Topics":["HOST_A.Inbound"],"QueueGroup":"WORKERS"}
+{"Kind":"UnsubscribeQueue","Origin":"SITE_B","Topics":["HOST_A.Inbound"],"QueueGroup":"WORKERS"}
+{"Kind":"QueuePublish","Origin":"SITE_A","Topic":"HOST_A.INBOUND","Payload":"...","Gin":0,"HighPriority":true,"SourceElement":"HOST_A","CorrelationId":"...","DeliveryId":"7f3a..."}
+{"Kind":"Ack","Origin":"SITE_B","DeliveryId":"7f3a..."}
+```
+
+### Delivery, Ack, and Redelivery Semantics
+
+1. On `SubscribeQueue` the server creates **one** local bus subscription per
+   `(topic pattern, QueueGroup)` — regardless of how many members join — and
+   adds the client to the group's member list.
+2. Each matching envelope is sent to exactly one member as a `QueuePublish`
+   frame carrying a unique `DeliveryId`. Selection is round-robin; members whose
+   last frame/heartbeat is older than `HeartbeatTimeoutMs` are skipped when a
+   fresher member is available.
+3. The client republishes the envelope on its local bus, then sends `Ack` with
+   the `DeliveryId` — **after** the local publish succeeds. If the publish
+   throws, no ack is sent and the server redelivers.
+4. The server tracks every unacked delivery. If no `Ack` arrives within
+   `AckTimeoutMs`, or the member disconnects with deliveries pending, the
+   delivery is re-sent to the **next** member of the group (the departed/failed
+   member is avoided when the group has others).
+5. After `RedeliverAttempts` redeliveries without an ack — or when the group has
+   emptied — the server logs a warning and publishes a `BusErrorMessage`
+   (original topic + payload) to `MessageBusTopic.InternalError`, so a monitoring
+   reaction can alert or dead-letter it.
+6. When the **last** member leaves a group (unsubscribe or disconnect), the
+   group's bus subscription is removed. The loop guard is unchanged: envelopes
+   tagged `LINK:<origin>` are never queue-dispatched.
+
+### At-Least-Once, Not Exactly-Once
+
+Delivery is **at-least-once**: a consumer that crashes after republishing
+locally but before its `Ack` reaches the server causes the same envelope to be
+redelivered to another member — a duplicate. Consumers that need exactly-once
+semantics must deduplicate on `DeliveryId` (it is stable across redeliveries of
+the same envelope).
+
+### Configuration
+
+Client — join a queue group (alongside the usual pub/sub properties):
+
+```json
+{ "Name": "LINK_WORKER", "Manager": "LinkClientElementManager",
+  "Properties": { "IPAddress": "10.0.1.5", "Port": "7500", "Origin": "WORKER_1",
+                  "QueueTopics": "HOST_A.Inbound", "QueueGroup": "WORKERS" } }
+```
+
+| Property | Side | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `QueueTopics` | client | empty | Patterns to consume as a queue-group member (`;` or `,` separated; `*`/`#` wildcards). |
+| `QueueGroup` | client | client's `Origin` | Group name. Clients sharing a name compete; distinct names each get every message. |
+| `AckTimeoutMs` | server | `30000` | Unacked deliveries are redelivered to the next member after this long. |
+| `RedeliverAttempts` | server | `3` | Redeliveries before the envelope is abandoned to `MessageBusTopic.InternalError`. |
+
+Note: leaving `QueueGroup` at its default only balances load if the workers
+share an `Origin`; give each worker its own `Origin` and an explicit common
+`QueueGroup` for the typical load-balancing setup.
+
+---
+
+## 5. Configuration Reference
 
 ### Link Server
 
@@ -142,7 +216,9 @@ a multi-hop deployment.
 | `MaxClients` | `4` | Maximum simultaneous link clients. |
 | `Origin` | ServiceName → CustomerName → machine name | Identity announced in outgoing frames. |
 | `AllowedHosts` | `*` | Semicolon-separated IP allowlist (from `TcpServerElementBase`). |
-| `HeartbeatTimeoutMs` | `30000` | Watchdog: disconnect a client silent for this long (ping-checked first). |
+| `HeartbeatTimeoutMs` | `30000` | Watchdog: disconnect a client silent for this long (ping-checked first). Also the staleness threshold for queue-member health selection. |
+| `AckTimeoutMs` | `30000` | Queue groups: redeliver an unacked delivery after this long (§4). |
+| `RedeliverAttempts` | `3` | Queue groups: redeliveries before abandoning to `InternalError` (§4). |
 | `MaxBufferSize` | `65535` | Maximum bytes buffered while waiting for a frame terminator. |
 
 ### Link Client
@@ -169,6 +245,8 @@ a multi-hop deployment.
 | `Origin` | ServiceName → CustomerName → machine name | Identity announced in outgoing frames. |
 | `RemoteTopics` | empty | Patterns to pull **from** the remote instance (`;` or `,` separated; `*`/`#` wildcards). |
 | `PublishTopics` | empty | Local patterns to push **to** the remote instance. |
+| `QueueTopics` | empty | Patterns to consume as a competing-consumer queue-group member (§4). |
+| `QueueGroup` | `Origin` | Queue group joined for `QueueTopics` (§4). |
 | `HeartbeatIntervalMs` | `5000` | Link heartbeat interval. |
 | `MaxBufferSize` | `65535` | Maximum bytes buffered while waiting for a frame terminator. |
 
@@ -179,7 +257,7 @@ watch it appear on the client instance's bus).
 
 ---
 
-## 5. Operational Notes
+## 6. Operational Notes
 
 - **Topic case**: `MessageBusTopic` normalizes string topics to upper case;
   subscription matching is case-insensitive, so `HOST_A.Inbound` and

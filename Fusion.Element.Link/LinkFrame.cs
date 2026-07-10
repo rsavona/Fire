@@ -12,7 +12,11 @@ public enum LinkFrameKind
     Unsubscribe,
     Publish,
     Heartbeat,
-    HeartbeatAck
+    HeartbeatAck,
+    SubscribeQueue,
+    UnsubscribeQueue,
+    QueuePublish,
+    Ack
 }
 
 /// <summary>
@@ -41,6 +45,12 @@ public record LinkFrame
     public string? SourceElement { get; init; }
 
     public Guid CorrelationId { get; init; }
+
+    /// <summary>Competing-consumer group name for SubscribeQueue/UnsubscribeQueue frames.</summary>
+    public string? QueueGroup { get; init; }
+
+    /// <summary>Unique delivery identity for QueuePublish frames, echoed back in Ack frames.</summary>
+    public string? DeliveryId { get; init; }
 
     public const char Terminator = '\n';
 
@@ -112,6 +122,19 @@ public static class LinkConventions
         HighPriority = envelope.IsHighPriority,
         SourceElement = envelope.Header.Source,
         CorrelationId = envelope.Header.CorrelationId
+    };
+
+    public static LinkFrame ToQueuePublishFrame(MessageEnvelope envelope, string origin, string deliveryId) => new()
+    {
+        Kind = LinkFrameKind.QueuePublish,
+        Origin = origin,
+        Topic = envelope.Destination.ToString(),
+        Payload = SerializePayload(envelope.Payload),
+        Gin = envelope.Gin,
+        HighPriority = envelope.IsHighPriority,
+        SourceElement = envelope.Header.Source,
+        CorrelationId = envelope.Header.CorrelationId,
+        DeliveryId = deliveryId
     };
 
     public static MessageEnvelope ToLocalEnvelope(LinkFrame frame)

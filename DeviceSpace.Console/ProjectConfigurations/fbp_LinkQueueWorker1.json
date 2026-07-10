@@ -1,0 +1,32 @@
+{
+  "AppSettings": {
+    "Fusion": {
+      "Name": "LinkQueueWorker1",
+      "ColorConsole": true,
+      "ElementList": [
+        {
+          "Name": "LINK_TO_SITE_A",
+          "Manager": "LinkClientElementManager",
+          "Enable": true,
+          "Properties": {
+            "IPAddress": "127.0.0.1",
+            "Port": "7500",
+            "Origin": "WORKER_1",
+            "QueueTopics": "HOST_A.Inbound",
+            "QueueGroup": "WORKERS",
+            "HeartbeatIntervalMs": "5000"
+          }
+        },
+        {
+          "Name": "DIAG_SERVER",
+          "Manager": "DiagnosticElementManager",
+          "Enable": true,
+          "Properties": {
+            "Port": 9998
+          }
+        }
+      ],
+      "ReactionList": []
+    }
+  }
+}
