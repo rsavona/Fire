@@ -1,7 +1,7 @@
 # Fusion.Element.Database.Suite
 
 ## Purpose
-Acts as the persistence gateway for the system. It allows other elements and reactions to execute SQL queries and commands against Microsoft SQL Server, MySQL, or PostgreSQL databases using a standardized message-based interface.
+Acts as the persistence gateway for the system. It allows other elements and reactions to execute SQL queries and commands against Microsoft SQL Server, MySQL, PostgreSQL, or DuckDB databases using a standardized message-based interface.
 
 ## Messages In
 | Source | Topic Pattern | Payload Requirements |
@@ -20,8 +20,10 @@ The following properties can be configured in the `Properties` dictionary of the
 ### DatabaseElementManager
 | Property | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
+| **DatabaseType** | `string` | `"MsSql"` | Selects the provider: `MsSql`, `MySql`, `PostgreSql`, `DuckDb`, or `Pruning`. |
 | **ConnectionString** | `string` | `""` | The database connection string. |
 | **Initialize** | `bool` | `false` | If true, attempts to create the database/schema on startup. |
+| **Database** | `string` | `""` | DuckDB only: path to a `.duckdb` file or `:memory:` for an in-memory database. Used when `ConnectionString` is empty; defaults to `:memory:` when both are empty. |
 
 ## Mermaid Chart
 ```mermaid

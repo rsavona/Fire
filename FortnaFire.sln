@@ -54,6 +54,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Fusion.Element.Scanner.Suit
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Fusion.Element.Link", "Fusion.Element.Link\Fusion.Element.Link.csproj", "{A099C0B3-C6F8-4B1B-9016-E4B3BED774D0}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Fusion.Element.Database.Suite.Tests", "Fusion.Element.Database.Suite.Tests\Fusion.Element.Database.Suite.Tests.csproj", "{66902B2C-2892-4A2D-92FF-076C33257915}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -376,6 +378,18 @@ Global
 		{A099C0B3-C6F8-4B1B-9016-E4B3BED774D0}.Release|x64.Build.0 = Release|Any CPU
 		{A099C0B3-C6F8-4B1B-9016-E4B3BED774D0}.Release|x86.ActiveCfg = Release|Any CPU
 		{A099C0B3-C6F8-4B1B-9016-E4B3BED774D0}.Release|x86.Build.0 = Release|Any CPU
+		{66902B2C-2892-4A2D-92FF-076C33257915}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{66902B2C-2892-4A2D-92FF-076C33257915}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{66902B2C-2892-4A2D-92FF-076C33257915}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{66902B2C-2892-4A2D-92FF-076C33257915}.Debug|x64.Build.0 = Debug|Any CPU
+		{66902B2C-2892-4A2D-92FF-076C33257915}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{66902B2C-2892-4A2D-92FF-076C33257915}.Debug|x86.Build.0 = Debug|Any CPU
+		{66902B2C-2892-4A2D-92FF-076C33257915}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{66902B2C-2892-4A2D-92FF-076C33257915}.Release|Any CPU.Build.0 = Release|Any CPU
+		{66902B2C-2892-4A2D-92FF-076C33257915}.Release|x64.ActiveCfg = Release|Any CPU
+		{66902B2C-2892-4A2D-92FF-076C33257915}.Release|x64.Build.0 = Release|Any CPU
+		{66902B2C-2892-4A2D-92FF-076C33257915}.Release|x86.ActiveCfg = Release|Any CPU
+		{66902B2C-2892-4A2D-92FF-076C33257915}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

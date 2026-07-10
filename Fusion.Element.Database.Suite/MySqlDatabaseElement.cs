@@ -121,27 +121,4 @@ public class MySqlDatabaseElement(IMessageBus bus, IElementBlueprint config, IFi
             throw;
         }
     }
-    
-    public async Task OnElementMessageToMessageBusAsync(string sqlMessage, CancellationToken cancellationToken = default)
-    {
-        ArgumentNullException.ThrowIfNull(sqlMessage);
-
-        try
-        {
-            logger.LogDebug("Received SQL element message {MessageId}. Preparing for bus routing...", sqlMessage);
-
-            // 1. Transform or enrich the message if needed before hitting the core bus
-                
-        
-            logger.LogInfo("Successfully bondd MSSQL message {MessageId} to the orchestration bus.", "");
-        }
-        catch (Exception ex)
-        {
-            // Log the failure to ensure we don't lose track of dropped DB events
-            logger.LogError(ex, "Failed to bond message {MessageId} from MSSQL element to the message bus.", sqlMessage);
-            
-            // Depending on your error handling, you might want to throw, push to a Dead Letter Queue, or return a failure result.
-            throw; 
-        }
-    }
 }
