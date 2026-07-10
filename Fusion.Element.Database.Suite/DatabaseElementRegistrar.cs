@@ -11,6 +11,7 @@ public class DatabaseElementRegistrar : IElementRegistrar
         services.AddTransient<MySqlDatabaseElement>();
         services.AddTransient<MsSqlDatabaseElement>();
         services.AddTransient<PostgreSqlDatabaseElement>();
+        services.AddTransient<DuckDbDatabaseElement>();
         services.AddTransient<DatabasePruningElement>();
 
         // Register the factory for IDatabaseElement
@@ -24,6 +25,7 @@ public class DatabaseElementRegistrar : IElementRegistrar
                     "PRUNING" => ActivatorUtilities.CreateInstance<DatabasePruningElement>(provider, config, logger),
                     "MYSQL" => ActivatorUtilities.CreateInstance<MySqlDatabaseElement>(provider, config, logger),
                     "POSTGRESQL" => ActivatorUtilities.CreateInstance<PostgreSqlDatabaseElement>(provider, config, logger),
+                    "DUCKDB" => ActivatorUtilities.CreateInstance<DuckDbDatabaseElement>(provider, config, logger),
                     _ => ActivatorUtilities.CreateInstance<MsSqlDatabaseElement>(provider, config, logger)
                 };
             });

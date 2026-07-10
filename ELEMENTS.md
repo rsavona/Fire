@@ -57,6 +57,7 @@ Persistence layers for system data and logging.
 | **MS SQL** | `DatabaseElementManager` | Microsoft SQL Server integration for structured data storage. |
 | **MySQL** | `DatabaseElementManager` | MySQL/MariaDB database interface. |
 | **PostgreSQL** | `DatabaseElementManager` | PostgreSQL database interface. |
+| **DuckDB** | `DatabaseElementManager` | Embedded in-process DuckDB interface supporting file-backed (.duckdb) and in-memory (:memory:) databases. |
 | **DB Pruning** | `DatabaseElementManager` | Specialized element for maintaining database health by automatically removing aged records. |
 
 ---
