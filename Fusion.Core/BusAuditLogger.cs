@@ -34,6 +34,11 @@ public class BusAuditLogger : BackgroundService
     {
         if (message == null) return;
 
+        // Recursion guard: curated log republishes (SYS.LOG.{Element}.{Level}) must never be
+        // audited — auditing them would generate log events that get republished again,
+        // creating a feedback loop between the logging pipeline and the audit log.
+        if (topic.StartsWith("SYS.LOG", StringComparison.OrdinalIgnoreCase)) return;
+
         string messageType = message.GetType().Name;
 
         // Filter Noise

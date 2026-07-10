@@ -15,28 +15,73 @@ namespace Fusion.Core;
 /// <summary>
 /// A high-performance structured logging bus using System.Threading.Channels.
 /// Runs as a background service to dispatch logs asynchronously.
+///
+/// This is Tier 1 of the two-tier logging design: the raw log firehose. It is
+/// deliberately NOT durable — the channel is in-memory, bounded, and drops the
+/// oldest messages under back-pressure. Durability is a sink concern (the Logger
+/// element / Serilog file sinks), not a bus concern.
 /// </summary>
 public class LoggingBus : BackgroundService, ILoggingBus
 {
+    /// <summary>Default channel capacity when none is configured ("Fusion:LoggingBusCapacity").</summary>
+    public const int DefaultCapacity = 10_000;
+
+    private static readonly TimeSpan DropWarningInterval = TimeSpan.FromSeconds(30);
+
     private readonly Channel<LogMessage> _channel;
     private readonly ConcurrentDictionary<string, List<Func<LogMessage, CancellationToken, Task>>> _subscriptions;
     private readonly ConcurrentDictionary<string, List<Func<LogMessage, CancellationToken, Task>>> _matchCache;
 
-    public LoggingBus()
+    private long _droppedMessageCount;
+    private long _lastDropWarningTicks;
+
+    /// <summary>Configured channel capacity.</summary>
+    public int Capacity { get; }
+
+    /// <summary>Total number of log messages dropped because the channel was full.</summary>
+    public long DroppedMessageCount => Interlocked.Read(ref _droppedMessageCount);
+
+    public LoggingBus() : this(DefaultCapacity)
     {
-        // Unbounded channel for maximum throughput; flow control should be handled by consumers
-        _channel = Channel.CreateUnbounded<LogMessage>(new UnboundedChannelOptions
+    }
+
+    public LoggingBus(int capacity)
+    {
+        Capacity = capacity > 0 ? capacity : DefaultCapacity;
+
+        // Bounded, drop-oldest: logging must never block or balloon memory. Losing the
+        // oldest verbose chatter under a burst is preferable to stalling element threads.
+        _channel = Channel.CreateBounded<LogMessage>(new BoundedChannelOptions(Capacity)
         {
             SingleReader = true, // We use one background loop to dispatch
-            SingleWriter = false // Multiple loggers will write
-        });
+            SingleWriter = false, // Multiple loggers will write
+            FullMode = BoundedChannelFullMode.DropOldest
+        }, OnMessageDropped);
 
         _subscriptions = new ConcurrentDictionary<string, List<Func<LogMessage, CancellationToken, Task>>>(StringComparer.OrdinalIgnoreCase);
         _matchCache = new ConcurrentDictionary<string, List<Func<LogMessage, CancellationToken, Task>>>(StringComparer.OrdinalIgnoreCase);
     }
 
+    private void OnMessageDropped(LogMessage dropped)
+    {
+        long count = Interlocked.Increment(ref _droppedMessageCount);
+
+        // Periodic warning via the DIRECT Serilog logger — never via the bus itself,
+        // which would only add pressure to the full channel (feedback loop).
+        long now = DateTime.UtcNow.Ticks;
+        long last = Interlocked.Read(ref _lastDropWarningTicks);
+        if (now - last >= DropWarningInterval.Ticks &&
+            Interlocked.CompareExchange(ref _lastDropWarningTicks, now, last) == last)
+        {
+            Log.Warning(
+                "[LoggingBus] Channel full (capacity {Capacity}); dropping oldest log messages. Total dropped so far: {DroppedCount}",
+                Capacity, count);
+        }
+    }
+
     public async Task PublishAsync(LogMessage logMessage, CancellationToken ct = default)
     {
+        // With FullMode.DropOldest this completes synchronously and never blocks the caller.
         await _channel.Writer.WriteAsync(logMessage, ct);
     }
 

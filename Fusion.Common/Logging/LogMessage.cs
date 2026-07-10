@@ -18,6 +18,13 @@ public record LogMessage
     public string FormattedMessage { get; init; } = string.Empty;
 
     /// <summary>
+    /// Optional pre-built structured event. Publishers (FireLogger) attach this so
+    /// consumers (e.g. the Logger element) get full structure without re-binding
+    /// the template. When null, use <see cref="LogEventMessage.FromLogMessage"/>.
+    /// </summary>
+    public LogEventMessage? Event { get; init; }
+
+    /// <summary>
     /// Returns the topic identifier for this log message, used for bus routing.
     /// Format: LOG.{LEVEL}.{CONTEXT}
     /// </summary>

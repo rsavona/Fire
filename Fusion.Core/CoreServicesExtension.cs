@@ -59,9 +59,20 @@ public static class CoreServicesExtensions
             // Fixed: Let Serilog handle the parameter injection
             Log.Logger.Information("SYSTEM", "STARTUP", "CORE", "FIRE", "=== {AppName} Starting ===", appName);
 
-            builder.Services.AddSingleton<LoggingBus>();
+            // Bounded, drop-oldest log firehose (Tier 1 of the two-tier logging design).
+            var logBusCapacity = builder.Configuration.GetValue<int?>("Fusion:LoggingBusCapacity")
+                                 ?? builder.Configuration.GetValue<int?>("AppSettings:Fusion:LoggingBusCapacity")
+                                 ?? LoggingBus.DefaultCapacity;
+            builder.Services.AddSingleton(new LoggingBus(logBusCapacity));
             builder.Services.AddSingleton<ILoggingBus>(p => p.GetRequiredService<LoggingBus>());
             builder.Services.AddHostedService(p => p.GetRequiredService<LoggingBus>());
+
+            // When true, FireLogger routes sub-Warning events only through the LoggingBus
+            // (persisted by the Logger element). Default false = dual-write (safe increment).
+            FireLogger.LoggerElementExclusive =
+                builder.Configuration.GetValue<bool?>("Fusion:LoggerElementExclusive")
+                ?? builder.Configuration.GetValue<bool?>("AppSettings:Fusion:LoggerElementExclusive")
+                ?? false;
 
             builder.Services.AddSingleton(Log.Logger);
             builder.Services.AddSingleton(LogControl.LevelSwitch);

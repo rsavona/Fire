@@ -26,6 +26,16 @@ namespace Fusion.Common.Logging
         private const string DefaultValue = "-----";
         private static readonly ConcurrentDictionary<string, int> _sampleCounters = new();
 
+        /// <summary>
+        /// When true (config "Fusion:LoggerElementExclusive"), FireLogger stops writing
+        /// sub-Warning events directly to Serilog and relies on the Logger element
+        /// (Fusion.Element.Logger) consuming the LoggingBus to persist them.
+        /// Warning+ events ALWAYS also write directly to Serilog (emergency path), so
+        /// serious problems are never lost even if the Logger element is misconfigured.
+        /// Default is false: dual-write, nothing changes if the element isn't configured.
+        /// </summary>
+        public static bool LoggerElementExclusive { get; set; }
+
         public FireLogger(Serilog.ILogger logger, ILoggingBus? loggingBus = null, IMessageBus? messageBus = null, string elementName = "System")
         {
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
@@ -102,20 +112,49 @@ namespace Fusion.Common.Logging
             contextualLogger = contextualLogger.ForContext("GinTag", "");
 
             string safeTemplate = messageTemplate?.Replace("\r", "[CR]").Replace("\n", "[LF]") ?? "";
+            var safeArgs = SanitizeArgs(args);
 
             // --- DEPARTURE 1: Immediate Dashboard/Console (via Serilog) ---
-            contextualLogger.Write(level, ex, safeTemplate, SanitizeArgs(args));
+            // Skipped for sub-Warning events only when LoggerElementExclusive is set AND a
+            // LoggingBus exists to carry them. Warning+ always writes directly (emergency path).
+            if (!LoggerElementExclusive || _loggingBus == null || level >= LogEventLevel.Warning)
+            {
+                contextualLogger.Write(level, ex, safeTemplate, safeArgs);
+            }
 
             // --- DEPARTURE 2: Asynchronous Persistent Logs (via LoggingBus) ---
+            // Every event is published as a fully structured LogEventMessage (carried on the
+            // LogMessage envelope for ILoggingBus contract compatibility).
             if (_loggingBus != null)
             {
+                LogEventMessage? evt = null;
+                try
+                {
+                    var (rendered, properties) = LogEventMessage.BindTemplate(safeTemplate, safeArgs);
+                    evt = new LogEventMessage
+                    {
+                        Timestamp = DateTime.UtcNow,
+                        Level = level,
+                        MessageTemplate = safeTemplate,
+                        RenderedMessage = rendered,
+                        Properties = properties,
+                        Exception = ex?.ToString(),
+                        ElementName = _elementName
+                    };
+                }
+                catch
+                {
+                    // Eat errors to prevent logging loops; consumers fall back to FromLogMessage.
+                }
+
                 _ = _loggingBus.PublishAsync(new LogMessage
                 {
                     Level = level,
                     Context = _elementName,
                     MessageTemplate = safeTemplate,
-                    Args = SanitizeArgs(args),
-                    Exception = ex
+                    Args = safeArgs!,
+                    Exception = ex,
+                    Event = evt
                 });
             }
 
