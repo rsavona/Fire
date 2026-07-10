@@ -38,7 +38,9 @@ public abstract class ElementManagerBase<TElement> : BackgroundService, IElement
         var devLogger = element.GetLogger();
         var bonds = ConfigurationLoader.GetAllReactionConfig()
             .SelectMany(w => w.Bonds)
-            .Where(r => r.Destination.StartsWith(element.Config.Name));
+            .Where(r => !string.IsNullOrEmpty(r.Destination) &&
+                        new MessageBusTopic(r.Destination).ElementName
+                            .Equals(element.Config.Name, StringComparison.OrdinalIgnoreCase));
 
         var ReactionBonds = bonds as BondBlueprint[] ?? bonds.ToArray();
         if (ReactionBonds.Length == 0) devLogger.Information("[{dec}] No Bonds found with a destination for this Element", element.Config.Name);
@@ -93,6 +95,29 @@ public abstract class ElementManagerBase<TElement> : BackgroundService, IElement
     
     
     protected virtual Task HandleBusMessageAsync(MessageEnvelope envelope, CancellationToken ct){ return Task.CompletedTask;}
+
+    /// <summary>
+    /// Parses the envelope payload into a typed command. On failure the message is
+    /// NOT silently dropped: a warning is logged and a BusErrorMessage is published
+    /// to the internal error topic so the failure is visible on the bus.
+    /// </summary>
+    protected bool TryParseCommand<T>(MessageEnvelope envelope, out T? command) where T : class
+    {
+        if (envelope.TryGetPayload(out command, out var error)) return true;
+
+        string message = $"Discarded {typeof(T).Name} on '{envelope.Destination}': {error}";
+        Logger.Warning("[{Manager}] {Message} Payload: {Payload}", ManagerName, message, envelope.Payload);
+
+        _ = MessageBus.PublishAsync(MessageBusTopic.InternalError.ToString(),
+            new MessageEnvelope(MessageBusTopic.InternalError, new BusErrorMessage
+            {
+                OriginalTopic = envelope.Destination.ToString(),
+                ExceptionMessage = message,
+                OriginalPayload = envelope.Payload
+            }));
+
+        return false;
+    }
 
     /// <summary>
     /// Constructor.

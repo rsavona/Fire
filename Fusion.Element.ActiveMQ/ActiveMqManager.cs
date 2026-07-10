@@ -134,14 +134,19 @@ public class ActiveMqManager : ElementManagerBase<ActiveMqElement>
     /// </summary>
     protected override async Task HandleBusMessageAsync(MessageEnvelope env, CancellationToken ct)
     {
+        var elementName = env.Destination.ElementName;
+        if (!ElementInstances.TryGetValue(elementName, out var element))
+        {
+            Logger.LogWarning("[{Dev}] Received bus message but element instance not found.", elementName);
+            return;
+        }
+
         // Using Task.Run is fine, but ensure we don't block the caller
         _ = Task.Run(async () =>
         {
             try
             {
-                var elementName = env.Destination.ElementName;
                 var queue = env.Destination.Discriminator;
-                var element = ElementInstances[elementName];
                 var elementLogger = Logger.WithContext("ElementName", elementName);
                 
                 elementLogger.LogDebug($"[{element.Config.Name}] ActiveMQ Manager received message for {queue}");

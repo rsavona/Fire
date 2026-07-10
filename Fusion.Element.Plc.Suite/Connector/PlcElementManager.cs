@@ -158,41 +158,38 @@ public class  PlcElementManager : ElementManagerBase<PlcServerElement>
     /// <param name="ct"></param>
     protected override async Task HandleBusMessageAsync( MessageEnvelope envelope, CancellationToken ct)
     {
-        var topic = envelope.Destination; 
-        ElementInstances.TryGetValue(topic.ElementName, out var element);
+        var topic = envelope.Destination;
+        if (!ElementInstances.TryGetValue(topic.ElementName, out var element))
+        {
+            Logger.LogWarning("[{Dev}] Received bus message but element instance not found.", topic.ElementName);
+            return;
+        }
+
         try
         {
             // 1. Check for cancellation before starting work
             ct.ThrowIfCancellationRequested();
-           
-            var node = JsonNode.Parse(envelope.Payload?.ToString() ?? "{}");
-            if (node == null || node is not JsonObject obj) return;
 
-            // Helper to get property case-insensitively
-            JsonNode? GetProp(JsonObject o, string key) => 
-                o.FirstOrDefault(kvp => kvp.Key.Equals(key, StringComparison.OrdinalIgnoreCase)).Value;
+            if (!TryParseCommand<PlcDecisionCommand>(envelope, out var command) || command == null) return;
 
-            var dp = GetProp(obj, "DecisionPoint")?.GetValue<string>() 
-                     ?? GetProp(obj, "decisionPoint")?.GetValue<string>();
-            var ginNode = GetProp(obj, "GIN") ?? GetProp(obj, "gin");
-            var gin = ginNode?.GetValue<int>();
+            if (command.DecisionPoint == null || command.Gin == null)
+            {
+                Logger.LogWarning("[{Dev}] Discarded decision response missing DecisionPoint/GIN. Topic: {Topic}",
+                    topic.ElementName, envelope.Destination);
+                return;
+            }
 
-            if (element == null || dp == null || gin == null) return;
-            var key = new ResponseKey(dp, gin.Value);
+            var key = new ResponseKey(command.DecisionPoint, command.Gin.Value);
 
             // 2. Locate the original PLC requester
             if (_pendingResponses.TryRemove(key, out var request))
             {
-                var actionsNode = GetProp(obj, "Actions") ?? GetProp(obj, "actions");
-                var decisionPointsNode = GetProp(obj, "DecisionPoints") ?? GetProp(obj, "decisionPoints");
-
-                var responsePayload = new DecisionResponsePayload(dp, gin.Value,
-                    actionsNode?.AsArray().Select(a => a?.ToString().Trim('"') ?? "").ToList() ?? 
-                    decisionPointsNode?.AsArray().Select(a => a?.ToString().Trim('"') ?? "").ToList() ?? new());
+                var responsePayload = new DecisionResponsePayload(command.DecisionPoint, command.Gin.Value,
+                    command.Actions ?? command.DecisionPoints ?? new());
                 var responseMsg = PlcMessageParser.FrameResponse(responsePayload,topic.ElementName );
 
                 Logger.LogConveyableEvent(element.Key.ElementName,$"Response from {envelope.Destination} to {request.Client}: {responseMsg}",
-                    gin.ToString(), responsePayload.DecisionPoints, responsePayload.DecisionPoint);
+                    command.Gin.Value.ToString(), responsePayload.DecisionPoints, responsePayload.DecisionPoint);
 
                 var success = await request.MultiClientElement.SendResponseAsync(responseMsg, request.Client);
             }else
