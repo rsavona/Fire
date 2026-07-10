@@ -106,3 +106,16 @@ Federates the Message Bus across multiple Fusion instances, letting an element i
 **Key properties:** `IPAddress`/`Port` (client), `Port`/`MaxClients` (server), `Origin` (instance identity), `RemoteTopics`, `PublishTopics` (semicolon-separated patterns), `HeartbeatIntervalMs`. See `fbp_LinkDemoServer.json` / `fbp_LinkDemoClient.json` for a working pair, and `Fusion.Element.Link/_documentation/ReadMe-Link.md` for the full protocol, multi-connection topology, and configuration reference.
 
 ---
+
+## 10. Sparkplug Suite (`Fusion.Element.Sparkplug`)
+Presents a Fusion instance as a Sparkplug B 3.0 Edge Node on an MQTT broker, so SCADA hosts like Ignition MQTT Engine see Fusion elements as devices with live metrics in their tag browser.
+
+| Element Type | Manager Name | Description |
+| :--- | :--- | :--- |
+| **Sparkplug Edge Node** | `SparkplugElementManager` | Maps Group = site, Edge Node = this instance, Device = a Fusion element. Publishes the full lifecycle (NBIRTH/NDEATH with bdSeq will, DBIRTH per discovered element, batched report-by-exception DDATA, DDEATH on Critical health) and honors NCMD `Node Control/Rebirth`. Inbound NCMD/DCMD metric writes are republished on the local bus at `{EdgeNodeId}.SparkplugCmd.{MetricName}`. |
+
+**Metrics:** element status fields (`State`, `Health`, `Counts/*`, `Rates/*`, `Resources/*`, custom `Metrics/*`) plus payloads of any blueprint-selected bus topics (`MetricTopics`, wildcards `*`/`#` supported; metric name = full topic string). The Sparkplug B protobuf payload is implemented in-repo; the transport reuses MQTTnet.
+
+**Key properties:** `BrokerHost`/`BrokerPort`, `Username`/`Password`, `UseTls`, `GroupId` (default: space CustomerName), `EdgeNodeId` (default: instance Origin), `MetricTopics` (semicolon-separated patterns), `PublishStatusMetrics`, `ReportIntervalMs`. See `Fusion.Element.Sparkplug/_documentation/ReadMe-Sparkplug.md` for the lifecycle detail, an example blueprint, and how to browse the node in Ignition.
+
+---
