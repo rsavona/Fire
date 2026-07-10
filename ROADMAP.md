@@ -84,16 +84,21 @@ Fusion is ~70% there (virtual PLC/printer/scanner, scripted scenarios,
 
 **Depends on:** existing simulation fleet. **Size:** M, mostly packaging.
 
-### 3.2 Live Flow Visualization + Bus Replay
+### 3.2 Live Flow Visualization + Bus Replay ✅ SHIPPED 2026-07-10
 **Why:** Demos spectacularly; costs little. The `System.DataFlow` topic and the
 `BusAuditLogger` already capture everything needed.
 
 **How:**
-- FusionLab view that animates conveyables moving element-to-element in real
+- [x] FusionLab view that animates conveyables moving element-to-element in real
   time from `FlowEvent`s (source → force → destination is already published).
-- "Replay the last N minutes" — re-dispatch from the audit log at wall-clock or
+  → FusionLab `/flow`: bond/flow-derived topology, health-colored nodes,
+  animated pulses, per-edge rate counters.
+- [x] "Replay the last N minutes" — re-dispatch from the audit log at wall-clock or
   accelerated speed onto a replay-namespaced topic for incident forensics.
-- Export a replay as a shareable scenario file (feeds 3.1).
+  → `Fusion.Core.Replay.ReplayService`: window listing, time-range seek,
+  1x/5x/max speed, publishes on `REPLAY.{originalTopic}` only (never the
+  original topic — see `FusionLab/wwwroot/docs/FlowVisualization.md`).
+- [ ] Export a replay as a shareable scenario file (feeds 3.1) — deferred.
 
 **Depends on:** DataFlow events (done), audit log (done). **Size:** S–M.
 
@@ -141,6 +146,55 @@ hardware underneath is scanners + lights + PLC already supported. Ship with
 
 ---
 
+## Theme 5 — Competitive Wedge (vs. Ignition + Jython scripting)
+
+The real competitor is not Ignition the product — it's the *speed-to-logic* of a
+tag-change Jython script. The positioning is "Ignition is a great window; it's a
+bad engine": keep Perspective/alarming/historian (the Sparkplug element makes
+coexistence plug-in), replace the scripting glue where the transaction rate lives.
+
+### 5.1 Productized Script Reactions
+**Why:** Jython's only structural advantage is edit-and-go turnaround. Fusion
+already embeds Roslyn C# scripting in `ReactionBase` (`CSharpScript` +
+`SystemGlobals`) — productizing it beats Jython at its own game with typing,
+git-versioned scripts, and simulation rehearsal that Ignition cannot answer.
+
+**How:**
+- First-class script reaction type: `.csx` files referenced from the blueprint,
+  hot-reloaded via the existing configuration-reload machinery.
+- Script editor page in FusionLab: bus context (topics, sample payloads)
+  available while authoring; compile errors surfaced inline.
+- "Rehearse before deploy": run the edited script against the virtual fleet /
+  a replay window (3.2) and show the resulting flow before it goes live.
+- Tokamak assist: generate a first-draft reaction script from a plain-English
+  description of the bond ("when SCANNER1 reads a barcode starting with 9,
+  divert to lane 4").
+- Guardrails: script compilation cached; failures publish `BusErrorMessage`
+  and fall back to the last good version rather than taking the reaction down.
+
+**Depends on:** Roslyn scripting (exists), config reload (exists), 3.2 replay
+(shipped). Tokamak assist depends on the AI element. **Size:** M.
+
+### 5.2 Benchmark Harness
+**Why:** Integrators quote numbers. A defensible, reproducible messages/sec and
+decision-latency benchmark — Fusion bus vs. tag-event scripting — arms sales
+conversations with facts instead of adjectives.
+
+**How:**
+- A benchmark scenario in the simulation fleet: N virtual scanners feeding a
+  decision reaction feeding a virtual sorter, measuring end-to-end decision
+  latency (p50/p95/p99) and sustained throughput; correlation IDs (now
+  propagated) provide the per-message timing spine.
+- Publish results as a versioned doc with methodology, hardware, and configs
+  committed alongside — honest and reproducible beats impressive and vague.
+- Optional counterpart harness in Ignition+Jython for a like-for-like tag-event
+  comparison, methodology documented.
+
+**Depends on:** simulation fleet (exists), CorrelationId propagation (done).
+**Size:** S–M.
+
+---
+
 ## Suggested Sequence
 
 | Order | Item | Rationale |
@@ -150,7 +204,9 @@ hardware underneath is scanners + lights + PLC already supported. Ship with
 | 3 | 2.1 + 2.2 Link balancing → failover | The reliability demo; Link is fresh and the protocol is ours |
 | 4 | 3.1 Simulation commissioning | Packaging of existing fleet; feeds sales and testing alike |
 | 5 | 3.3 Tokamak copilot | Rides on everything above; most memorable to non-engineers |
-| 6 | 4.1 → 4.2 Material handling + pick/put | Wait for a driving site; largest and easiest to get wrong early |
+| 6 | 5.1 Script reactions | Neutralizes Jython's speed-to-logic edge; Roslyn base already exists |
+| 7 | 5.2 Benchmark harness | Small effort; arms every competitive conversation with numbers |
+| 8 | 4.1 → 4.2 Material handling + pick/put | Wait for a driving site; largest and easiest to get wrong early |
 
 ---
 
