@@ -1,0 +1,477 @@
+@page "/flow"
+@using System.Globalization
+@using Fusion.Common.Enums
+@using Fusion.Core.Replay
+@using FusionLab.Services
+@inject FlowGraphService Graph
+@inject ReplayService Replay
+@implements IDisposable
+
+<PageTitle>Fusion Flow</PageTitle>
+
+<div class="flow-page">
+    <nav class="fusion-header">
+        <a class="navbar-brand fw-bold d-flex align-items-center gap-2" style="font-size: 0.9rem; color: var(--fusion-accent); text-decoration: none;" href="/">
+            <i class="bi bi-fire"></i>
+            <span style="color: var(--fusion-text); letter-spacing: 0.05em;">FUSION LAB</span>
+            <span class="text-muted" style="letter-spacing: 0.05em;">/ FLOW</span>
+        </a>
+        <div class="d-flex gap-2 ms-auto align-items-center">
+            <div class="mode-toggle" role="group" aria-label="Feed mode">
+                <button class="btn-fusion @(Graph.Mode == FlowFeedMode.Live ? "btn-fusion-primary" : "btn-fusion-outline")"
+                        @onclick="() => SwitchMode(FlowFeedMode.Live)">
+                    <i class="bi bi-broadcast me-1"></i> LIVE
+                </button>
+                <button class="btn-fusion @(Graph.Mode == FlowFeedMode.Replay ? "btn-fusion-primary" : "btn-fusion-outline")"
+                        @onclick="() => SwitchMode(FlowFeedMode.Replay)">
+                    <i class="bi bi-rewind-fill me-1"></i> REPLAY
+                </button>
+            </div>
+            <a href="/" class="btn-fusion btn-fusion-outline">BACK TO DESIGNER</a>
+        </div>
+    </nav>
+
+    @if (Graph.Mode == FlowFeedMode.Replay)
+    {
+        <div class="replay-bar">
+            <div class="replay-controls">
+                <label class="ctl-label" for="flow-window">WINDOW</label>
+                <select id="flow-window" class="ctl-input" @onchange="OnWindowSelected">
+                    <option value="">— select audit file —</option>
+                    @foreach (var w in _windows)
+                    {
+                        <option value="@w.FilePath" selected="@(w.FilePath == _selectedWindow?.FilePath)">
+                            @w.Name (@w.RecordCount msgs, @FormatRange(w))
+                        </option>
+                    }
+                </select>
+                <button class="btn-fusion btn-fusion-outline" title="Rescan audit directory" @onclick="RefreshWindows">
+                    <i class="bi bi-arrow-clockwise"></i>
+                </button>
+
+                <label class="ctl-label" for="flow-speed">SPEED</label>
+                <select id="flow-speed" class="ctl-input" style="width: 80px;" @bind="_speed">
+                    <option value="1">1x</option>
+                    <option value="5">5x</option>
+                    <option value="0">MAX</option>
+                </select>
+
+                @if (!Replay.IsPlaying)
+                {
+                    <button class="btn-fusion btn-fusion-primary" disabled="@(_selectedWindow == null)" @onclick="StartReplay">
+                        <i class="bi bi-play-fill"></i> START
+                    </button>
+                }
+                else
+                {
+                    <button class="btn-fusion btn-fusion-outline" style="border-color: #d03b3b; color: #d03b3b;" @onclick="StopReplay">
+                        <i class="bi bi-stop-fill"></i> STOP
+                    </button>
+                }
+
+                <span class="replay-status">
+                    @(_progress.State.ToString().ToUpperInvariant())
+                    @if (_progress.Position is { } pos)
+                    {
+                        <span> · @pos.ToLocalTime().ToString("HH:mm:ss.fff") · @_progress.Published msgs</span>
+                    }
+                    @if (_progress.Error is { } err)
+                    {
+                        <span> · @err</span>
+                    }
+                </span>
+            </div>
+
+            @if (_selectedWindow is { First: not null, Last: not null } win)
+            {
+                <div class="seek-row">
+                    <span class="ctl-label">SEEK</span>
+                    <input type="range" class="seek-slider" min="0" max="1000" value="@_seekTicks"
+                           @onchange="OnSeekChanged" aria-label="Seek by time" />
+                    <span class="seek-time">@SeekTime(win).ToLocalTime().ToString("HH:mm:ss")</span>
+                    <span class="text-muted" style="font-size: 0.7rem;">
+                        (@win.First.Value.ToLocalTime().ToString("HH:mm:ss") — @win.Last.Value.ToLocalTime().ToString("HH:mm:ss"))
+                    </span>
+                </div>
+            }
+        </div>
+    }
+
+    <div class="flow-body">
+        @{ var vm = ComputeLayout(); }
+        @if (vm.Nodes.Count == 0)
+        {
+            <div class="flow-empty">
+                <i class="bi bi-diagram-3" style="font-size: 2.5rem; color: var(--fusion-text-muted);"></i>
+                @if (Graph.Mode == FlowFeedMode.Live)
+                {
+                    <p class="mt-3 mb-1">No flow data yet.</p>
+                    <p class="text-muted" style="max-width: 480px;">
+                        The graph builds itself from <code>System.DataFlow</code> events and
+                        <code>System.Topology</code> bond configuration on this process's message bus.
+                        Start a Fusion core with a reaction, or switch to <strong>REPLAY</strong> to
+                        animate a recorded audit log.
+                    </p>
+                }
+                else
+                {
+                    <p class="mt-3 mb-1">No replay data yet.</p>
+                    <p class="text-muted" style="max-width: 480px;">
+                        Select an audit window above and press START. Replayed traffic is published on
+                        <code>REPLAY.*</code> topics only — it never touches live topics or hardware.
+                    </p>
+                }
+            </div>
+        }
+        else
+        {
+            <div class="flow-legend" aria-label="Health legend">
+                <span class="legend-title">HEALTH</span>
+                @foreach (var h in Enum.GetValues<ElementHealth>())
+                {
+                    <span class="legend-chip">
+                        <span class="legend-dot" style="background: @HealthColor(h);"></span>@h.ToString().ToUpperInvariant()
+                    </span>
+                }
+                <span class="legend-chip"><span class="legend-dot legend-dot-unknown"></span>NO STATUS</span>
+                <span class="ms-auto text-muted" style="font-size: 0.7rem;">
+                    @Graph.TotalFlowEvents flow events@(Graph.LastEventUtc is { } t ? $" · last {t.ToLocalTime():HH:mm:ss}" : "")
+                </span>
+            </div>
+
+            <div class="flow-canvas">
+                <svg viewBox="0 0 @vm.Width @vm.Height" width="@vm.Width" height="@vm.Height"
+                     role="img" aria-label="Element flow topology">
+                    <defs>
+                        <marker id="flow-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                            <path d="M 0 1 L 9 5 L 0 9 z" fill="#4a4a52" />
+                        </marker>
+                    </defs>
+
+                    @* Edges *@
+                    @foreach (var e in vm.Edges)
+                    {
+                        <g>
+                            <title>@e.Edge.Source → @e.Edge.Destination @(string.IsNullOrEmpty(e.Edge.Force) ? "" : $"via {e.Edge.Force}") — @e.Edge.TotalCount total</title>
+                            <path d="@e.Path" fill="none" stroke="#4a4a52" stroke-width="1.5" marker-end="url(#flow-arrow)" />
+                            @* SVG <text> collides with Razor's reserved <text> tag — emit as markup. *@
+                            @if (!string.IsNullOrEmpty(e.Edge.Force))
+                            {
+                                @SvgText(e.MidX, e.MidY - 8, "edge-force", e.Edge.Force)
+                            }
+                            @SvgText(e.MidX, e.MidY + 14, "edge-rate", e.RateText)
+                        </g>
+                    }
+
+                    @* Flow pulses (animated along edge paths) *@
+                    @foreach (var p in _pulses)
+                    {
+                        if (vm.EdgePaths.TryGetValue(p.EdgeKey, out var path))
+                        {
+                            <circle @key="p.Id" r="4" class="flow-pulse" style="offset-path: path('@path');" />
+                        }
+                    }
+
+                    @* Nodes *@
+                    @foreach (var n in vm.Nodes)
+                    {
+                        <g>
+                            <title>@n.Node.Name — @(n.Node.HasStatus ? $"{n.Node.State} / {n.Node.Health}" : "no status received")</title>
+                            <rect x="@n.X" y="@n.Y" width="@NodeWidth" height="@NodeHeight" rx="4"
+                                  class="node-box" style="stroke: @(n.Node.HasStatus ? HealthColor(n.Node.Health) : "var(--fusion-border-bright)");" />
+                            @if (n.Node.HasStatus)
+                            {
+                                <circle cx="@(n.X + 14)" cy="@(n.Y + NodeHeight / 2)" r="5" fill="@HealthColor(n.Node.Health)" />
+                            }
+                            else
+                            {
+                                <circle cx="@(n.X + 14)" cy="@(n.Y + NodeHeight / 2)" r="5" fill="none" stroke="var(--fusion-border-bright)" stroke-width="1.5" />
+                            }
+                            @SvgText(n.X + 26, n.Y + 19, "node-name", Truncate(n.Node.Name, 18))
+                            @SvgText(n.X + 26, n.Y + 34, "node-state", n.Node.HasStatus ? $"{n.Node.State} · {n.Node.Health}" : "no status")
+                        </g>
+                    }
+                </svg>
+            </div>
+        }
+    </div>
+</div>
+
+<style>
+    .flow-page { height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+    .flow-body { flex: 1 1 auto; overflow: auto; padding: 1rem 1.5rem; display: flex; flex-direction: column; }
+    .flow-canvas { overflow: auto; flex: 1 1 auto; }
+
+    .mode-toggle { display: flex; gap: 0; }
+    .mode-toggle .btn-fusion { border-radius: 0; }
+    .mode-toggle .btn-fusion:first-child { border-radius: var(--fusion-radius) 0 0 var(--fusion-radius); }
+    .mode-toggle .btn-fusion:last-child { border-radius: 0 var(--fusion-radius) var(--fusion-radius) 0; }
+
+    .replay-bar { padding: 0.5rem 1.5rem; border-bottom: 1px solid var(--fusion-border); background: var(--fusion-surface); }
+    .replay-controls { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
+    .ctl-label { color: var(--fusion-text-muted); font-size: 0.65rem; letter-spacing: 0.08em; margin: 0; }
+    .ctl-input { background: var(--fusion-bg); color: var(--fusion-text); border: 1px solid var(--fusion-border);
+                 border-radius: var(--fusion-radius); font-size: 0.75rem; padding: 4px 8px; max-width: 380px; }
+    .replay-status { color: var(--fusion-text-muted); font-size: 0.72rem; font-variant-numeric: tabular-nums; }
+
+    .seek-row { display: flex; align-items: center; gap: 0.6rem; margin-top: 0.5rem; }
+    .seek-slider { flex: 1 1 auto; max-width: 480px; accent-color: var(--fusion-accent); }
+    .seek-time { color: var(--fusion-text); font-size: 0.75rem; font-variant-numeric: tabular-nums; }
+
+    .flow-empty { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
+                  text-align: center; color: var(--fusion-text); }
+
+    .flow-legend { display: flex; align-items: center; gap: 0.9rem; padding: 0.4rem 0.2rem 0.8rem 0.2rem; }
+    .legend-title { color: var(--fusion-text-muted); font-size: 0.65rem; letter-spacing: 0.08em; }
+    .legend-chip { display: inline-flex; align-items: center; gap: 5px; color: var(--fusion-text); font-size: 0.7rem; }
+    .legend-dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+    .legend-dot-unknown { background: none; border: 1.5px solid var(--fusion-border-bright); }
+
+    .node-box { fill: var(--fusion-surface); stroke-width: 1.5; }
+    .node-name { fill: var(--fusion-text); font-size: 12px; font-weight: 600; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
+    .node-state { fill: var(--fusion-text-muted); font-size: 10px; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
+    .edge-force { fill: var(--fusion-text-muted); font-size: 10px; text-anchor: middle; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
+    .edge-rate { fill: var(--fusion-text); font-size: 10px; text-anchor: middle; font-variant-numeric: tabular-nums;
+                 font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
+
+    .flow-pulse {
+        fill: var(--fusion-accent);
+        offset-rotate: 0deg;
+        animation: flow-pulse-move 0.9s linear forwards;
+    }
+    @@keyframes flow-pulse-move {
+        from { offset-distance: 0%; opacity: 1; }
+        to   { offset-distance: 100%; opacity: 0.25; }
+    }
+</style>
+
+@code {
+    private const int NodeWidth = 160;
+    private const int NodeHeight = 46;
+    private const int ColumnGap = 110;
+    private const int RowGap = 34;
+    private const int Margin = 30;
+
+    private IReadOnlyList<AuditWindow> _windows = Array.Empty<AuditWindow>();
+    private AuditWindow? _selectedWindow;
+    private double _speed = 1;
+    private int _seekTicks;
+    private ReplayProgress _progress = new(ReplayState.Idle, null, 0);
+    private IReadOnlyList<FlowPulse> _pulses = Array.Empty<FlowPulse>();
+
+    private System.Threading.Timer? _renderTimer;
+    private volatile bool _dirty;
+
+    protected override void OnInitialized()
+    {
+        Graph.EnsureSubscribed();
+        Graph.Changed += MarkDirty;
+        Replay.ProgressChanged += OnReplayProgress;
+        _progress = Replay.Progress;
+
+        // Throttled render loop: bus events can arrive far faster than the UI should repaint.
+        _renderTimer = new System.Threading.Timer(_ => FlushRender(), null,
+            TimeSpan.FromMilliseconds(150), TimeSpan.FromMilliseconds(150));
+    }
+
+    protected override void OnAfterRender(bool firstRender)
+    {
+        if (firstRender)
+        {
+            RefreshWindows();
+            StateHasChanged();
+        }
+    }
+
+    private void MarkDirty() => _dirty = true;
+
+    private void OnReplayProgress(ReplayProgress progress)
+    {
+        _progress = progress;
+        _dirty = true;
+    }
+
+    private void FlushRender()
+    {
+        var pulses = Graph.ActivePulses(TimeSpan.FromSeconds(1.2));
+        bool pulsesChanged = pulses.Count != _pulses.Count;
+        if (!_dirty && !pulsesChanged) return;
+        _dirty = false;
+        _pulses = pulses;
+        _ = InvokeAsync(StateHasChanged);
+    }
+
+    // ------------------------------------------------------------------
+    //                         REPLAY CONTROLS
+    // ------------------------------------------------------------------
+
+    private void SwitchMode(FlowFeedMode mode)
+    {
+        if (mode == FlowFeedMode.Live && Replay.IsPlaying) Replay.Stop();
+        Graph.SetMode(mode);
+    }
+
+    private void RefreshWindows()
+    {
+        _windows = Replay.ListWindows();
+        if (_selectedWindow != null)
+        {
+            _selectedWindow = _windows.FirstOrDefault(w => w.FilePath == _selectedWindow.FilePath);
+        }
+    }
+
+    private void OnWindowSelected(ChangeEventArgs e)
+    {
+        var path = e.Value?.ToString();
+        _selectedWindow = _windows.FirstOrDefault(w => w.FilePath == path);
+        _seekTicks = 0;
+    }
+
+    private void StartReplay()
+    {
+        if (_selectedWindow == null) return;
+        Graph.SetMode(FlowFeedMode.Replay);
+        Graph.Reset();
+        Replay.Start(new ReplayRequest
+        {
+            FilePath = _selectedWindow.FilePath,
+            From = CurrentSeekTime(),
+            Speed = _speed
+        });
+    }
+
+    private void StopReplay() => Replay.Stop();
+
+    private void OnSeekChanged(ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var ticks))
+        {
+            _seekTicks = ticks;
+            if (Replay.IsPlaying)
+            {
+                // Seek = stop + restart from the new position.
+                StartReplay();
+            }
+        }
+    }
+
+    private DateTimeOffset? CurrentSeekTime()
+    {
+        if (_selectedWindow is not { First: not null, Last: not null } win || _seekTicks <= 0) return null;
+        return SeekTime(win);
+    }
+
+    private DateTimeOffset SeekTime(AuditWindow win)
+    {
+        var span = win.Last!.Value - win.First!.Value;
+        return win.First.Value + TimeSpan.FromTicks((long)(span.Ticks * (_seekTicks / 1000.0)));
+    }
+
+    private static string FormatRange(AuditWindow w) =>
+        w is { First: not null, Last: not null }
+            ? $"{w.First.Value.ToLocalTime():MM-dd HH:mm}–{w.Last.Value.ToLocalTime():HH:mm}"
+            : "empty";
+
+    // ------------------------------------------------------------------
+    //                            LAYOUT
+    // ------------------------------------------------------------------
+
+    private sealed record NodePos(FlowNode Node, int X, int Y);
+    private sealed record EdgePos(FlowEdge Edge, string Path, int MidX, int MidY, string RateText);
+    private sealed record GraphLayout(List<NodePos> Nodes, List<EdgePos> Edges,
+        Dictionary<string, string> EdgePaths, int Width, int Height);
+
+    private GraphLayout ComputeLayout()
+    {
+        var nodes = Graph.Nodes.OrderBy(n => n.Name, StringComparer.OrdinalIgnoreCase).ToList();
+        var edges = Graph.Edges.ToList();
+        var nodePositions = new List<NodePos>();
+        var edgePositions = new List<EdgePos>();
+        var edgePaths = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+        if (nodes.Count == 0) return new GraphLayout(nodePositions, edgePositions, edgePaths, 400, 200);
+
+        // Layered layout: longest path from source nodes, with a cycle guard.
+        var layer = nodes.ToDictionary(n => n.Name, _ => 0, StringComparer.OrdinalIgnoreCase);
+        for (int iteration = 0; iteration < nodes.Count; iteration++)
+        {
+            bool moved = false;
+            foreach (var e in edges)
+            {
+                if (!layer.ContainsKey(e.Source) || !layer.ContainsKey(e.Destination)) continue;
+                if (string.Equals(e.Source, e.Destination, StringComparison.OrdinalIgnoreCase)) continue;
+                if (layer[e.Destination] <= layer[e.Source] && layer[e.Source] < nodes.Count)
+                {
+                    layer[e.Destination] = layer[e.Source] + 1;
+                    moved = true;
+                }
+            }
+            if (!moved) break;
+        }
+
+        var byLayer = nodes.GroupBy(n => layer[n.Name]).OrderBy(g => g.Key).ToList();
+        var pos = new Dictionary<string, NodePos>(StringComparer.OrdinalIgnoreCase);
+        int maxRows = byLayer.Max(g => g.Count());
+
+        foreach (var group in byLayer)
+        {
+            int x = Margin + group.Key * (NodeWidth + ColumnGap);
+            int row = 0;
+            foreach (var node in group.OrderBy(n => n.Name, StringComparer.OrdinalIgnoreCase))
+            {
+                int y = Margin + row * (NodeHeight + RowGap);
+                var np = new NodePos(node, x, y);
+                pos[node.Name] = np;
+                nodePositions.Add(np);
+                row++;
+            }
+        }
+
+        var now = DateTime.UtcNow;
+        foreach (var e in edges)
+        {
+            if (!pos.TryGetValue(e.Source, out var src) || !pos.TryGetValue(e.Destination, out var dst)) continue;
+
+            int x1 = src.X + NodeWidth, y1 = src.Y + NodeHeight / 2;
+            int x2 = dst.X, y2 = dst.Y + NodeHeight / 2;
+            if (dst.X < src.X) { x1 = src.X; x2 = dst.X + NodeWidth; } // backward edge
+
+            // Slight curve so parallel/backward edges do not overlap node rows.
+            int cx = (x1 + x2) / 2;
+            string path = $"M {x1} {y1} C {cx} {y1}, {cx} {y2}, {x2} {y2}";
+
+            var key = FlowGraphService.EdgeKey(e.Source, e.Destination);
+            edgePaths[key] = path;
+            var rate = e.RatePerMinute(now);
+            edgePositions.Add(new EdgePos(e, path, cx, (y1 + y2) / 2,
+                rate > 0 ? $"{rate:0}/min · {e.TotalCount}" : $"{e.TotalCount} total"));
+        }
+
+        int width = Margin * 2 + byLayer.Count * (NodeWidth + ColumnGap) - ColumnGap;
+        int height = Margin * 2 + maxRows * (NodeHeight + RowGap) - RowGap;
+        return new GraphLayout(nodePositions, edgePositions, edgePaths, Math.Max(width, 400), Math.Max(height, 200));
+    }
+
+    private static string HealthColor(ElementHealth health) => health switch
+    {
+        ElementHealth.Normal => "#0ca30c",   // status: good
+        ElementHealth.Warning => "#fab219",  // status: warning
+        ElementHealth.Error => "#ec835a",    // status: serious
+        ElementHealth.Critical => "#d03b3b", // status: critical
+        _ => "#4a4a52"
+    };
+
+    /// <summary>SVG text nodes rendered as raw markup (Razor reserves the &lt;text&gt; tag).</summary>
+    private static MarkupString SvgText(int x, int y, string cssClass, string content) =>
+        new($"<text x=\"{x}\" y=\"{y}\" class=\"{cssClass}\">{System.Net.WebUtility.HtmlEncode(content)}</text>");
+
+    private static string Truncate(string text, int max) =>
+        text.Length <= max ? text : text[..(max - 1)] + "…";
+
+    public void Dispose()
+    {
+        Graph.Changed -= MarkDirty;
+        Replay.ProgressChanged -= OnReplayProgress;
+        _renderTimer?.Dispose();
+    }
+}
