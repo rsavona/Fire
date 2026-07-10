@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
     <PropertyGroup>
         <TargetFramework>net10.0</TargetFramework>
@@ -29,6 +29,10 @@
 
     <ItemGroup>
       <Folder Include="_Documentation\" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <InternalsVisibleTo Include="Fusion.Element.Printer.Suite.Tests" />
     </ItemGroup>
 
 </Project>

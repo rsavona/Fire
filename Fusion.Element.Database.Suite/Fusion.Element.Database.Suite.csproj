@@ -25,4 +25,8 @@
       <PackageReference Include="Serilog" Version="4.3.1" />
     </ItemGroup>
 
+    <ItemGroup>
+      <InternalsVisibleTo Include="Fusion.Element.Database.Suite.Tests" />
+    </ItemGroup>
+
 </Project>

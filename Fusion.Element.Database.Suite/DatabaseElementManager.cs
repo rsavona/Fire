@@ -133,7 +133,7 @@ public class DatabaseElementManager : ElementManagerBase<IDatabaseElement>
         }
     }
 
-    private static Dictionary<string, object?>? ConvertParameters(Dictionary<string, JsonElement>? parameters)
+    internal static Dictionary<string, object?>? ConvertParameters(Dictionary<string, JsonElement>? parameters)
     {
         if (parameters == null || parameters.Count == 0) return null;
 
@@ -143,7 +143,9 @@ public class DatabaseElementManager : ElementManagerBase<IDatabaseElement>
             dict[key] = value.ValueKind switch
             {
                 JsonValueKind.String => value.GetString(),
-                JsonValueKind.Number => value.TryGetInt64(out var l) ? l : value.GetDouble(),
+                // Cast to object so the conditional doesn't unify long/double to double,
+                // which would silently send integer parameters as floating point.
+                JsonValueKind.Number => value.TryGetInt64(out var l) ? l : (object)value.GetDouble(),
                 JsonValueKind.True => true,
                 JsonValueKind.False => false,
                 JsonValueKind.Null or JsonValueKind.Undefined => null,

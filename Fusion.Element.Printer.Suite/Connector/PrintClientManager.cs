@@ -116,7 +116,7 @@ public class PrintClientManager : ElementManagerBase<ITcpPrintClientBase>
             : null;
     }
 
-    private static string? ResolvePrinterData(PrintJobCommand job, string printType)
+    internal static string? ResolvePrinterData(PrintJobCommand job, string printType)
     {
         var rootPrinterData = TryReadPrinterData(job.PrinterData);
         if (!string.IsNullOrWhiteSpace(rootPrinterData))
