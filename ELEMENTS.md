@@ -115,5 +115,17 @@ Makes log persistence a swappable Element. Two-tier design: the raw log firehose
 | **Serilog Sink** | `LogSinkElementManager` | Subscribes to the LoggingBus firehose and persists every event to a CLEF file with structure preserved (message template + named properties). Events at `RepublishMinimumLevel`+ (default Warning) are republished on the MessageBus as `LogEventMessage` payloads on `SYS.LOG.{Element}.{Level}` topics. |
 
 **Key properties:** `TopicPattern` (LoggingBus pattern, default `#`), `LogFilePath`, `MinimumLevel`, `WriteToConsole`, `RepublishMinimumLevel`, `RepublishTopicPattern`. Related config: `Fusion:LoggingBusCapacity` (channel bound, default 10000) and `Fusion:LoggerElementExclusive` (stop FireLogger's direct sub-Warning Serilog writes; Warning+ always dual-writes as an emergency path). `SYS.LOG.*` topics are exempt from the bus audit log to prevent feedback loops. See `Fusion.Element.Logger/_documentation/ReadMe-Logger.md` for the full architecture and recursion-guard rationale.
+---
+
+## 11. Sparkplug Suite (`Fusion.Element.Sparkplug`)
+Presents a Fusion instance as a Sparkplug B 3.0 Edge Node on an MQTT broker, so SCADA hosts like Ignition MQTT Engine see Fusion elements as devices with live metrics in their tag browser.
+
+| Element Type | Manager Name | Description |
+| :--- | :--- | :--- |
+| **Sparkplug Edge Node** | `SparkplugElementManager` | Maps Group = site, Edge Node = this instance, Device = a Fusion element. Publishes the full lifecycle (NBIRTH/NDEATH with bdSeq will, DBIRTH per discovered element, batched report-by-exception DDATA, DDEATH on Critical health) and honors NCMD `Node Control/Rebirth`. Inbound NCMD/DCMD metric writes are republished on the local bus at `{EdgeNodeId}.SparkplugCmd.{MetricName}`. |
+
+**Metrics:** element status fields (`State`, `Health`, `Counts/*`, `Rates/*`, `Resources/*`, custom `Metrics/*`) plus payloads of any blueprint-selected bus topics (`MetricTopics`, wildcards `*`/`#` supported; metric name = full topic string). The Sparkplug B protobuf payload is implemented in-repo; the transport reuses MQTTnet.
+
+**Key properties:** `BrokerHost`/`BrokerPort`, `Username`/`Password`, `UseTls`, `GroupId` (default: space CustomerName), `EdgeNodeId` (default: instance Origin), `MetricTopics` (semicolon-separated patterns), `PublishStatusMetrics`, `ReportIntervalMs`. See `Fusion.Element.Sparkplug/_documentation/ReadMe-Sparkplug.md` for the lifecycle detail, an example blueprint, and how to browse the node in Ignition.
 
 ---
