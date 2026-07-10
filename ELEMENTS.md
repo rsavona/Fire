@@ -91,3 +91,17 @@ System management and diagnostic tools.
 | **Verifier** | `BlueprintVerifierManager` | Validates the integrity of `.fusion` blueprints and identifies logical errors or missing dependencies. |
 
 ---
+
+## 9. Link Suite (`Fusion.Element.Link`)
+Federates the Message Bus across multiple Fusion instances, letting an element in one instance subscribe to topics published in another.
+
+| Element Type | Manager Name | Description |
+| :--- | :--- | :--- |
+| **Link Server** | `LinkServerElementManager` | Listens for Link Client connections. Remote peers subscribe to local bus topics (wildcards `*`/`#` supported); matching envelopes are forwarded over the wire. Publishes received frames onto the local bus. |
+| **Link Client** | `LinkClientElementManager` | Connects to a remote Link Server. `RemoteTopics` are pulled from the remote instance and republished locally; `PublishTopics` are pushed to the remote instance. Heartbeat + auto-reconnect built in. |
+
+**Wire protocol:** newline-terminated compact JSON frames (`Subscribe`, `Unsubscribe`, `Publish`, `Heartbeat`, `HeartbeatAck`). Envelopes republished from a remote instance carry a `LINK:<origin>` client tag, which acts as a loop guard: anything that arrived over a link is never forwarded back out, preventing echo storms when two instances link to each other.
+
+**Key properties:** `IPAddress`/`Port` (client), `Port`/`MaxClients` (server), `Origin` (instance identity), `RemoteTopics`, `PublishTopics` (semicolon-separated patterns), `HeartbeatIntervalMs`. See `fbp_LinkDemoServer.json` / `fbp_LinkDemoClient.json` for a working pair, and `Fusion.Element.Link/_documentation/ReadMe-Link.md` for the full protocol, multi-connection topology, and configuration reference.
+
+---

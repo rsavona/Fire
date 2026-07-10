@@ -1,0 +1,39 @@
+{
+  "AppSettings": {
+    "Fusion": {
+      "Name": "LinkDemoServer",
+      "ColorConsole": true,
+      "ElementList": [
+        {
+          "Name": "LINK_SERVER",
+          "Manager": "LinkServerElementManager",
+          "Enable": true,
+          "Properties": {
+            "Port": "7500",
+            "MaxClients": "4",
+            "Origin": "SITE_A"
+          }
+        },
+        {
+          "Name": "HOST_A",
+          "Manager": "TcpMessageServerElementManager",
+          "Enable": true,
+          "Properties": {
+            "Port": "6601",
+            "MaxClients": "5",
+            "Delimiter": "\\r\\n"
+          }
+        },
+        {
+          "Name": "DIAG_SERVER",
+          "Manager": "DiagnosticElementManager",
+          "Enable": true,
+          "Properties": {
+            "Port": 9999
+          }
+        }
+      ],
+      "ReactionList": []
+    }
+  }
+}
