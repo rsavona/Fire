@@ -116,7 +116,8 @@ public class DatabaseElementManager : ElementManagerBase<IDatabaseElement>
                 var jsonResponse = JsonSerializer.Serialize(responsePayload);
 
                 await MessageBus.PublishAsync(responseTopic,
-                    new MessageEnvelope(responseTopic, jsonResponse, envelope.Gin), ct);
+                    new MessageEnvelope(responseTopic, jsonResponse, envelope.Gin,
+                        header: envelope.DeriveHeader(elementName)), ct);
 
                 Logger.LogInfo("[{Dev}] Query results published to {Topic}: {Count} rows", elementName, responseTopic, serializableResults.Count);
             }

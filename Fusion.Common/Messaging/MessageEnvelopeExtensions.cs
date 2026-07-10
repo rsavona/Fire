@@ -82,6 +82,36 @@ public static class MessageEnvelopeExtensions
         };
     }
 
+    /// <summary>
+    /// Builds a header for an envelope DERIVED from this one (a reaction result,
+    /// a query response, a forwarded copy): the CorrelationId is inherited so the
+    /// whole chain shares one trace identity, and the parent's MessageId is
+    /// recorded as CausationId. Only genuinely new work (fresh input arriving
+    /// from the wire) should mint a new CorrelationId.
+    /// </summary>
+    public static MessageHeader DeriveHeader(this MessageEnvelope parent, string? source = null)
+    {
+        var header = new MessageHeader
+        {
+            Source = source ?? parent.Header.Source,
+            CorrelationId = parent.Header.CorrelationId
+        };
+        header.Metadata["CausationId"] = parent.Header.MessageId.ToString();
+        return header;
+    }
+
+    /// <summary>
+    /// Stamps an existing envelope with the parent's correlation identity.
+    /// Use when a handler has already constructed the result envelope.
+    /// </summary>
+    public static MessageEnvelope WithCorrelationFrom(this MessageEnvelope envelope, MessageEnvelope parent)
+    {
+        return envelope with
+        {
+            Header = envelope.Header with { CorrelationId = parent.Header.CorrelationId }
+        };
+    }
+
     private static string SerializeUnknown(object payload)
     {
         try

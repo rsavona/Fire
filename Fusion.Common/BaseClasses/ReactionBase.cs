@@ -286,7 +286,8 @@ public abstract class ReactionBase : BackgroundService
                     if (result is MessageEnvelope resultPayload && !string.IsNullOrEmpty(rte.Key.Destination))
                     {
                         Tracker.IncrementOutbound();
-                        await MessageBus.PublishAsync(rte.Key.Destination, resultPayload, ct);
+                        // Derived envelopes inherit the inbound CorrelationId so the chain traces end-to-end
+                        await MessageBus.PublishAsync(rte.Key.Destination, resultPayload.WithCorrelationFrom(message), ct);
                         
                         // Publish Flow Event
                         _ = MessageBus.PublishAsync(MessageBusTopic.DataFlow.ToString(), new MessageEnvelope(MessageBusTopic.DataFlow, new FlowEvent { 
@@ -299,7 +300,8 @@ public abstract class ReactionBase : BackgroundService
                     }
                     else if (result is IElementMessage elementMessage)
                     {
-                        var env = elementMessage.WrapMessage(new MessageBusTopic(rte.Key.Destination));
+                        var env = elementMessage.WrapMessage(new MessageBusTopic(rte.Key.Destination))
+                            .WithCorrelationFrom(message);
                         Tracker.IncrementOutbound();
                         await MessageBus.PublishAsync(rte.Key.Destination, env, ct);
                         Logger.Information("[{Reaction}] Message Out: {msg}  published to {Destination}",
@@ -309,7 +311,8 @@ public abstract class ReactionBase : BackgroundService
                     {
                         if (!string.IsNullOrEmpty(rte.Key.Destination))
                         {
-                            var env = new MessageEnvelope(new MessageBusTopic(rte.Key.Destination), payload, message.Gin, message.Client);
+                            var env = new MessageEnvelope(new MessageBusTopic(rte.Key.Destination), payload, message.Gin,
+                                message.Client, header: message.DeriveHeader());
                             Tracker.IncrementOutbound();
                             await MessageBus.PublishAsync(rte.Key.Destination, env, ct);
                             Logger.Information("[{Reaction}] Message Out: {msg}  published to {Destination}",

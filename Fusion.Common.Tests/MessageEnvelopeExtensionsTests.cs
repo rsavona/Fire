@@ -98,6 +98,33 @@ public class MessageEnvelopeExtensionsTests
     }
 
     [Fact]
+    public void DeriveHeader_InheritsCorrelation_AndRecordsCausation()
+    {
+        var parent = new MessageEnvelope("PLC1.DReqM.DP1", "req", client: "10.0.0.1:99");
+
+        var header = parent.DeriveHeader("PLC1");
+
+        Assert.Equal(parent.Header.CorrelationId, header.CorrelationId);
+        Assert.NotEqual(parent.Header.MessageId, header.MessageId);
+        Assert.Equal(parent.Header.MessageId.ToString(), header.Metadata["CausationId"]);
+        Assert.Equal("PLC1", header.Source);
+    }
+
+    [Fact]
+    public void WithCorrelationFrom_StampsParentCorrelation_KeepsOwnMessageId()
+    {
+        var parent = new MessageEnvelope("A.In", "x");
+        var child = new MessageEnvelope("B.Out", "y");
+        var originalChildMessageId = child.Header.MessageId;
+        Assert.NotEqual(parent.Header.CorrelationId, child.Header.CorrelationId);
+
+        var stamped = child.WithCorrelationFrom(parent);
+
+        Assert.Equal(parent.Header.CorrelationId, stamped.Header.CorrelationId);
+        Assert.Equal(originalChildMessageId, stamped.Header.MessageId);
+    }
+
+    [Fact]
     public void GetPayloadText_HandlesAllThreeShapes()
     {
         Assert.Equal("hello", Envelope("hello").GetPayloadText());
