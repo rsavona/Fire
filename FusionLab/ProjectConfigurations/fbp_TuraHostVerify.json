@@ -1,0 +1,81 @@
+{
+  "AppSettings": {
+    "Fusion": {
+      "Name": "TuraHostVerifySystem",
+      "ColorConsole": true,
+      "ElementList": [
+        {
+          "Name": "TURA_CLIENT",
+          "Manager": "TcpMessageClientElementManager",
+          "Enable": true,
+          "Properties": {
+            "IPAddress": "127.0.0.1",
+            "Port": "6601",
+            "TerminationChar": "\\r\\n",
+            "OutboundTerminator": "\\r\\n",
+            "AutoStartScript": true,
+            "ScriptedMessageGroups": "ROUT1Z59W9A50120530867 002|ROUT1Z59W9A50120532365 005||ROUT1Z59W9A50120530866 004||ROUT1Z59W9A50120532373 004",
+            "ScriptedMessageSeparator": "|",
+            "ScriptedGroupSeparator": "||",
+            "ScriptedInitialDelayMs": 500,
+            "ScriptedMessageIntervalMs": 1000,
+            "ScriptedDisconnectAfterEachGroup": true,
+            "ScriptedStopWhenComplete": true
+          }
+        },
+        {
+          "Name": "VERIFY_DB",
+          "Manager": "DatabaseElementManager",
+          "Enable": true,
+          "Properties": {
+            "ConnectionString": "Server=RSAVONA-LT1\\MSSQLSERVER02;Database=FortnaFire;Trusted_Connection=True;Encrypt=False;TrustServerCertificate=True;"
+          }
+        },
+        {
+          "Name": "DIAG_SERVER",
+          "Manager": "DiagnosticElementManager",
+          "Enable": true,
+          "Properties": {
+            "Port": 9998
+          }
+        }
+      ],
+      "ReactionList": [
+        {
+          "Name": "TuraVerifyReaction",
+          "Type": "TuraVerifyReaction",
+          "Enable": true,
+          "Properties": {
+            "ClientElement": "TURA_CLIENT",
+            "DbElement": "VERIFY_DB",
+            "ExpectedBarcodes": "1Z59W9A50120530867,1Z59W9A50120532365,1Z59W9A50120530866,1Z59W9A50120532373",
+            "VerifyDelayMs": 30000
+          },
+          "Bonds": [
+            {
+              "Mode": 1,
+              "Name": "TuraEchoVerifyBond",
+              "Source": "TURA_CLIENT.Inbound",
+              "Handler": "HandleEcho",
+              "Destination": "TURA_VERIFY.Echo"
+            },
+            {
+              "Mode": 1,
+              "Name": "TuraDbQueryBond",
+              "Source": "TURA_VERIFY.TriggerDbCheck",
+              "Handler": "BuildDbVerifyQuery",
+              "Destination": "VERIFY_DB.Query.Verify"
+            },
+            {
+              "Mode": 1,
+              "Name": "TuraDbVerifyBond",
+              "Source": "VERIFY_DB.QueryResult.Verify",
+              "Handler": "HandleDbVerifyResults",
+              "Destination": "TURA_VERIFY.Report"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

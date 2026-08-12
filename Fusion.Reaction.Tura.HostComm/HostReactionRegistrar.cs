@@ -11,5 +11,6 @@ public class HostReactionRegistrar : IElementRegistrar
         services.AddKeyedSingleton("ReactionTypes", typeof(HostReaction));
         services.AddKeyedSingleton("ReactionTypes", typeof(ReactionTester));
         services.AddKeyedSingleton("ReactionTypes", typeof(HostOutputReaction));
+        services.AddKeyedSingleton("ReactionTypes", typeof(TuraVerifyReaction));
     }
 }

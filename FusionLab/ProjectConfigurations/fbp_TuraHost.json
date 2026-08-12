@@ -21,7 +21,7 @@
           "Manager": "DatabaseElementManager",
           "Enable": true,
           "Properties": {
-            "ConnectionString": "Server=RSAVONA-LT1;Database=FortnaFire;Trusted_Connection=True;Encrypt=False;TrustServerCertificate=True;"
+            "ConnectionString": "Server=RSAVONA-LT1\\MSSQLSERVER02;Database=FortnaFire;Trusted_Connection=True;Encrypt=False;TrustServerCertificate=True;"
           }
         },
         {
@@ -36,7 +36,7 @@
       "ReactionList": [
         {
           "Name": "TuraHostReaction",
-          "Type": "TuraHostReaction",
+          "Type": "HostReaction",
           "Enable": true,
           "Bonds": [
             {

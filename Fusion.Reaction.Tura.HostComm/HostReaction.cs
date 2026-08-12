@@ -81,7 +81,7 @@ public class HostReaction : ReactionBase
                         { "Type", "ROUT" },
                         { "Status", 0 },
                         { "StatusDescription", "RECEIVED" },
-                        { "ElementName", envelope.Destination.ElementName }
+                        { "DeviceName", envelope.Destination.ElementName }
                     }
                 };
 
@@ -102,7 +102,7 @@ public class HostReaction : ReactionBase
                         { "Type", "ROUA" },
                         { "Status", 0 },
                         { "StatusDescription", "SENT" },
-                        { "ElementName", envelope.Destination.ElementName }
+                        { "DeviceName", envelope.Destination.ElementName }
                     }
                 };
 
