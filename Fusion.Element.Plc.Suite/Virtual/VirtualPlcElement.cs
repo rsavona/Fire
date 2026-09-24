@@ -1103,8 +1103,17 @@ public class VirtualPlcElement : TcpClientElementBase, IMessageProvider
                             string? scBarcode = TryGetScannerBarcode(targetStep.DecisionPoint);
                             if (scBarcode != null) _ginBarcode[gin] = scBarcode;
 
+                            // Report every station the box visited as applied/inserted ("1"). The bridge requires
+                            // this for CONTENTSDROP printers at verify; null would fall back to the parser's defaults.
+                            JsonObject? verifyMetadata = null;
+                            if (assignedPrinterStations is { Count: > 0 })
+                            {
+                                verifyMetadata = new JsonObject();
+                                foreach (var station in assignedPrinterStations) verifyMetadata[station] = "1";
+                            }
+
                             var msgx = PlcMessageParser.CreateDecisionRequest(Key.ElementName, targetStep.DecisionPoint,
-                                gin, GetEffectiveBarcode(gin, targetStep.DecisionPoint), null, _printer1, _printer2);
+                                gin, GetEffectiveBarcode(gin, targetStep.DecisionPoint), verifyMetadata, _printer1, _printer2);
                             Logger.Information("[PHASE 3 : {Dev}] Gin: {gin} Target: {target}", Config.Name, gin,
                                 targetStep.DecisionPoint);
                             // 4. Fire the PLC message for this specific step

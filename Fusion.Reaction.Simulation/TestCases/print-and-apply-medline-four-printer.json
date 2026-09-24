@@ -14,7 +14,7 @@
   },
   "virtualPlcProperties": {
     "DecisionPoints": "PNALINE-2:0;PNA2_151:3000|I001:3500|PNA2_152:4000|I002:4500;PNA2_Verify:3000",
-    "TotalTotes": 24,
+    "TotalTotes": 32,
     "InductionFreq": 0,
     "Printer1": "PNA2_151",
     "Printer2": "PNA2_152"
@@ -87,6 +87,24 @@
         { "gin": 22, "barcode": "PNA4-CONTDOWN-0006", "inductAtMs": 5000, "expectedShiptopPrinter": "PNA2_152", "expectedContentsdropPrinter": "I002", "expectedVerificationBarcode": "PNA4-CONTDOWN-0006123", "expectedOutcome": "ship" },
         { "gin": 23, "barcode": "PNA4-CONTDOWN-0007", "inductAtMs": 6000, "expectedShiptopPrinter": "PNA2_151", "expectedContentsdropPrinter": "I002", "expectedVerificationBarcode": "PNA4-CONTDOWN-0007123", "expectedOutcome": "ship" },
         { "gin": 24, "barcode": "PNA4-CONTDOWN-0008", "inductAtMs": 7000, "expectedShiptopPrinter": "PNA2_152", "expectedContentsdropPrinter": "I002", "expectedVerificationBarcode": "PNA4-CONTDOWN-0008123", "expectedOutcome": "ship" }
+      ]
+    },
+    {
+      "stage": 4,
+      "name": "shiptop-all-printers-down",
+      "barcodeCount": 8,
+      "inductionSpacingMs": 1000,
+      "expectedFlow": "PNA2_151 and PNA2_152 are both unavailable. No SHIPTOP printer is assigned at induct while CONTENTSDROP still round robins. Every box must FAIL verification with result code 4 (VerifyMissingPrinterType).",
+      "inductMetadata": { "PNA2_151": "0", "I001": "1", "PNA2_152": "0", "I002": "1" },
+      "barcodes": [
+        { "gin": 25, "barcode": "PNA4-SHIPALLDOWN-0001", "inductAtMs": 0, "expectedShiptopPrinter": "", "expectedContentsdropPrinter": "I001", "expectedVerificationBarcode": "PNA4-SHIPALLDOWN-0001123", "expectedOutcome": "printer-type-unavailable" },
+        { "gin": 26, "barcode": "PNA4-SHIPALLDOWN-0002", "inductAtMs": 1000, "expectedShiptopPrinter": "", "expectedContentsdropPrinter": "I002", "expectedVerificationBarcode": "PNA4-SHIPALLDOWN-0002123", "expectedOutcome": "printer-type-unavailable" },
+        { "gin": 27, "barcode": "PNA4-SHIPALLDOWN-0003", "inductAtMs": 2000, "expectedShiptopPrinter": "", "expectedContentsdropPrinter": "I001", "expectedVerificationBarcode": "PNA4-SHIPALLDOWN-0003123", "expectedOutcome": "printer-type-unavailable" },
+        { "gin": 28, "barcode": "PNA4-SHIPALLDOWN-0004", "inductAtMs": 3000, "expectedShiptopPrinter": "", "expectedContentsdropPrinter": "I002", "expectedVerificationBarcode": "PNA4-SHIPALLDOWN-0004123", "expectedOutcome": "printer-type-unavailable" },
+        { "gin": 29, "barcode": "PNA4-SHIPALLDOWN-0005", "inductAtMs": 4000, "expectedShiptopPrinter": "", "expectedContentsdropPrinter": "I001", "expectedVerificationBarcode": "PNA4-SHIPALLDOWN-0005123", "expectedOutcome": "printer-type-unavailable" },
+        { "gin": 30, "barcode": "PNA4-SHIPALLDOWN-0006", "inductAtMs": 5000, "expectedShiptopPrinter": "", "expectedContentsdropPrinter": "I002", "expectedVerificationBarcode": "PNA4-SHIPALLDOWN-0006123", "expectedOutcome": "printer-type-unavailable" },
+        { "gin": 31, "barcode": "PNA4-SHIPALLDOWN-0007", "inductAtMs": 6000, "expectedShiptopPrinter": "", "expectedContentsdropPrinter": "I001", "expectedVerificationBarcode": "PNA4-SHIPALLDOWN-0007123", "expectedOutcome": "printer-type-unavailable" },
+        { "gin": 32, "barcode": "PNA4-SHIPALLDOWN-0008", "inductAtMs": 7000, "expectedShiptopPrinter": "", "expectedContentsdropPrinter": "I002", "expectedVerificationBarcode": "PNA4-SHIPALLDOWN-0008123", "expectedOutcome": "printer-type-unavailable" }
       ]
     }
   ]
